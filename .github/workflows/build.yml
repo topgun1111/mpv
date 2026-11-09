@@ -1,8 +1,14 @@
 name: Build
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+    paths-ignore: ["**.md"]
   workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
