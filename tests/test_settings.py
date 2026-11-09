@@ -142,7 +142,7 @@ def test_run_live_sends_hud_only_on_change():
 
     class Mpv(FakeMpv):
         def command(self, *a):
-            if a[0] == "script-message-to":
+            if a[0] == "script-message-to" and a[2] == "track-hud":  # nokta mesajları ayrı
                 sent.append(a)
             super().command(*a)
 

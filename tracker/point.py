@@ -4,7 +4,8 @@ YOLO/ByteTrack yalnız "person" bilir; burada nesnenin ne olduğu önemli değil
 tahtadaki bir şekil...). Tıklanan noktadan bir başlangıç kutusu çıkarılır, sonra her karede:
 
 1. **Hareket**: kutunun çekirdeğindeki köşe noktaları Lucas-Kanade optik akışıyla izlenir
-   (ileri-geri tutarlılık süzgeciyle); medyan kayma kutuyu taşır, noktaların merkeze uzaklık oranı ölçeği verir.
+   (ileri-geri tutarlılık süzgeciyle); medyan kayma kutuyu taşır, noktaların merkeze uzaklık
+   oranı ölçeği verir.
 2. **Doğrulama**: kutunun içeriği, başlangıç görünümünden (yavaşça güncellenen) şablonla normalize
    çapraz ilinti (NCC) ile karşılaştırılır; düşükse akış yanlış şeyi (arka planı) izliyor demektir.
 3. **Yeniden bulma**: akış tutmazsa (dokusuz nesne, hızlı hareket) ya da doğrulama düşerse son

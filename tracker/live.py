@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass
 
 from .clicks import (
+    DOT_MSG,
     HUD_MSG,
     RELEASE_MSG,
     RESET_MSG,
@@ -130,10 +131,15 @@ class LiveController:
         self._lost_from: View | None = None  # kayıp anındaki görünüm (zoom-out başlangıcı)
         self._zooming_out = False
         self._view = View()  # en son uygulanması istenen görünüm
+        self._dot: tuple[float, float] | None = None  # son görülen hedef merkezi (video-normalize)
 
     @property
     def has_target(self) -> bool:
         return self.target_id is not None or self.point is not None
+
+    def dot(self) -> tuple[float, float] | None:
+        """Ekranda kırmızı nokta olarak gösterilecek konum; hedef yok/kayıpsa None."""
+        return self._dot if self.enabled and self.has_target and self._lost_t0 is None else None
 
     def _clear_lost(self) -> None:
         self._lost, self._lost_t0, self._lost_from, self._zooming_out = 0, None, None, False
@@ -294,6 +300,7 @@ class LiveController:
         if self._zooming_out:  # zoom-out sırasında bulundu: bulunduğumuz görünümden devam
             self.smoother.seed(self._view)
         self._clear_lost()
+        self._dot = (bbox.cx / fw, bbox.cy / fh)
         self.flt.update(bbox.scaled(1 / fw, 1 / fh), t)  # kare boyutuna göre normalize
         lead = self.flt.lookahead(self.cfg.lookahead_s, self.cfg.max_lead).scaled(fw, fh)
         raw = compute_view(lead, fw, fh, self.cfg.target_fill, self.cfg.min_zoom,
@@ -389,6 +396,21 @@ def run_live(
     last_view: View | None = None
     n, lag_sum, t_stat = 0, 0.0, clock()
 
+    last_dot: tuple[str, str] = ("", "")
+
+    def sync_dot() -> None:
+        # Kırmızı takip noktası (Lua `track-dot`); yalnız konum değişince gönderilir
+        nonlocal last_dot
+        d = ctl.dot()
+        msg = ("off", "") if d is None else (f"{d[0]:.4f}", f"{d[1]:.4f}")
+        if msg == last_dot:
+            return
+        last_dot = msg
+        try:
+            mpv.command("script-message-to", "track", DOT_MSG, *(m for m in msg if m))
+        except MpvCommandError as e:
+            log(f"nokta gönderilemedi: {e}")
+
     def sync_hud() -> None:
         # Lua'ya (etiket metni, hedef kilitli mi) gider; yalnız ikisinden biri değişince.
         # "Kilitli" ekran üstü zoom +/- düğmesinin ne yapacağını belirler (doluluk / video zoom).
@@ -417,6 +439,7 @@ def run_live(
             except MpvCommandError as e:  # mpv reddetti: sonraki karede yeniden dene
                 log(f"görünüm uygulanamadı: {e}")
         sync_hud()
+        sync_dot()
 
     log("Canlı mod hazır (Ctrl+C ile çık). mpv'de herhangi bir nesneye sağ tıkla: takip "
         "kendiliğinden açılır (oyuncu kimliği için sol tık).")

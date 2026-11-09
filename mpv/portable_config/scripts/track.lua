@@ -443,10 +443,57 @@ render_zoom = function()
   end
 end
 
+-- Takip noktası: Python `track-dot <nx> <ny>` (video-normalize merkez) yollar, "off" gizler.
+-- Kırmızı nokta, mpv'nin şu anki zoom/pan'ına göre ekrana çevrilir (osd-dimensions kenar boşlukları
+-- zoom/pan dahildir) → takip çalışıyorsa nesnenin üstünde durur.
+local DOT_Z = 3
+local dot = { nx = nil, ny = nil, ov = nil }
+
+local function render_dot()
+  if not dot.ov then
+    dot.ov = mp.create_osd_overlay("ass-events")
+    dot.ov.z = DOT_Z
+  end
+  local d = mp.get_property_native("osd-dimensions")
+  if not (dot.nx and enabled and not (off and off.on) and d and d.w and d.w > 0 and d.h and d.h > 0) then
+    dot.ov.data = ""
+    dot.ov:update()
+    return
+  end
+  local x = d.ml + dot.nx * (d.w - d.ml - d.mr)
+  local y = d.mt + dot.ny * (d.h - d.mt - d.mb)
+  if x < 0 or x > d.w or y < 0 or y > d.h then -- ekran dışı: çizme
+    dot.ov.data = ""
+    dot.ov:update()
+    return
+  end
+  local r = math.max(math.floor(d.h * 0.012), 5)
+  local k = math.floor(r * 0.5523)
+  dot.ov.res_x, dot.ov.res_y = d.w, d.h
+  dot.ov.data = string.format(
+    "{\\an7\\pos(%d,%d)\\bord2\\shad0\\1c&H0000FF&\\3c&HFFFFFF&\\p1}"
+      .. "m %d 0 b %d 0 %d %d %d %d b %d %d %d %d %d %d b %d %d %d %d %d %d b %d %d %d %d %d %d{\\p0}",
+    math.floor(x) - r, math.floor(y) - r,
+    r, r + k, 2 * r, r - k, 2 * r, r,
+    2 * r, r + k, r + k, 2 * r, r, 2 * r,
+    r - k, 2 * r, 0, r + k, 0, r,
+    0, r - k, r - k, 0, r, 0)
+  dot.ov:update()
+end
+
+mp.register_script_message("track-dot", function(nx, ny)
+  dot.nx, dot.ny = tonumber(nx), tonumber(ny) -- "off" → nil
+  render_dot()
+end)
+mp.observe_property("video-pan-x", "number", function() render_dot() end)
+mp.observe_property("video-pan-y", "number", function() render_dot() end)
+mp.observe_property("osd-dimensions", "native", function() render_dot() end)
+
 -- video-zoom (takipte Python, elle zoomda biz) değişince değer etiketi güncellenir
 mp.observe_property("video-zoom", "number", function(_, z)
   zoomc.z = z or 0
   render_zoom()
+  render_dot()
 end)
 
 local zoom_buttons = { function() zoom_step(1) end, function() zoom_step(-1) end }

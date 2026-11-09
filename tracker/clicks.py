@@ -13,6 +13,7 @@ TOGGLE_MSG = "track-toggle"
 SETTING_MSG = "track-setting"  # track-setting <fill|speed|lead|all> <+1|-1|0>
 SAVE_MSG = "track-save"
 STATUS_MSG = "track-status"
+DOT_MSG = "track-dot"  # Python → Lua: takip noktası (nx ny, video-normalize) ya da "off"
 HUD_MSG = "track-hud"  # Python → Lua (script-message-to track track-hud <metin>)
 
 

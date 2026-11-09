@@ -270,3 +270,27 @@ def test_config_has_point_defaults():
     assert BBox(0, 0, 1, 1).contains(0.5, 0.5)
     with pytest.raises(TypeError):
         Config(ipc_path="x", nonexistent=1)
+
+
+def test_lua_red_dot_overlay(tmp_path):
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    lua = shutil.which("texlua") or shutil.which("lua") or shutil.which("luajit")
+    if lua is None:
+        return
+    root = Path(__file__).resolve().parent.parent
+    data = tmp_path / "d.lua"
+    data.write_text("return {}", encoding="utf-8")
+    env = {"TRACK_LUA": str(root / "mpv/portable_config/scripts/track.lua"), "VIDEO": "",
+           "DATA_LUA": str(data)}
+    r = subprocess.run([lua, str(Path(__file__).with_name("lua_harness_dot.lua"))], env=env,
+                       capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, r.stderr
+    d = {ln.split("\t")[0]: ln.split("\t")[1] for ln in r.stdout.splitlines()}
+    assert d["OFF_WHEN_DISABLED"] in ("", "<yok>")
+    for k in ("CENTER", "ZOOMED"):  # merkez (500,250); yarıçap = %1.2 yükseklik → 6 px
+        assert "\\1c&H0000FF&" in d[k] and "\\p1" in d[k], d[k]  # kırmızı (BGR), çizim modu
+        assert "\\pos(494,244)" in d[k], d[k]
+    assert d["OUT"] == "" and d["HIDE"] == ""
