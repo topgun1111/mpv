@@ -180,7 +180,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     from .bytetrack import ByteTracker
     from .detector import Detector
     from .live import EventListener, run_live
-    from .pipeline import Pipeline
+    from .pipeline import NullPipeline, Pipeline
 
     if (args.team or args.number) and not args.reid:
         print("--team/--number için --reid de gerekir")
@@ -194,17 +194,26 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
         if not wait_for_ipc(cfg.ipc_path, args.wait):
             print("HATA: mpv IPC kanalı açılmadı (mpv çalışıyor mu?)", file=sys.stderr)
             return 1
-    det = Detector(
-        args.model or cfg.model_path,
-        conf_thres=cfg.live_det_conf,
-        iou_thres=cfg.det_iou,
-        input_size=cfg.det_size,
-        device=args.device or cfg.device,
-        model_type=cfg.model_type,
-        yolox_decoded=cfg.yolox_decoded,
-    )
-    print(f"detector: provider={det.providers[0]}, girdi={det.size}")
-    pipeline = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf))
+    try:
+        det = Detector(
+            args.model or cfg.model_path,
+            conf_thres=cfg.live_det_conf,
+            iou_thres=cfg.det_iou,
+            input_size=cfg.det_size,
+            device=args.device or cfg.device,
+            model_type=cfg.model_type,
+            yolox_decoded=cfg.yolox_decoded,
+        )
+    except Exception as e:  # model yok/bozuk: sağ tık nesne takibi modelsiz de çalışır
+        print(f"UYARI: person modeli yüklenemedi ({e}); yalnız sağ tık nesne takibi çalışır "
+              "(oyuncu kimliği/Re-ID yok).", file=sys.stderr)
+        if args.reid:
+            print("--reid için person modeli gerekir", file=sys.stderr)
+            return 2
+        pipeline = NullPipeline()
+    else:
+        print(f"detector: provider={det.providers[0]}, girdi={det.size}")
+        pipeline = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf))
     reid = None
     if args.reid:
         from .reid import Embedder, ReIdManager

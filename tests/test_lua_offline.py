@@ -97,7 +97,7 @@ def test_lua_playback_matches_python_reference(tmp_path):
         last = got
     assert np.isfinite(np.array(last)).all()
     assert by["OFF_ZOOM"][1] == "nil" and "zoom sabit" in by["OFF_ZOOM"][2]  # offline: zoom +/- yok
-    assert "AÇIK - oyuncuya sağ tıkla" in by["LIVE"][1]  # canlı mod açıldı
+    assert "AÇIK - nesneye sağ tıkla" in by["LIVE"][1]  # canlı mod açıldı
     assert by["LIVE"][2] == "0"  # görünüm sıfırlandı
     assert by["AFTER_LIVE_SET"][1] == "nil"
     assert "offline AÇIK" in by["REON"][1] and by["REON"][2] == "1"

@@ -38,6 +38,7 @@ TakipliOynat/
 │  ├─ main.py                    # CLI: ping, view, listen, detect, live
 │  ├─ ipc.py, clicks.py, frames.py, geometry.py, smooth.py, config.py
 │  ├─ detector.py                # YOLO ONNX
+│  ├─ point.py                   # sınıfsız nesne izleyici (sağ tık; optik akış + şablon)
 │  ├─ bytetrack.py, pipeline.py  # ByteTrack + birleşim
 │  └─ live.py                    # canlı mod (hedef seçimi dahil)
 ├─ models/                       # YOLOX/YOLO ONNX buraya (MODELLER.txt)
@@ -83,6 +84,10 @@ Ayrıntılı denetim: **`THIRD_PARTY_NOTICES.md`** (pakete ve Başlat menüsüne
 ## Yol Haritası
 Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: **Parça 1–15 (1.0.0)** (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası, canlı ayar tuşları + durum etiketi,  Python + tam installer, lisans denetimi + YOLOX alternatifi + release).
 
+### Sağ tık: herhangi bir nesneyi takip (Parça 18)
+`tracker/point.py`: sağ tıklanan nokta için kutu çıkarılır (aynı renkteki bitişik bölge; olmazsa karenin %6'sı kadar kare), sonra her karede Lucas-Kanade optik akışı kutuyu taşır, şablon benzerliği (NCC) yanlış şeye kaymayı yakalar, tutmazsa son konum çevresinde şablon aranır; bulunamazsa "hedef kayıp" (bekle → kademeli zoom-out) ve nesne geri gelirse takip sürer. Detector çalışmaz (CPU'da daha hızlı); `models\` boşsa bile sağ tık çalışır. Ayarlar (`config.json`): `point_box` (0.06), `point_refine` (true), `point_min_score` (0.55; yükselirse kayıp daha erken ilan edilir), `point_max_side` (640). Zoom miktarı `+`/`−` (doluluk) ile ayarlanır.
+Sınırlar: tek tıklamadan nesnenin boyutu kesin bilinemez (küçük/dokusuz nesnede kutu fazla büyük ya da küçük olabilir → `+`/`−`, `point_box`); çok benzer nesnelerin iç içe geçtiği, nesnenin tamamen örtüldüğü ya da kareyi terk ettiği durumlarda kayıp ilan edilir (yeniden sağ tık). Offline mod (`offline --click`) hâlâ yalnız oyuncu içindir.
+
 ## Offline mod (Parça 9)
 ```
 python -m tracker offline video.mp4                       # tespit+izleme → video.mp4.track.json, en uzun izleri listeler
@@ -124,7 +129,7 @@ Canlı mod çalışırken mpv'de: `Ctrl+↑/↓` doluluk, `Ctrl+→/←` tepki h
 mpv penceresinde fareyi/parmağı oynatınca sol üstte düğme paneli çıkar (3 sn sonra gizlenir; **Sabit** düğmesi ya da `Ctrl+B` ile sabitlenir): **Takip AÇIK/KAPALI**, **Bırak**, **Sıfırla**, **Offline**, **Zoom -/+**, **Tepki -/+**, **Öngörü -/+**, **Kaydet**, **Durum**. Zoom düğmeleri artık ayrı bir **ekran üstü zoom kontrolüne** taşındı (aşağıda). Takip açıkken düğmelerin dışında bir oyuncuya sol tıklamak da hedef seçer. Klavye kısayolları aynen çalışır.
 
 ### Sağ tık ile takip noktası ve ekran üstü zoom kontrolü (Parça 17)
-- **Sağ tık**: tıklanan oyuncu takip noktası olur; takip kapalıysa kendiliğinden açılır (önce `t` basmak gerekmez). Hedefin üstüne tekrar sağ tık hedefi bırakır, başka oyuncuya sağ tık hedefi değiştirir. (mpv'nin sağ tık = duraklat davranışı yerine geçer; duraklatma Boşluk tuşuyla.)
+- **Sağ tık**: tıklanan nokta/**nesne** takip edilir — oyuncu olmak zorunda değil (top, araba, tahtadaki bir şekil...); takip kapalıysa kendiliğinden açılır (önce `t` basmak gerekmez). Nesnenin üstüne tekrar sağ tık bırakır, başka yere sağ tık hedefi değiştirir. (mpv'nin sağ tık = duraklat davranışı yerine geçer; duraklatma Boşluk tuşuyla.) Bu mod YOLO'ya ihtiyaç duymaz (bkz. Parça 18); oyuncu kimliği/Re-ID için **sol tık** (takip açıkken) eskisi gibi çalışır.
 - **Zoom kontrolü**: pencerenin sağ kenarında ortada **+** / anlık zoom (ör. `x1.5`) / **−**. Fare/dokunma hareketinde, takip açıkken ya da zoom yapılmışken görünür (zoom varken panel gizlense de kalır). `+` ve `-` tuşları aynı işi yapar.
   - Hedef kilitliyken +/− hedefin kareyi doldurma oranını ayarlar (zoom'u takip sürer; değer etiketi canlı güncellenir).
   - Hedef yokken ya da takip kapalıyken +/− doğrudan video zoom'unu 1x–16x arasında 0.25 (log2) adımla değiştirir.

@@ -60,6 +60,10 @@ class Config:
     number_share: float = 0.6  # ... ve oy ağırlığının en az bu payı
     hud: bool = True  # canlı mod: köşede küçük durum etiketi (Takip: ID 5 / hedef kayıp)
     lost_zoomout_s: float = 2.0  # sn; bekleme sonrası 1x'e kademeli zoom-out süresi (0: anında)
+    point_box: float = 0.06  # sağ tık nesne takibi: başlangıç kutusu (kare yüksekliği oranı)
+    point_refine: bool = True  # tıklanan rengin bitişik bölgesinden kutuyu tahmin et
+    point_min_score: float = 0.55  # şablon benzerliği (NCC) alt sınırı; altı = nesne kayıp
+    point_max_side: int = 640  # nesne izleyici kareyi en uzun kenarı bu olacak şekilde küçültür
 
     def __post_init__(self) -> None:
         if not self.ipc_path:

@@ -71,8 +71,11 @@ def adjust(cfg: Config, key: str, direction: int) -> str | None:
     return _show(cfg, s)
 
 
-def status_text(cfg: Config, target_id: int | None) -> str:
-    """Tüm canlı ayarlar + hedef (`h` tuşu)."""
+def status_text(cfg: Config, target_id: int | None, point: bool = False) -> str:
+    """Tüm canlı ayarlar + hedef (`h` tuşu). point: sağ tıkla seçilen nesne izleniyor."""
     parts = [_show(cfg, s) for s in SETTINGS.values()]
-    parts.append("Hedef: " + ("yok" if target_id is None else f"ID {target_id}"))
+    if point:
+        parts.append("Hedef: nesne (sağ tık noktası)")
+    else:
+        parts.append("Hedef: " + ("yok" if target_id is None else f"ID {target_id}"))
     return "\n".join(parts)

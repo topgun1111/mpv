@@ -23,3 +23,11 @@ def test_parse_click_rejects_bad_input():
 def test_message_name():
     assert message_name(ev("track-reset")) == "track-reset"
     assert message_name({"event": "seek"}) is None
+
+
+def test_parse_point_click_is_a_separate_kind():
+    c = parse_click(ev("track-point", "0.25", "0.5", "1920", "1080", "12.5"))
+    assert c == ClickEvent(0.25, 0.5, 1920, 1080, 12.5, "point")
+    assert c.kind == "point"
+    assert parse_click(ev("track-click", "0.25", "0.5", "1920", "1080", "12.5")).kind == "person"
+    assert parse_click(ev("track-point", "1.5", "0.5", "1920", "1080", "1")) is None

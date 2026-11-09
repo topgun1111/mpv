@@ -61,6 +61,13 @@ class Output:
     osd: str | None = None
 
 
+def _default_point_factory(frame, px: float, py: float, cfg: Config):
+    from .point import PointTracker  # cv2 yalnız nesne takibi başlayınca içe aktarılır
+
+    return PointTracker(frame, px, py, box_frac=cfg.point_box, refine=cfg.point_refine,
+                        max_side=cfg.point_max_side, min_score=cfg.point_min_score)
+
+
 def _box_gap(t, px: float, py: float) -> float:
     """Noktanın kutuya uzaklığı (px); içindeyse 0."""
     b = t.bbox
@@ -101,8 +108,12 @@ class LiveController:
         box_filter: BoxFilter | None = None,
         reid=None,
         cfg_path: str | None = None,
+        point_factory=None,
     ):
         self.pipeline, self.cfg, self.reid = pipeline, cfg, reid  # reid: ReIdManager | None
+        # (kare, px, py, cfg) -> update(kare) -> BBox | None veren nesne; testte sahtesi verilir
+        self._point_factory = point_factory or _default_point_factory
+        self.point = None  # sağ tıkla seçilen sınıfsız nesne izleyici (tracker/point.py)
         self.cfg_path = cfg_path  # `track-save` ayarları buraya yazar
         self._id_mark = 0  # hedef son görüldüğünde izlerin en büyük ID'si (ID'ler artan)
         self.flt = box_filter or BoxFilter(cfg.kf_accel, cfg.kf_meas)
@@ -120,6 +131,10 @@ class LiveController:
         self._zooming_out = False
         self._view = View()  # en son uygulanması istenen görünüm
 
+    @property
+    def has_target(self) -> bool:
+        return self.target_id is not None or self.point is not None
+
     def _clear_lost(self) -> None:
         self._lost, self._lost_t0, self._lost_from, self._zooming_out = 0, None, None, False
 
@@ -128,6 +143,7 @@ class LiveController:
         self.smoother.reset()
         self.flt.reset()
         self.target_id = None
+        self.point = None
         self._click = None
         self._last_t = None
         self._clear_lost()
@@ -138,8 +154,9 @@ class LiveController:
 
     def _release(self) -> Output:
         """Hedefi bırak: görünüm 1x'e döner; takip açık kalır, yeni tıklama hedef seçer."""
-        had = self.target_id is not None
+        had = self.has_target
         self.target_id = None
+        self.point = None
         self._clear_lost()
         self.smoother.reset()
         self.flt.reset()
@@ -173,7 +190,7 @@ class LiveController:
         if name == SETTING_MSG:
             return self._on_setting(ev.get("args") or [])
         if name == STATUS_MSG:
-            return Output(osd=status_text(self.cfg, self.target_id))
+            return Output(osd=status_text(self.cfg, self.target_id, self.point is not None))
         if name == SAVE_MSG:
             return self._on_save()
         return Output()
@@ -202,11 +219,11 @@ class LiveController:
         """Köşe etiketi (boş = gizle). Python → Lua `track-hud`."""
         if not self.enabled or not self.cfg.hud:
             return ""
-        if self.target_id is None:
+        if not self.has_target:
             return "Takip: hedef seç (tıkla)"
         if self._lost_t0 is not None:
             return "Takip: hedef kayıp" + (" (uzaklaşıyor)" if self._zooming_out else "")
-        return f"Takip: ID {self.target_id}"
+        return "Takip: nesne" if self.point is not None else f"Takip: ID {self.target_id}"
 
     def needs_frame(self, t: float) -> bool:
         """Duraklatılmış (time-pos değişmiyor) ve bekleyen tıklama yoksa kare işlemeye gerek yok."""
@@ -220,7 +237,7 @@ class LiveController:
         fh, fw = frame.shape[:2]
         prev = self._last_t
         if prev is not None and (t < prev - 0.05 or t - prev > self.cfg.seek_jump):
-            had = self.target_id is not None
+            had = self.has_target
             click = self._click
             self._reset_tracking()
             self._click = click
@@ -228,6 +245,12 @@ class LiveController:
                 self._last_t = t
                 return Output(view=View(), osd="Atlama: hedefi yeniden seç")
         self._last_t = t
+        click = self._click
+        if click is not None and click.kind == "point":  # sağ tık: herhangi bir nesne
+            self._click = None
+            return self._start_point(frame, t, click)
+        if self.point is not None and click is None:  # nesne izleniyor: detector gerekmez
+            return self._step_point(frame, t, None)
         tracks = self.pipeline.step(frame)
         self.last_tracks = tracks
         osd = None
@@ -241,10 +264,11 @@ class LiveController:
                 out = self._release()
                 return Output(view=out.view, osd=out.osd)
             else:
-                if self.target_id is None:
+                if not self.has_target:
                     self.smoother.reset()  # yeni hedefe geçişte yumuşatıcı korunur: kayarak gider
                 elif self._zooming_out:
                     self.smoother.seed(self._view)  # zoom-out'tan yeni hedefe sıçramadan geç
+                self.point = None  # oyuncu seçildi: nesne izleyici bırakılır
                 self.target_id = picked.id
                 self._clear_lost()
                 self.flt.reset()  # süzgeç eski hedefin hızını taşımasın
@@ -252,6 +276,8 @@ class LiveController:
                     self.reid.reset()  # galeri eski kişiye aitti
                 osd = f"Hedef: ID {picked.id}"
         if self.target_id is None:
+            if self.point is not None:  # oyuncu bulunamadı: nesne takibi kesilmesin
+                return self._step_point(frame, t, osd)
             return Output(osd=osd)
         tr = next((x for x in tracks if x.id == self.target_id), None)
         if tr is None and self.reid is not None:
@@ -261,15 +287,56 @@ class LiveController:
         self._id_mark = max([self._id_mark, *(x.id for x in tracks)])
         if self.reid is not None:
             self.reid.observe(frame, t, tr, [x for x in tracks if x is not tr])
+        return self._follow(tr.bbox, fw, fh, t, osd)
+
+    def _follow(self, bbox, fw: int, fh: int, t: float, osd: str | None) -> Output:
+        """Hedef kutusu görüldü (oyuncu ya da nesne): süzgeç → görünüm → yumuşatıcı."""
         if self._zooming_out:  # zoom-out sırasında bulundu: bulunduğumuz görünümden devam
             self.smoother.seed(self._view)
         self._clear_lost()
-        self.flt.update(tr.bbox.scaled(1 / fw, 1 / fh), t)  # kare boyutuna göre normalize
+        self.flt.update(bbox.scaled(1 / fw, 1 / fh), t)  # kare boyutuna göre normalize
         lead = self.flt.lookahead(self.cfg.lookahead_s, self.cfg.max_lead).scaled(fw, fh)
         raw = compute_view(lead, fw, fh, self.cfg.target_fill, self.cfg.min_zoom,
                            self.cfg.max_zoom)
         self._view = self.smoother.update(raw)
         return Output(view=self._view, osd=osd)
+
+    def _start_point(self, frame, t: float, click) -> Output:
+        """Sağ tık: tıklanan noktadaki HERHANGİ bir nesneyi takip etmeye başla (sınıf önemsiz).
+        Zaten izlenen hedefin üstüne tekrar sağ tık hedefi bırakır."""
+        fh, fw = frame.shape[:2]
+        px, py = click.px * fw / click.vw, click.py * fh / click.vh
+        if self.point is not None and self._lost_t0 is None and self.point.bbox.contains(px, py):
+            out = self._release()
+            return Output(view=out.view, osd=out.osd)
+        cur = next((x for x in self.last_tracks if x.id == self.target_id), None)
+        if cur is not None and cur.bbox.contains(px, py):  # izlenen oyuncuya tekrar sağ tık
+            out = self._release()
+            return Output(view=out.view, osd=out.osd)
+        try:
+            pt = self._point_factory(frame, px, py, self.cfg)
+        except Exception as e:  # cv2 yok / kare bozuk: takip döngüsü düşmesin
+            return Output(osd=f"Nesne takibi başlatılamadı: {e}")
+        if not self.has_target:
+            self.smoother.reset()  # ilk hedef: doğrudan oraya; sonrakilerde kayarak geçilir
+        elif self._zooming_out:
+            self.smoother.seed(self._view)
+        self.target_id = None
+        self.last_tracks = []
+        self.pipeline.reset()  # oyuncu izleri artık gerekmez; sonraki sol tık taze başlar
+        if self.reid:
+            self.reid.reset()
+        self.point = pt
+        self._clear_lost()
+        self.flt.reset()
+        return self._follow(pt.bbox, fw, fh, t, "Hedef: nesne")
+
+    def _step_point(self, frame, t: float, osd: str | None) -> Output:
+        fh, fw = frame.shape[:2]
+        box = self.point.update(frame)
+        if box is None:
+            return self._on_lost(t, osd)
+        return self._follow(box, fw, fh, t, osd)
 
     def _try_reid(self, frame, t: float, tracks, osd: str | None):
         """Hedef ID'si yok: kayıp sırasında doğan yeni izler arasında galeriye uyan varsa hedefi
@@ -326,7 +393,7 @@ def run_live(
         # Lua'ya (etiket metni, hedef kilitli mi) gider; yalnız ikisinden biri değişince.
         # "Kilitli" ekran üstü zoom +/- düğmesinin ne yapacağını belirler (doluluk / video zoom).
         nonlocal last_hud
-        state = (ctl.hud_text(), ctl.target_id is not None and ctl.enabled)
+        state = (ctl.hud_text(), ctl.has_target and ctl.enabled)
         if state == last_hud:
             return
         last_hud = state
@@ -351,7 +418,8 @@ def run_live(
                 log(f"görünüm uygulanamadı: {e}")
         sync_hud()
 
-    log("Canlı mod hazır (Ctrl+C ile çık). mpv'de oyuncuya sağ tıkla: takip kendiliğinden açılır.")
+    log("Canlı mod hazır (Ctrl+C ile çık). mpv'de herhangi bir nesneye sağ tıkla: takip "
+        "kendiliğinden açılır (oyuncu kimliği için sol tık).")
     try:
         while not (stop is not None and stop.is_set()):
             t0 = clock()
@@ -383,7 +451,8 @@ def run_live(
             if stats_every and clock() - t_stat >= stats_every:
                 dt = clock() - t_stat
                 log(f"{n / dt:.1f} kare/sn, gecikme {lag_sum / n * 1000:.0f} ms, "
-                    f"hedef={ctl.target_id}, izler={len(ctl.last_tracks)}")
+                    f"hedef={'nesne' if ctl.point is not None else ctl.target_id}, "
+                    f"izler={len(ctl.last_tracks)}")
                 n, lag_sum, t_stat = 0, 0.0, clock()
             rest = min_dt - (clock() - t0)
             if rest > 0:

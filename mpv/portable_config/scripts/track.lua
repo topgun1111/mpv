@@ -1,7 +1,9 @@
 -- Takipli Oynat: tıklama ile hedef seçimi (Parça 2), hedef bırakma (Parça 6).
--- SAĞ TIK (track/pick): tıklanan noktadaki oyuncuyu takip noktası yapar; takip kapalıysa kendiliğinden açar.
+-- SAĞ TIK (track/pick): tıklanan noktadaki HERHANGİ bir nesneyi (oyuncu olmak zorunda değil) takip
+-- eder; takip kapalıysa kendiliğinden açar. Sol tık (takip açıkken) oyuncu kimliğiyle seçer.
 -- Ekran üstü ZOOM kontrolü (sağ kenar): + / - düğmeleri ve anlık zoom değeri; + / - tuşları da aynı işi yapar.
--- Tıklama -> video-normalize koordinat -> `script-message track-click` (Python IPC olarak alır).
+-- Tıklama -> video-normalize koordinat -> `script-message track-point` (sağ tık, nesne) ya da
+-- `track-click` (sol tık, oyuncu) (Python IPC olarak alır).
 -- Offline oynatma (Parça 10): `o` ile <video>.views.json'daki anahtar karelerden zoom/pan uygular
 -- (Python gerekmez). Lua 5.1/LuaJIT uyumlu yazıldı (// ve goto yok).
 local mp = require 'mp'
@@ -66,7 +68,8 @@ local function mouse_xy()
   return nil
 end
 
-local function on_click()
+-- msg: "track-point" (sağ tık: herhangi bir nesne) | "track-click" (sol tık: oyuncu kimliği)
+local function on_click(msg)
   local d = mp.get_property_native("osd-dimensions")
   local params = mp.get_property_native("video-params")
   local pos = mouse_xy()
@@ -80,7 +83,7 @@ local function on_click()
     return
   end
   local t = mp.get_property_number("time-pos", 0)
-  mp.commandv("script-message", "track-click",
+  mp.commandv("script-message", msg or "track-click",
     string.format("%.6f", nx), string.format("%.6f", ny),
     string.format("%d", math.floor(params.w)), string.format("%d", math.floor(params.h)),
     string.format("%.3f", t))
@@ -99,7 +102,7 @@ local function set_enabled(on)
   -- Takip açıkken sol tık da hedef seçer (sağ tık her zaman seçer)
   sync_click_binding()
   mp.commandv("script-message", "track-toggle", enabled and "on" or "off")
-  osd(enabled and "AÇIK - oyuncuya sağ tıkla" or "KAPALI")
+  osd(enabled and "AÇIK - nesneye sağ tıkla" or "KAPALI")
   if refresh_panel then refresh_panel() end
 end
 
@@ -448,12 +451,12 @@ end)
 
 local zoom_buttons = { function() zoom_step(1) end, function() zoom_step(-1) end }
 
--- Sağ tık: takip noktası. Takip kapalıysa açılır; tıklanan noktadaki oyuncu hedef olur (hedefin
--- üstüne tekrar sağ tık hedefi bırakır). Panel/zoom düğmelerinin üstünde işlem yapmaz.
+-- Sağ tık: takip noktası. Takip kapalıysa açılır; tıklanan noktadaki nesne (ne olursa olsun) hedef
+-- olur (hedefin üstüne tekrar sağ tık hedefi bırakır). Panel/zoom düğmelerinin üstünde işlem yapmaz.
 local function pick_target()
   if panel.hover or zoomc.hover then return end
   if not enabled then set_enabled(true) end
-  on_click()
+  on_click("track-point")
 end
 mp.add_key_binding(nil, "pick", pick_target)
 

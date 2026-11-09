@@ -1,10 +1,12 @@
-"""track.lua'dan gelen `script-message track-click ...` olaylarını ayrıştırır."""
+"""track.lua'dan gelen `script-message track-click|track-point ...` olaylarını ayrıştırır."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-CLICK_MSG = "track-click"
+CLICK_MSG = "track-click"  # sol tık: tıklanan OYUNCU (YOLO + ByteTrack kimliği)
+POINT_MSG = "track-point"  # sağ tık: tıklanan NOKTA/nesne (sınıfsız, tracker/point.py)
+_KINDS = {CLICK_MSG: "person", POINT_MSG: "point"}
 RESET_MSG = "track-reset"
 RELEASE_MSG = "track-release"
 TOGGLE_MSG = "track-toggle"
@@ -21,6 +23,7 @@ class ClickEvent:
     vw: int  # video piksel genişliği
     vh: int
     time_pos: float  # tıklama anındaki oynatma zamanı (sn)
+    kind: str = "person"  # "person" (track-click) | "point" (track-point)
 
     @property
     def px(self) -> float:
@@ -36,7 +39,7 @@ def parse_click(event: dict[str, Any]) -> ClickEvent | None:
     if event.get("event") != "client-message":
         return None
     args = event.get("args") or []
-    if len(args) != 6 or args[0] != CLICK_MSG:
+    if len(args) != 6 or args[0] not in _KINDS:
         return None
     try:
         nx, ny = float(args[1]), float(args[2])
@@ -46,7 +49,7 @@ def parse_click(event: dict[str, Any]) -> ClickEvent | None:
         return None
     if not (0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0) or vw <= 0 or vh <= 0:
         return None
-    return ClickEvent(nx, ny, vw, vh, t)
+    return ClickEvent(nx, ny, vw, vh, t, _KINDS[args[0]])
 
 
 def message_name(event: dict[str, Any]) -> str | None:

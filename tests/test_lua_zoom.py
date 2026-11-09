@@ -46,8 +46,8 @@ def test_right_click_pick_and_zoom_control(tmp_path):
 
     # sağ tık: takibi açar, sonra noktayı gönderir (video-normalize 0.5, 0.5)
     assert d["PICK1"] == ["script-message track-toggle on",
-                          "script-message track-click 0.500000 0.500000 1920 1080 12.500"]
-    assert d["PICK2"] == ["script-message track-click 0.250000 0.250000 1920 1080 12.500", "1"]
+                          "script-message track-point 0.500000 0.500000 1920 1080 12.500"]
+    assert d["PICK2"] == ["script-message track-point 0.250000 0.250000 1920 1080 12.500", "1"]
     assert d["PICK_BTN"] == ["0"]  # zoom düğmesinin üstünde hedef seçilmez
     assert d["PICK_OUT"] == ["0"]  # video dışı
 

@@ -14,3 +14,13 @@ class Pipeline:
 
     def reset(self) -> None:
         self.tracker.reset()
+
+
+class NullPipeline:
+    """Person modeli yokken: iz üretmez. Yalnız sağ tık nesne takibi (point.py) çalışır."""
+
+    def step(self, frame_bgr) -> list[Track]:
+        return []
+
+    def reset(self) -> None:
+        pass
