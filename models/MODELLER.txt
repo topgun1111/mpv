@@ -1,14 +1,23 @@
 Takipli Oynat - modeller
 ========================
 Bu klasore ONNX modelleri konur (lisans nedeniyle kurulumla birlikte gelmez).
+Ayrintili lisans bilgisi: THIRD_PARTY_NOTICES.md
 
-ZORUNLU
-  yolov8n.onnx   Kisi tespiti. Ornek: pip install ultralytics, sonra
+PERSON TESPITI - bunlardan BIRI zorunlu (hepsi yoksa uygulama acilmaz)
+  yolox_s.onnx   ONERILEN (Apache-2.0, dagitima uygun). YOLOX, Megvii-BaseDetection/YOLOX.
+                 Hazir ONNX: depodaki "Releases" sayfasindan (0.1.1rc0) yolox_s.onnx indir
+                 ya da kendin disa aktar: python tools/export_onnx.py --output-name yolox_s.onnx -n yolox-s -c yolox_s.pth
+                 Disa aktarma --decode_in_inference ile yapildiysa tracker_config.json'a "yolox_decoded": true yaz.
+                 Dosya adinda "yolox" gecmeli (model_type otomatik secilir); yolox_m/tiny/nano de olur.
+  yolov8n.onnx   AGPL-3.0 (Ultralytics). pip install ultralytics, sonra
                  yolo export model=yolov8n.pt format=onnx
-                 (Ultralytics YOLO modelleri AGPL-3.0'dur; lisansi kontrol et.)
+                 Modeli baskalarina DAGITIRSAN AGPL sartlari gecerli olur; kisisel/okul ici kullanimda sorun yok.
+Oncelik: models\yolov8n.onnx varsa o, yoksa yolox_s -> yolox_m -> yolox_tiny -> yolox_nano.
+Baska bir adi kullanirsan: --model yol (ve gerekirse "model_type": "yolox" | "yolov8").
 
 ISTEGE BAGLI
   osnet_x0_25.onnx    Re-ID (oyuncu ID degisirse yeniden bulur). torchreid ile disa aktar.
+                      Agirliklar egitim verisinin lisansina tabidir (Market-1501 vb. ticari olmayabilir).
   jersey_number.onnx  Forma numarasi (girdi [N,C,H,W], cikti [N,101]; bkz. tracker/number.py).
 
 Baslat.bat modelleri otomatik algilar: osnet varsa --reid --team, jersey varsa --number eklenir.

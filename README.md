@@ -13,7 +13,7 @@ Oynatma sırasında seçilen bir nesneyi (ör. futbolcu) takip edip `video-zoom`
 - VLC'de aynı iş C/C++ `video_filter` modülü + OpenCV contrib build gerektirir; ağır inference video thread'ini bloklar, A/V senkronu bozulur
 
 ## Mimari
-- **Detector**: YOLOv8/YOLO11 (person), tam çözünürlük, ONNX
+- **Detector**: YOLOX (Apache-2.0, önerilen) veya YOLOv8/YOLO11 (AGPL-3.0) person modeli, ONNX
 - **Tracker**: ByteTrack / BoT-SORT, kalıcı ID
 - **Re-ID**: OSNet embedding ile örtüşme sonrası ID kurtarma
 - **Ek sinyaller**: forma numarası OCR, takım rengi histogramı
@@ -40,9 +40,10 @@ TakipliOynat/
 │  ├─ detector.py                # YOLO ONNX
 │  ├─ bytetrack.py, pipeline.py  # ByteTrack + birleşim
 │  └─ live.py                    # canlı mod (hedef seçimi dahil)
-├─ models/                       # YOLO ONNX buraya
+├─ models/                       # YOLOX/YOLO ONNX buraya (MODELLER.txt)
 ├─ scripts/                      # make_package.py, fetch_deps.ps1
 ├─ installer.iss                 # Inno Setup
+├─ THIRD_PARTY_NOTICES.md        # üçüncü taraf lisanslar + GPL kaynak teklifi
 └─ handover.md                   # parça parça ilerleme notu (15 parçalık plan)
 ```
 (Parça 14: `launcher/`, `scripts/build_embedded.py` da pakete dahildir.)
@@ -54,10 +55,14 @@ TakipliOynat/
 - **Alternatif**: Python → PyInstaller tek `.exe`, mpv klasörüne
 
 ## Lisans
-- mpv: GPLv2+ (LGPLv2.1+ derlenebilir); değiştirilmiş sürüm dağıtılırsa kaynak açılır
-- Ultralytics (YOLO): **AGPL-3.0** → dağıtımda kaynak açma zorunlu veya ticari lisans
-- Kapalı dağıtım için alternatif: YOLOX / RT-DETR (Apache-2.0)
-- Telif/lisans bildirimleri korunmalı
+Ayrıntılı denetim: **`THIRD_PARTY_NOTICES.md`** (pakete ve Başlat menüsüne de konur; hukuki görüş değildir).
+- **Dağıtılanlar**: mpv (GPL-2.0+, değiştirilmeden; kaynak teklifi + `mpv\BUILD_INFO.txt`), Python (PSF), NumPy (BSD), OpenCV (Apache-2.0; FFmpeg LGPL), ONNX Runtime-DirectML (MIT; DirectML Microsoft bileşeni).
+- **Modeller dağıtılmaz** (`installer.iss` `models\*.onnx` hariç):
+  - **YOLOX** (Apache-2.0) — önerilen, dağıtıma uygun. `yolox_s.onnx` → `models\`; dosya adında "yolox" varsa otomatik seçilir (`model_type`: auto | yolov8 | yolox).
+  - **YOLOv8/YOLO11** (Ultralytics, AGPL-3.0) — kişisel/okul içi kullanımda sorun yok; modeli başkalarına dağıtırsan AGPL şartları geçerli.
+  - **OSNet** ağırlıkları eğitim verisinin (Market-1501 vb.) koşullarına tabidir; dağıtmadan önce doğrula.
+- Takipli Oynat kodunun kendi lisansını proje sahibi seçer (depoda `LICENSE` yoksa tüm haklar saklıdır; `make_package.py` `LICENSE` varsa pakete koyar).
+- Kodda `ultralytics` içe aktarılmaz; çözücüler yalnız ONNX çıktı biçimini okur.
 
 ## Kod Tahmini
 - Python tracker (detector + ByteTrack + Re-ID + smoothing + IPC): ~400–600 satır
@@ -76,7 +81,7 @@ TakipliOynat/
 - CPU-only makinelerde canlı mod düşük fps → offline mod
 
 ## Yol Haritası
-Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: Parça 1–14 (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası, canlı ayar tuşları + durum etiketi,  Python + tam installer). Sıradaki: Parça 15 (lisans denetimi + release).
+Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: **Parça 1–15 (1.0.0)** (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası, canlı ayar tuşları + durum etiketi,  Python + tam installer, lisans denetimi + YOLOX alternatifi + release).
 
 ## Offline mod (Parça 9)
 ```
@@ -116,8 +121,16 @@ Takım yalnızca eleme yapar; etiket belirsizse aday elenmez. `--number` için `
 Canlı mod çalışırken mpv'de: `Ctrl+↑/↓` doluluk, `Ctrl+→/←` tepki hızı, `Ctrl+PgUp/PgDn` öngörü, `Ctrl+0` varsayılanlar, `Ctrl+S` ayarları kaydet (`--config` ya da `tracker_config.json`), `h` durum özeti, `Ctrl+H` sağ üst etiketi gizle/göster. Kayıtlı ayarla başlamak için: `python -m tracker --config tracker_config.json live ...`.
 
 ### Kurulum ve başlatıcılar (Parça 14)
-Installer (`TakipliOynat-Setup-x.y.z.exe`, Windows 10 1903+) gömülü Python, mpv ve DirectML ile gelir; ayrıca Python kurmak gerekmez. Modeller lisans nedeniyle gelmez: `models\MODELLER.txt`'e bak ve `yolov8n.onnx`'i `models\` klasörüne koy.
+Installer (`TakipliOynat-Setup-x.y.z.exe`, Windows 10 1903+) gömülü Python, mpv ve DirectML ile gelir; ayrıca Python kurmak gerekmez. Modeller lisans nedeniyle gelmez: `models\MODELLER.txt`'e bak ve `yolox_s.onnx` (önerilen) ya da `yolov8n.onnx`'i `models\` klasörüne koy.
 - **Takipli Oynat (canlı)** kısayolu / `Baslat.bat`: mpv'yi ve izleyiciyi birlikte açar (video sürükleyebilirsin). Re-ID/takım/numara modelleri `models\`'te varsa otomatik açılır.
 - **Offline** kısayolu / `Offline.bat`: videoyu üstüne sürükle → işlenir → oyuncu ID'sini yaz → mpv'de `o`.
 - Ayarlar `%APPDATA%\TakipliOynat\config.json` dosyasına kaydedilir.
 Paket derleme (CI): `python scripts/make_package.py` → `python scripts/build_embedded.py` → `scripts/fetch_deps.ps1` → `iscc installer.iss`.
+
+### Release (Parça 15)
+1. `main`'e push → CI (`ci.yml`) ve `build.yml` (artifact: portable ZIP + `TakipliOynat-Setup-x.y.z.exe`).
+2. Derleme günlüğündeki `SHA256 python-...` ve `SHA256 mpv-...` satırlarını doğrulayıp `scripts/build_embedded.py` (`PY_SHA256`) içine yaz; mpv için `fetch_deps.ps1 -Tag <sürüm>` ile sürümü sabitle.
+3. Temiz Windows'ta kur → `models\`'e `yolox_s.onnx` koy → `Baslat.bat` ile dene.
+4. `git tag v1.0.0 && git push origin v1.0.0` → GitHub Release otomatik oluşur (`generate_release_notes`).
+
+İlk gerçek denemede kontrol: `python -m tracker detect kare.jpg --model models\yolox_s.onnx --out sonuc.jpg` (kutular doğru yerde mi, `provider=DmlExecutionProvider`); `live --stats 2` (fps/gecikme); `o` ile offline oynatma; Ctrl+S ayar kaydı.

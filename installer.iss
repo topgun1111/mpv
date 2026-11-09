@@ -38,6 +38,7 @@ Name: "{app}\models"; Flags: uninsneveruninstall
 Name: "{group}\{#AppName} (canlı)"; Filename: "{app}\Baslat.bat"; WorkingDir: "{app}"; IconFilename: "{app}\mpv\mpv.exe"
 Name: "{group}\{#AppName} (offline, video sürükle)"; Filename: "{app}\Offline.bat"; WorkingDir: "{app}"; IconFilename: "{app}\mpv\mpv.exe"
 Name: "{group}\Modeller klasörü"; Filename: "{app}\models"
+Name: "{group}\Üçüncü taraf lisanslar"; Filename: "notepad.exe"; Parameters: """{app}\THIRD_PARTY_NOTICES.md"""
 Name: "{group}\Kaldır"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\Baslat.bat"; WorkingDir: "{app}"; IconFilename: "{app}\mpv\mpv.exe"; Tasks: desktopicon
 

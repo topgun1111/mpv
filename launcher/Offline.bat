@@ -9,8 +9,10 @@ if "%~1"=="" (
   pause
   exit /b 1
 )
-if not exist "models\yolov8n.onnx" (
-  echo HATA: models\yolov8n.onnx yok. models\MODELLER.txt dosyasini oku.
+set "HASMODEL="
+for %%M in (yolov8n yolox_s yolox_m yolox_tiny yolox_nano) do if exist "models\%%M.onnx" set "HASMODEL=1"
+if not defined HASMODEL (
+  echo HATA: models klasorunde person modeli yok - yolox_s.onnx onerilir. models\MODELLER.txt dosyasini oku.
   pause
   exit /b 1
 )

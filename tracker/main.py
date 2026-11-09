@@ -129,7 +129,8 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
     src = VideoSource(args.video, fps)
     det = Detector(args.model or cfg.model_path, conf_thres=cfg.live_det_conf,
                    iou_thres=cfg.det_iou, input_size=cfg.det_size,
-                   device=args.device or cfg.device)
+                   device=args.device or cfg.device, model_type=cfg.model_type,
+                   yolox_decoded=cfg.yolox_decoded)
     print(f"detector: provider={det.providers[0]}, girdi={det.size}; video {src.w}x{src.h}, "
           f"{src.duration:.0f} sn, {fps:g} örnek/sn")
     total = int(src.duration * fps) or None
@@ -199,6 +200,8 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
         iou_thres=cfg.det_iou,
         input_size=cfg.det_size,
         device=args.device or cfg.device,
+        model_type=cfg.model_type,
+        yolox_decoded=cfg.yolox_decoded,
     )
     print(f"detector: provider={det.providers[0]}, girdi={det.size}")
     pipeline = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf))
@@ -251,6 +254,8 @@ def detect_image(cfg: Config, args: argparse.Namespace) -> int:
         iou_thres=cfg.det_iou,
         input_size=cfg.det_size,
         device=args.device or cfg.device,
+        model_type=cfg.model_type,
+        yolox_decoded=cfg.yolox_decoded,
     )
     det.detect(frame)  # ısınma (DirectML ilk çalıştırma yavaş)
     t0 = time.perf_counter()

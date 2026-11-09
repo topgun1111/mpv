@@ -42,6 +42,8 @@ jobs:
           .\python\python.exe -m tracker --version
           .\python\python.exe -c "import tracker, numpy, cv2, onnxruntime as o; p = o.get_available_providers(); print(p); assert 'DmlExecutionProvider' in p, 'DirectML yok'"
           .\python\python.exe -m tracker detect --help | Out-Null
+          if (-not (Test-Path THIRD_PARTY_NOTICES.md)) { throw "THIRD_PARTY_NOTICES.md pakette yok" }
+          if (-not (Test-Path mpv\BUILD_INFO.txt)) { throw "mpv/BUILD_INFO.txt yok (GPL kaynak teklifi)" }
       - name: Taşınabilir ZIP
         shell: pwsh
         run: Compress-Archive -Path dist/TakipliOynat -DestinationPath dist/TakipliOynat-portable.zip
@@ -63,6 +65,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          generate_release_notes: true
           files: |
             dist/TakipliOynat-portable.zip
             dist/installer/*.exe

@@ -22,6 +22,8 @@ class Config:
     dead_zone_pos: float = 0.01
     dead_zone_zoom: float = 0.05
     model_path: str = "models/yolov8n.onnx"
+    model_type: str = "auto"  # auto (dosya adında yolox → yolox, yoksa yolov8) | yolov8 | yolox
+    yolox_decoded: bool = False  # YOLOX --decode_in_inference ile dışa aktarıldıysa true
     det_conf: float = 0.25
     det_iou: float = 0.45
     det_size: int = 640

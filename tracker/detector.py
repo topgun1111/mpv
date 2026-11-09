@@ -1,15 +1,23 @@
 """YOLO (ONNX) person detector: ön işleme, çıktı çözümleme, NMS.
 
-Akış: BGR kare -> letterbox -> [1,3,H,W] float tensör -> ONNX Runtime -> `decode_yolo`
-(YOLOv8/YOLO11 çıktısı `[1, 4+nc, N]`) -> skor eşiği -> NMS -> orijinal kare koordinatında
-`Detection` listesi.
+Akış: BGR kare -> letterbox -> [1,3,H,W] float tensör -> ONNX Runtime -> çözücü -> skor eşiği
+-> NMS -> orijinal kare koordinatında `Detection` listesi.
 
-Saf fonksiyonlar (`letterbox`, `preprocess`, `decode_yolo`, `nms`, `select_providers`) gerçek model
-olmadan test edilebilir. `onnxruntime` yalnızca `Detector` gerçek bir model yüklerken içe aktarılır.
+İki model ailesi desteklenir (`model_type`):
+- `yolov8`: YOLOv8/YOLO11 (Ultralytics, **AGPL-3.0**) çıktısı `[1, 4+nc, N]`; RGB, 0..1 girdi.
+- `yolox`: YOLOX (Megvii, **Apache-2.0**) çıktısı `[1, N, 5+nc]` (objectness'li); **BGR, 0..255**
+  girdi (normalizasyon yok). Resmî dışa aktarım ham çıktı verir (ızgara/stride çözümü gerekir);
+  `--decode_in_inference` ile dışa aktarılmışsa `yolox_decoded=True`.
+`auto`: dosya adında "yolox" geçiyorsa yolox, aksi halde yolov8.
+
+Saf fonksiyonlar (`letterbox`, `preprocess`, `decode_yolo`, `decode_yolox`, `nms`,
+`select_providers`) gerçek model olmadan test edilebilir. `onnxruntime` yalnızca `Detector`
+gerçek bir model yüklerken içe aktarılır.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +34,11 @@ _PROVIDER_NAMES = {
 }
 _CPU = _PROVIDER_NAMES["cpu"]
 _MAX_CANDIDATES = 300  # NMS öncesi en yüksek skorlu aday sayısı
+MODEL_TYPES = ("auto", "yolov8", "yolox")
+DEFAULT_MODEL = "models/yolov8n.onnx"
+# Varsayılan model yoksa sırayla denenen Apache-2.0 (YOLOX) alternatifleri
+FALLBACK_MODELS = tuple(f"models/yolox_{k}.onnx" for k in ("s", "m", "tiny", "nano"))
+_YOLOX_STRIDES = (8, 16, 32)
 
 
 @dataclass(frozen=True)
@@ -132,7 +145,21 @@ def decode_yolo(
         idx = idx[np.argsort(-scores[idx])[:_MAX_CANDIDATES]]
     rows, scores = out[idx], scores[idx]
 
-    cx, cy, w, h = rows[:, 0], rows[:, 1], rows[:, 2], rows[:, 3]
+    return _finish(rows[:, :4], scores, info, frame_w, frame_h, iou_thres, person_class, max_det)
+
+
+def _finish(
+    cxcywh: np.ndarray,
+    scores: np.ndarray,
+    info: LetterboxInfo,
+    frame_w: int,
+    frame_h: int,
+    iou_thres: float,
+    person_class: int,
+    max_det: int,
+) -> list[Detection]:
+    """Letterbox pikselinde (cx,cy,w,h) -> kare pikseli kutu, kırp, küçükleri at, NMS."""
+    cx, cy, w, h = cxcywh[:, 0], cxcywh[:, 1], cxcywh[:, 2], cxcywh[:, 3]
     boxes = np.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], axis=1)
     boxes[:, [0, 2]] = (boxes[:, [0, 2]] - info.pad_x) / info.scale
     boxes[:, [1, 3]] = (boxes[:, [1, 3]] - info.pad_y) / info.scale
@@ -146,6 +173,88 @@ def decode_yolo(
         Detection(BBox(*(float(v) for v in boxes[i])), float(scores[i]), person_class)
         for i in keep
     ]
+
+
+def preprocess_yolox(
+    frame_bgr: np.ndarray, size: tuple[int, int] = (640, 640), fp16: bool = False
+) -> tuple[np.ndarray, LetterboxInfo]:
+    """YOLOX girdisi: BGR (kanal çevirme yok), 0..255 (normalizasyon yok), NCHW float."""
+    img, info = letterbox(frame_bgr, size)
+    x = np.ascontiguousarray(img.transpose(2, 0, 1)[None], dtype=np.float16 if fp16 else np.float32)
+    return x, info
+
+
+@lru_cache(maxsize=8)
+def yolox_grids(size: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """Stride 8/16/32 için (ızgara [N,2] (x,y), stride [N,1]); N = toplam çıktı satırı."""
+    grids, strides = [], []
+    for s in _YOLOX_STRIDES:
+        hs, ws = size[0] // s, size[1] // s
+        yv, xv = np.meshgrid(np.arange(hs), np.arange(ws), indexing="ij")
+        grids.append(np.stack((xv, yv), axis=2).reshape(-1, 2))
+        strides.append(np.full((hs * ws, 1), s))
+    return np.concatenate(grids).astype(np.float32), np.concatenate(strides).astype(np.float32)
+
+
+def decode_yolox(
+    output: np.ndarray,
+    info: LetterboxInfo,
+    frame_w: int,
+    frame_h: int,
+    size: tuple[int, int] = (640, 640),
+    conf_thres: float = 0.25,
+    iou_thres: float = 0.45,
+    person_class: int = PERSON_CLASS,
+    max_det: int = 100,
+    decoded: bool = False,
+) -> list[Detection]:
+    """YOLOX çıktısı `[1, N, 5+nc]` -> `Detection` listesi.
+
+    Satır: cx, cy, w, h, objectness, sınıf skorları (obj/sınıf zaten sigmoid'li); skor =
+    obj * sınıf. `decoded=False` (resmî ONNX dışa aktarımı): xy ızgara ofseti, wh log uzayında
+    -> `(xy + ızgara) * stride`, `exp(wh) * stride`. `decoded=True`: kutular zaten letterbox
+    pikseli.
+    """
+    out = np.asarray(output)
+    if out.ndim == 3:
+        if out.shape[0] != 1:
+            raise ValueError(f"Yalnızca batch=1 desteklenir, çıktı şekli {out.shape}")
+        out = out[0]
+    if out.ndim != 2:
+        raise ValueError(f"Beklenmeyen çıktı şekli: {np.asarray(output).shape}")
+    if out.shape[1] <= 5 + person_class:
+        raise ValueError(f"YOLOX çıktısı [N, 5+nc] bekleniyor, şekil {out.shape}")
+    out = out.astype(np.float32, copy=False)
+
+    scores = out[:, 4] * out[:, 5 + person_class]
+    idx = np.flatnonzero(scores >= conf_thres)
+    if idx.size == 0:
+        return []
+    if idx.size > _MAX_CANDIDATES:
+        idx = idx[np.argsort(-scores[idx])[:_MAX_CANDIDATES]]
+    rows, scores = out[idx, :4].copy(), scores[idx]
+    if not decoded:
+        grid, stride = yolox_grids((int(size[0]), int(size[1])))
+        if out.shape[0] != grid.shape[0]:
+            raise ValueError(
+                f"YOLOX çıktı satırı {out.shape[0]}, {size} girdi için "
+                f"{grid.shape[0]} bekleniyordu "
+                "(girdi boyutu/dışa aktarım uyuşmuyor; decode_in_inference ile dışa aktarıldıysa "
+                "yolox_decoded=true yap)"
+            )
+        rows[:, :2] = (rows[:, :2] + grid[idx]) * stride[idx]
+        rows[:, 2:4] = np.exp(np.clip(rows[:, 2:4], -10.0, 10.0)) * stride[idx]
+    return _finish(rows, scores, info, frame_w, frame_h, iou_thres, person_class, max_det)
+
+
+def detect_model_type(path: str | Path, model_type: str = "auto") -> str:
+    """`auto`: dosya adında 'yolox' varsa yolox, yoksa yolov8."""
+    mt = model_type.lower()
+    if mt not in MODEL_TYPES:
+        raise ValueError(f"Bilinmeyen model_type '{model_type}' ({', '.join(MODEL_TYPES)})")
+    if mt != "auto":
+        return mt
+    return "yolox" if "yolox" in Path(path).name.lower() else "yolov8"
 
 
 def select_providers(available: list[str], device: str = "auto") -> list[str]:
@@ -173,8 +282,20 @@ def resolve_model_path(path: str | Path) -> Path:
     return alt if alt.exists() else p
 
 
+def find_model(path: str | Path) -> Path:
+    """Model yolu; yalnızca varsayılan (yolov8n) yoksa Apache-2.0 YOLOX dosyaları denenir."""
+    p = resolve_model_path(path)
+    if p.is_file() or Path(path).as_posix() != DEFAULT_MODEL:
+        return p
+    for alt in FALLBACK_MODELS:
+        q = resolve_model_path(alt)
+        if q.is_file():
+            return q
+    return p
+
+
 class Detector:
-    """ONNX Runtime ile YOLO person tespiti.
+    """ONNX Runtime ile YOLO/YOLOX person tespiti.
 
     `session` verilirse (test/özel kullanım) model yüklenmez; `get_inputs/run/get_providers`
     arayüzü yeterlidir.
@@ -182,7 +303,7 @@ class Detector:
 
     def __init__(
         self,
-        model_path: str | Path = "models/yolov8n.onnx",
+        model_path: str | Path = DEFAULT_MODEL,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
         input_size: int = 640,
@@ -190,13 +311,18 @@ class Detector:
         person_class: int = PERSON_CLASS,
         max_det: int = 100,
         session: Any = None,
+        model_type: str = "auto",
+        yolox_decoded: bool = False,
     ) -> None:
         self.conf_thres = conf_thres
         self.iou_thres = iou_thres
         self.person_class = person_class
         self.max_det = max_det
+        path = find_model(model_path)
+        self.model_type = detect_model_type(path, model_type)
+        self.yolox_decoded = yolox_decoded
         if session is None:
-            session = self._open_session(resolve_model_path(model_path), device)
+            session = self._open_session(path, device)
         self.session = session
         inp = session.get_inputs()[0]
         self.input_name: str = inp.name
@@ -211,8 +337,8 @@ class Detector:
         if not path.is_file():
             raise FileNotFoundError(
                 f"Model bulunamadı: {path}\n"
-                "YOLOv8/YOLO11 person modelini ONNX olarak 'models/' klasörüne koy "
-                "(ör. yolov8n.onnx; dışa aktarma: yolo export model=yolov8n.pt format=onnx)."
+                "Bir person modelini ONNX olarak 'models/' klasörüne koy: yolox_s.onnx "
+                "(Apache-2.0, önerilen) ya da yolov8n.onnx (AGPL-3.0); ayrıntı: models/MODELLER.txt"
             )
         import onnxruntime as ort
 
@@ -232,6 +358,13 @@ class Detector:
         if frame_bgr.ndim != 3 or frame_bgr.shape[2] != 3:
             raise ValueError(f"BGR HxWx3 kare bekleniyor, şekil {frame_bgr.shape}")
         h, w = frame_bgr.shape[:2]
+        if self.model_type == "yolox":
+            x, info = preprocess_yolox(frame_bgr, self.size, self.fp16)
+            out = self.session.run(None, {self.input_name: x})[0]
+            return decode_yolox(
+                out, info, w, h, self.size, self.conf_thres, self.iou_thres,
+                self.person_class, self.max_det, self.yolox_decoded,
+            )
         x, info = preprocess(frame_bgr, self.size, self.fp16)
         out = self.session.run(None, {self.input_name: x})[0]
         return decode_yolo(

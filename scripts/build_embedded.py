@@ -7,6 +7,7 @@ Saf mantık (`patch_pth`, `prune`) platformdan bağımsız testlidir; indirme/ku
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import shutil
 import subprocess
@@ -19,6 +20,11 @@ ROOT = Path(__file__).resolve().parent.parent
 PY_VERSION = "3.11.9"  # requirements: cp311 tekerlekleri (numpy/opencv/onnxruntime-directml)
 PY_URL = f"https://www.python.org/ftp/python/{PY_VERSION}/python-{PY_VERSION}-embed-amd64.zip"
 GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
+# Tedarik zinciri: indirilen dosyaların SHA256'sı. None = henüz sabitlenmedi; derleme günlüğü
+# gerçek özeti yazar ("SHA256 python-...: <hex>") → doğrulayıp buraya yapıştır (sonra uyuşmazlık
+# derlemeyi durdurur). get-pip.py sürümsüz/güncel olduğundan çoğunlukla sabitlenmez.
+PY_SHA256: str | None = None
+GET_PIP_SHA256: str | None = None
 
 # site-packages içinde çalışma zamanında gerekmeyen, boyut yapan kalemler
 PRUNE_DIRS = {"__pycache__", "tests", "test", "testing", "_pyinstaller"}
@@ -71,13 +77,24 @@ def _download(url: str) -> bytes:
         return r.read()
 
 
+def verify_sha256(name: str, data: bytes, expected: str | None) -> str:
+    """Özeti yazdırır; `expected` verilmişse uyuşmazlıkta SystemExit. Gerçek özeti döndürür."""
+    digest = hashlib.sha256(data).hexdigest()
+    print(f"SHA256 {name}: {digest}")
+    if expected and digest != expected.lower():
+        raise SystemExit(f"HATA: {name} SHA256 uyuşmuyor (beklenen {expected}, gelen {digest})")
+    return digest
+
+
 def build(out: Path, install: bool = True) -> Path:
     py = out / "python"
     if py.exists():
         shutil.rmtree(py)
     py.mkdir(parents=True)
     print(f"Python {PY_VERSION} indiriliyor...")
-    with zipfile.ZipFile(io.BytesIO(_download(PY_URL))) as z:
+    py_zip = _download(PY_URL)
+    verify_sha256(PY_URL.rsplit("/", 1)[-1], py_zip, PY_SHA256)
+    with zipfile.ZipFile(io.BytesIO(py_zip)) as z:
         z.extractall(py)
     pths = list(py.glob("python*._pth"))
     if len(pths) != 1:
@@ -86,7 +103,9 @@ def build(out: Path, install: bool = True) -> Path:
     if install:
         exe = py / "python.exe"
         gp = py / "get-pip.py"
-        gp.write_bytes(_download(GET_PIP_URL))
+        gp_data = _download(GET_PIP_URL)
+        verify_sha256("get-pip.py", gp_data, GET_PIP_SHA256)
+        gp.write_bytes(gp_data)
         run = [str(exe), "-m", "pip", "install", "--no-warn-script-location",
                "--disable-pip-version-check"]
         subprocess.run([str(exe), str(gp), "--no-warn-script-location"], check=True)

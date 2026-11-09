@@ -5,9 +5,9 @@ Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. exe: çalışmanın sayfasında Artifacts → TakipliOynat.
 
 ## Durum
-- Tamamlanan: **Parça 14/15**
-- Sıradaki: **Parça 15**
-- Sürüm: 0.14.0
+- Tamamlanan: **Parça 15/15 — PLAN BİTTİ**
+- Sıradaki: yok (yalnız Windows'ta gerçek doğrulama + `v1.0.0` etiketi; bkz. Parça 15 "Doğrulama")
+- Sürüm: 1.0.0
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |
@@ -26,7 +26,7 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 | 12 | Takım rengi histogramı + forma numarası OCR | ✅ |
 | 13 | Ayarlar (config UI/tuşlar) ve OSD iyileştirmeleri | ✅ |
 | 14 | Gömülü Python (embeddable) + bağımlılık paketleme + Inno Setup tam installer, DirectML varsayılanı | ✅ |
-| 15 | Lisans denetimi (AGPL/Apache alternatif, THIRD_PARTY_NOTICES), son testler, dokümantasyon, release | ⬜ |
+| 15 | Lisans denetimi (AGPL/Apache alternatif, THIRD_PARTY_NOTICES), son testler, dokümantasyon, release | ✅ |
 
 ## Parça 1'de yapılanlar (özet)
 - `tracker/geometry.py`: `BBox`, `View`, `compute_view` (log2 zoom, pan = 0.5 − merkez, kenar kıstırma)
@@ -177,6 +177,17 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - Testler: 164 (yeni 10, `tests/test_packaging.py`: `_pth` yaması, prune, Python/DirectML sabitleri, `make_package` çıktısı + CRLF, başlatıcı içerikleri, installer'daki dosya referansları, workflow adım sırası, `wait_for_ipc`, eksik config, `--wait` hatası). `ruff` temiz. Sürüm 0.14.0.
 - Doğrulama: **Windows'ta, CI'da ve gerçek installer'la hiç çalıştırılmadı** (bu ortam Linux; indirme/kurulum adımları, ISCC derlemesi, `Turkish.isl` varlığı, `.bat`'lerin cmd.exe'de davranışı, DirectML provider'ın runner'da listelenmesi doğrulanmadı). İlk CI koşusunda şunlara bak: embeddable Python'a pip kurulumu (`get-pip` + `_pth`), `opencv-python-headless`/`onnxruntime-directml` cp311 tekerlekleri, installer boyutu (tahmin: ~200–300 MB hedefi aşılabilir; aşılırsa opencv/onnxruntime paketlerini incele), `prune`'un çalışma zamanını bozup bozmadığı (duman testi yakalar). Kurulumdan sonra `Baslat.bat`'ı elle dene.
 - Kasıtlı olarak yapılmayanlar: indirilen Python/get-pip/mpv için sağlama toplamı (SHA256) doğrulaması (Parça 15 tedarik zinciri denetimi); mpv sürümünü sabitleme (`fetch_deps.ps1` hâlâ "latest"); kod imzalama; modelleri installer içinde indirme; Python'a `tracker`'ı .pyc/zip olarak derleme.
+
+## Parça 15'te yapılanlar
+- **Apache-2.0 alternatifi (YOLOX)** `tracker/detector.py`: `preprocess_yolox` (BGR, 0..255, normalizasyon yok), `yolox_grids` (stride 8/16/32, lru_cache), `decode_yolox` (`[1,N,5+nc]`, skor = obj × sınıf; ham çıktıda `(xy+ızgara)*stride`, `exp(wh)*stride`; `decoded=True` ile `--decode_in_inference` dışa aktarımı; N ızgarayla uyuşmazsa açıklayıcı hata), `_finish` (decode_yolo ile ortak: letterbox tersi → kırp → NMS), `detect_model_type` (auto: dosya adında "yolox"), `find_model` (yalnız varsayılan `models/yolov8n.onnx` yoksa `yolox_s/m/tiny/nano` denenir; özel yol yedeğe düşmez). `Detector(model_type=, yolox_decoded=)`; `Config.model_type` ("auto"), `Config.yolox_decoded` (False); 3 `Detector(...)` çağrısı `main.py`'de bağlandı.
+- **THIRD_PARTY_NOTICES.md** (pakete + Başlat menüsü kısayolu): dağıtılan bileşenler (mpv GPL, Python PSF, NumPy BSD, OpenCV Apache-2.0/FFmpeg LGPL, onnxruntime-directml MIT/DirectML), modeller (YOLOX Apache-2.0 önerilen; Ultralytics AGPL-3.0; OSNet ağırlıkları veri lisansına bağlı; numara modeli kullanıcıya ait), GPL-2.0 madde 3(b) kaynak teklifi, "ultralytics kodu kopyalanmadı/içe aktarılmadı". Hukuki görüş değildir.
+- **Tedarik zinciri** (Parça 14'ten ertelenen): `build_embedded.verify_sha256` + `PY_SHA256`/`GET_PIP_SHA256` (şimdilik `None`: derleme günlüğü özeti yazar, sabitlenince uyuşmazlık derlemeyi durdurur — değerleri uydurmadım). `fetch_deps.ps1`: `-Tag` ile mpv sürüm sabitleme, indirilen arşivin SHA256'sı günlüğe, `mpv\BUILD_INFO.txt` (sürüm/etiket/kaynak bağlantıları/SHA256 → GPL teklifi). `build.yml` duman testi `THIRD_PARTY_NOTICES.md` ve `mpv\BUILD_INFO.txt` varlığını kontrol eder; Release adımı `generate_release_notes: true`.
+- Başlatıcılar: `models\yolov8n.onnx` zorunluluğu kalktı; `yolov8n|yolox_s|yolox_m|yolox_tiny|yolox_nano` herhangi biri yeterli (`HASMODEL`; echo metninde parantez yok → if bloğu bozulmaz). `models/MODELLER.txt` YOLOX talimatı + lisans (ASCII).
+- README: mimari/lisans/yol haritası güncellendi, "Release" bölümü eklendi. Sürüm **1.0.0** (`VERSION`, `tracker/__init__.py`). `make_package.py` THIRD_PARTY_NOTICES.md'yi (ve varsa `LICENSE`) paketler.
+- Testler: **178** (yeni 14, `tests/test_license.py`: ızgara sayıları, YOLOX ön işleme/çözücü/NMS/sınıf-eşik/decoded/hatalar, sahte oturumla uçtan uca, model tipi, `find_model`, SHA256, sürüm tutarlılığı, bildirim kapsamı, paket/workflow/MODELLER denetimi; eski paketleme testi yeni başlatıcıya uyarlandı). Bu oturumda pytest/ruff **kurulamadı** (ağ yok): testler basit pytest uyumluluk katmanıyla 178/178 geçti; `ruff` yerine elle denetim (satır ≤100, kullanılmayan import, sondaki boşluk) temiz — gerçek `ruff check .` ilk CI koşusunda çalışacak.
+- **Doğrulama (yapılmadı)**: gerçek YOLOX ONNX ile denenmedi (yalnız sentetik ham çıktı); resmî `yolox_s.onnx` çıktısının `[1,8400,85]` ham biçimde olduğu varsayıldı (demo_postprocess ile aynı formül). Sapma olursa: `decode_in_inference` ile dışa aktarılmış dosya → `"yolox_decoded": true`. `yolox_s.onnx` indirme bağlantısı MODELLER.txt'de genel (Releases sayfası) bırakıldı. Windows'ta, CI'da, installer'da, gerçek mpv'de hâlâ hiçbir şey çalıştırılmadı (Parça 14 notları geçerli).
+- **Açık kararlar (proje sahibine)**: (1) projenin kendi **LICENSE**'ı seçilmedi — eklenmeden "tüm haklar saklıdır"; (2) `PY_SHA256` sabitleme; (3) mpv sürümünü `-Tag` ile sabitleyip kaynak arşivini yayımlamak (GPL için en güvenli yol); (4) OSNet ağırlıklarının kaynağı/veri lisansı; (5) kod imzalama yok.
+- Kasıtlı olarak yapılmayanlar: YOLOv10/RT-DETR çözücüsü; model indirme otomasyonu; Re-ID/numara modeli dağıtımı; kod imzalama.
 
 ## Doğrulama durumu (Parça 5; Parça 6-7 için de geçerli)
 - Parça 6: testler yerelde 76/76 (aynı uyumluluk katmanı); `track.lua`'daki `release` bağı ve `x` tuşu gerçek mpv'de denenmedi.

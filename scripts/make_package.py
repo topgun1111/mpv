@@ -6,7 +6,7 @@
     tracker/                  (Python paketi)
     models/                   (YOLO ONNX buraya konur; MODELLER.txt)
     Baslat.bat, Offline.bat   (başlatıcılar; python/ klasörünü build_embedded.py ekler)
-    requirements.txt, README.md, VERSION
+    requirements.txt, README.md, VERSION, THIRD_PARTY_NOTICES.md (+ LICENSE varsa)
 """
 
 from __future__ import annotations
@@ -38,8 +38,11 @@ def main() -> int:
         data = bat.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
         (OUT / bat.name).write_bytes(data)
 
-    for name in ("requirements.txt", "README.md", "VERSION"):
+    for name in ("requirements.txt", "README.md", "VERSION", "THIRD_PARTY_NOTICES.md"):
         shutil.copy2(ROOT / name, OUT / name)
+
+    if (ROOT / "LICENSE").is_file():  # proje lisansı (sahibi ekler)
+        shutil.copy2(ROOT / "LICENSE", OUT / "LICENSE")
 
     files = sum(1 for p in OUT.rglob("*") if p.is_file())
     print(f"Paket hazır: {OUT} ({files} dosya)")

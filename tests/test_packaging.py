@@ -78,7 +78,9 @@ def test_launchers_use_embedded_python_and_wait_for_mpv():
     assert "offline-view" in off and "--target-id" in off and "%~1.track.json" in off
     for t in (live, off):
         assert t.isascii() or "chcp 65001" in t  # UTF-8 kod sayfası ya da ASCII
-        assert "models\\yolov8n.onnx" in t  # model eksikse anlaşılır hata
+        assert "yolox_s" in t and "yolov8n" in t and "HASMODEL" in t  # model eksikse anlaşılır hata
+        msg = t.split("HASMODEL")[-1].split("echo HATA")[1].split("\n")[0]
+        assert "(" not in msg  # echo içindeki parantez if bloğunu bozar
 
 
 def test_installer_references_existing_files_and_win10_directml():
