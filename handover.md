@@ -1,13 +1,13 @@
 # handover.md — Takipli Oynat
 
 Her parça sonunda güncellenir. Yeni oturumda önce bu dosyayı oku, sonra sıradaki parçayı yap.
-Kurallar: her parça sonunda `handover.md` güncelle → tüm proje ZIP'le (`takipli-oynat-partNN.zip`).
+Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le (`takipli-oynat-partNN.zip`; değişen dosyalar değil, tüm dosyalar). (2) Ücretsiz Claude hesabı: token'ı idareli ve akıllı kullan, israf yok.
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer).
 
 ## Durum
-- Tamamlanan: **Parça 3/15**
-- Sıradaki: **Parça 4**
-- Sürüm: 0.3.0
+- Tamamlanan: **Parça 5/15**
+- Sıradaki: **Parça 6**
+- Sürüm: 0.5.0
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |
@@ -15,8 +15,8 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 | 1 | İskelet: repo yapısı, CI/Build workflow, config, geometri (bbox→zoom/pan), EMA+dead-zone, mpv IPC istemcisi, CLI (ping/view), installer iskeleti, testler | ✅ |
 | 2 | Lua: tıklama → video koordinatı, `script-message` ile Python'a iletme, OSD; Python'da olay okuma (`poll_event`) ve `listen` komutu | ✅ |
 | 3 | Detector: YOLO ONNX (onnxruntime-directml), ön/son işleme, NMS, person sınıfı | ✅ |
-| 4 | Tracker: ByteTrack (kalıcı ID), detector ile birleştirme | ⬜ |
-| 5 | Canlı mod `main.py`: kare okuma (mpv screenshot-raw/ffmpeg), time-pos senkronu, IPC çıkışı | ⬜ |
+| 4 | Tracker: ByteTrack (kalıcı ID), detector ile birleştirme | ✅ |
+| 5 | Canlı mod `main.py`: kare okuma (mpv screenshot-raw/ffmpeg), time-pos senkronu, IPC çıkışı | ✅ |
 | 6 | Hedef seçimi: tıklanan noktadaki bbox ID'si, hedef değiştirme/bırakma | ⬜ |
 | 7 | Kalman + hız yönünde lookahead (smooth.py genişletme) | ⬜ |
 | 8 | Kayıp yönetimi: son konumda bekle → kademeli zoom-out | ⬜ |
@@ -41,7 +41,7 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - `track.lua`: `t` ile takip açılınca `MBTN_LEFT` zorunlu bağlanır (kapanınca kaldırılır). Tıklama → `osd-dimensions` (w,h,ml,mr,mt,mb) ile video-normalize (nx, ny) → `script-message track-click nx ny video_w video_h time-pos`. Video dışı tıklama yok sayılır. `track-toggle on|off` ve `track-reset` mesajları da gönderilir.
 - `tracker/geometry.py`: `screen_to_video` (Lua'daki formülün Python eşi, testli; letterbox ve zoom'lu negatif margin durumları dahil).
 - `tracker/clicks.py`: `ClickEvent` (nx, ny, vw, vh, time_pos; `px/py` piksel), `parse_click`, `message_name`.
-- `tracker/ipc.py`: `command()` beklerken gelen olaylar kuyruğa alınır; `poll_event(timeout)` eklendi (Unix soketinde zaman aşımı destekli; Windows pipe'ında okuma bloklar → Parça 5'te okuma iş parçacığına alınacak).
+- `tracker/ipc.py`: `command()` beklerken gelen olaylar kuyruğa alınır; `poll_event(timeout)` eklendi (Unix soketinde zaman aşımı destekli; Windows pipe'ında okuma bloklar → Parça 5'te olaylar ayrı bağlantı + iş parçacığına alındı).
 - `tracker/main.py`: `listen [--follow-click] [--zoom Z]` komutu. Demo: tıklanan noktaya zoom yapar.
 - Testler: 20 (yeni: ekran→video, clicks, IPC olay kuyruğu).
 
@@ -72,8 +72,33 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - `fetch_deps.ps1` ve `installer.iss` Windows'ta denenmedi.
 - Windows CI artık `onnxruntime-directml` kuruyor (GPU'suz runner'da CPU provider'a düşer); sorun çıkarsa `ci.yml`'de CPU `onnxruntime` kur.
 
-## Parça 4 için başlangıç
-- `tracker/bytetrack.py`: Kalman (cx,cy,a,h) + IoU ile ByteTrack (yüksek/düşük skor iki aşamalı eşleştirme, `lap`/`scipy` yerine saf numpy Macar algoritması veya `scipy.optimize.linear_sum_assignment`), kalıcı `track_id`, `Track(id, bbox, score, age, lost)`.
-- Detector çıktısı (`list[Detection]`) → tracker `update(detections)` → `list[Track]`. Birleştirme için `tracker/pipeline.py` (detector + tracker, kare başına `step(frame)`).
-- Testler: sentetik hareketli kutularla ID kalıcılığı, kısa kayıpta ID korunması, yeni nesne = yeni ID. `requirements.txt`'e `scipy` eklenecekse onayla (boyut).
+## Parça 4'te yapılanlar
+- `tracker/bytetrack.py`: `linear_assignment` (saf numpy Macar, dikdörtgen destekli; scipy eklenmedi), `iou_matrix`, `match`, `KalmanBox` (cx,cy,a,h + hızlar, sabit hız), `ByteTracker.update(list[Detection]) -> list[Track]` (yüksek skor → IoU eşleşme; kalan izler düşük skorlularla 2. aşama; yalnızca eşleşmeyen yüksek skorlu tespit yeni ID alır; `max_lost` sonrası silinir). `Track(id,bbox,score,age,lost)`. Dönüş yalnızca o karede görülenleri içerir; kayıp izler `lost_tracks` (tahmini konum, Parça 8 için).
+- `tracker/pipeline.py`: `Pipeline(detector, tracker).step(frame_bgr) -> list[Track]`, `reset()`.
+- Varsayılanlar: high 0.5, low 0.1, match_iou 0.3, second_iou 0.5, max_lost 30 (kare). Canlı modda detector `det_conf` (0.25) low_thr'den büyükse düşük skor aşaması çalışmaz → Parça 5'te `det_conf`'u ~0.1'e çek.
+- Testler: `tests/test_bytetrack.py` (9: Macar, IoU, ID kalıcılığı, iki nesne, kısa/uzun kayıp, düşük skor, yeni ID, pipeline). Sürüm 0.4.0.
+- Doğrulama: yalnızca sentetik kutularla; gerçek video/modelle denenmedi. `unconfirmed_iou`, `min_hits` parametreleri ayrılmış ama henüz kullanılmıyor (min_hits yalnızca çıktı süzer).
+
+## Parça 5'te yapılanlar
+- `tracker/frames.py`: `decode_raw` (screenshot-raw `{w,h,stride,format,data}` → BGR; base64 metni veya sayı listesi; `bgr0`/`bgra`; stride dolgusu atılır; bozuk/eksik veri → `ValueError`), `grab_frame(mpv)` (`screenshot-raw video bgr0`: altyazı/OSD'siz, zoom'suz tam çözünürlük kare).
+- `tracker/live.py`: `LiveController` (IO'suz mantık: `handle_event`, `needs_frame`, `step`), `pick_track` (tıklanan noktayı içeren, merkezi en yakın iz; **basit**, Parça 6'da genişlet), `EventListener` (olayları AYRI IPC bağlantısında iş parçacığıyla okur), `run_live` (döngü).
+  - Davranış: `track-toggle on|off`, `track-reset`, `track-click` işlenir; kapanınca/sıfırlanınca görünüm `View()` (1x) olur. Tıklama ilk işlenen karede hedef ID'ye çevrilir (OSD: "Hedef: ID n" / "Burada kişi yok"). Hedef görünürken `compute_view` → `ViewSmoother` → `set_view` (değişmediyse gönderilmez). Hedef kaybolursa son görünümde bekler ("Hedef kayboldu" bir kez; kayıp yönetimi Parça 8).
+  - Senkron: her turda önce `time-pos` okunur, sonra kare alınır. Duraklatılmışken (time-pos değişmiyor) kare işlenmez; bekleyen tıklama varsa işlenir. Atlama (geri gitme veya `seek_jump` sn'den fazla ileri) → `pipeline.reset()`, hedef bırakılır, görünüm 1x, OSD "Atlama: hedefi yeniden seç". Dosya yokken `property unavailable` (`MpvCommandError`) döngüyü bozmaz; bağlantı kapanınca temiz çıkış.
+  - Hız: `live_fps` (10) ile sınırlı; geride kalınırsa kuyruk birikmez (her tur o anki kareyi alır). `--stats SN` hız/gecikme yazar.
+- `tracker/ipc.py`: **Windows pipe'ında okuma byte byte yapılıyordu** (büyük kare satırında çok yavaş) → 64 KB'lık parça okuma + `bytearray` tampon; Unix'te de her turda tamponu baştan taramak yerine kalan kısım taranır (MB'lık satırlar). `MpvCommandError(MpvIpcError)` eklendi; `MpvIpc(keep_events=False)` ile olay okumayan komut bağlantısında kuyruk şişmez.
+- `tracker/config.py`: `live_det_conf` 0.1 (detector eşiği = ByteTrack `low_thr`; Parça 4 notu giderildi), `live_fps` 10, `seek_jump` 2.0.
+- `tracker/main.py`: `live [--model] [--device] [--fps] [--stats SN]` komutu (Detector + ByteTracker + Pipeline + dinleyici + `run_live`). Sürüm 0.5.0.
+- Testler: 68 (yeni 23: decode_raw, pick_track, denetleyici akışları, `run_live` uçtan uca sahte mpv ile, 1280x720 kareyle gerçek Unix soketi turu).
+- Kasıtlı olarak yapılmayanlar: ffmpeg kare kaynağı (yalnız screenshot-raw), gecikme telafisi/lookahead (Parça 7), kayıp yönetimi (Parça 8), "her N karede bir tespit" (CPU modu; gerekirse Parça 7-8 ile).
+
+## Parça 6 için başlangıç
+- Hedef seçimi: şimdiki `pick_track` yalnız noktayı içeren kutuyu seçiyor. Eklenecekler: kutu dışına yakın tıklamada en yakın kutu (tolerans), hedef değiştirme (yeni tıklama), hedefi bırakma (hedefin üstüne tekrar tıklama veya tuş), çakışan kutularda seçim kuralı, Lua tarafında gerekirse ek mesaj. Mantık `LiveController.step` içindeki tıklama bloğunda.
+
+## Doğrulama durumu (Parça 5)
+- Testler yerelde 68/68 (pytest yüklenemediği için basit uyumluluk katmanıyla). `ruff` ve GitHub Actions yine **çalıştırılmadı** (satır ≤100 ve kullanılmayan import elle kontrol edildi). Yüklenen arşivde `.github/workflows/` (git'te kayıtlı) çalışma klasöründen silinmişti ve `pyproject.toml`'daki `pythonpath = ["."]` satırı eksikti (CI'da `import tracker` için gerekli); ikisi de git HEAD'den geri yüklendi.
+- **Gerçek mpv ile denenmedi**: `screenshot-raw`'ın JSON IPC'de base64 `data` döndürdüğü, 1080p karede IPC hızı (kare başı ~8 MB bayt → ~11 MB base64) ve `live_fps` 10'un tutup tutmadığı Windows'ta doğrulanmalı. Yavaşsa: ffmpeg kare kaynağı veya mpv'de küçültülmüş kare (ör. `vf` ile) düşün.
+- Windows'ta iki IPC bağlantısı (komut + olay) birlikte açılıyor; mpv'nin pipe sunucusunda çoklu istemci beklenen davranış ama denenmedi.
+- Elle deneme: `dist\TakipliOynat\mpv\mpv.exe video.mp4` → ayrı terminalde `python -m tracker live --stats 2` → mpv'de `t`, oyuncuya sol tık; `r` sıfırlar.
+
+## Notlar (devam)
 - Lisans notu (Parça 15): Ultralytics YOLO modelleri AGPL-3.0; ONNX dışa aktarımı da buna tabidir. Kapalı dağıtım için YOLOX (Apache-2.0) ONNX'i düşün; `decode_yolo` YOLOX çıktısı (objectness'li) için ayrı bir çözücü gerektirir.

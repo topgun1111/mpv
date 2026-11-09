@@ -1,4 +1,4 @@
-"""CLI girişi: ping, view, listen (Parça 2), detect (Parça 3). Canlı mod Parça 5'te."""
+"""CLI girişi: ping, view, listen (Parça 2), detect (Parça 3), live (Parça 5)."""
 from __future__ import annotations
 
 import argparse
@@ -30,7 +30,44 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--conf", type=float, help="Skor eşiği")
     d.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"], help="Çalışma cihazı")
     d.add_argument("--out", help="Kutuları çizilmiş görüntüyü kaydet")
+    lv = sub.add_parser("live", help="Canlı mod: mpv karelerini oku, takip et, zoom/pan uygula")
+    lv.add_argument("--model", help="ONNX model yolu (varsayılan: config.model_path)")
+    lv.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"], help="Çalışma cihazı")
+    lv.add_argument("--fps", type=float, help="En fazla işleme hızı (varsayılan: config.live_fps)")
+    lv.add_argument("--stats", type=float, default=0.0, metavar="SN",
+                    help="SN'de bir hız/gecikme yaz")
     return p
+
+
+def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
+    """Ağır bağımlılıklar yalnızca bu komutta içe aktarılır."""
+    import queue
+
+    from .bytetrack import ByteTracker
+    from .detector import Detector
+    from .live import EventListener, run_live
+    from .pipeline import Pipeline
+
+    if args.fps:
+        cfg.live_fps = args.fps
+    det = Detector(
+        args.model or cfg.model_path,
+        conf_thres=cfg.live_det_conf,
+        iou_thres=cfg.det_iou,
+        input_size=cfg.det_size,
+        device=args.device or cfg.device,
+    )
+    print(f"detector: provider={det.providers[0]}, girdi={det.size}")
+    pipeline = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf))
+    events: queue.Queue = queue.Queue()
+    listener = EventListener(cfg.ipc_path, events)
+    listener.start()
+    try:
+        with MpvIpc(cfg.ipc_path, keep_events=False) as mpv:  # komut bağlantısı olay biriktirmez
+            run_live(mpv, events, pipeline, cfg, stats_every=args.stats)
+    finally:
+        listener.stop()
+    return 0
 
 
 def detect_image(cfg: Config, args: argparse.Namespace) -> int:
@@ -99,6 +136,14 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return detect_image(cfg, args)
         except (FileNotFoundError, ValueError, ImportError) as e:
+            print(f"HATA: {e}", file=sys.stderr)
+            return 1
+    if args.cmd == "live":
+        try:
+            return run_live_cmd(cfg, args)
+        except KeyboardInterrupt:
+            return 0
+        except (FileNotFoundError, ValueError, ImportError, MpvIpcError) as e:
             print(f"HATA: {e}", file=sys.stderr)
             return 1
     try:

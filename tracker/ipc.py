@@ -14,12 +14,17 @@ class MpvIpcError(RuntimeError):
     pass
 
 
+class MpvCommandError(MpvIpcError):
+    """mpv komutu reddetti (ör. dosya yokken `time-pos` → property unavailable)."""
+
+
 class MpvIpc:
-    def __init__(self, path: str, timeout: float = 2.0):
+    def __init__(self, path: str, timeout: float = 2.0, keep_events: bool = True):
         self.path = path
         self.timeout = timeout
         self._next_id = 1
-        self._buf = b""
+        self._buf = bytearray()
+        self.keep_events = keep_events  # False: olay okumayan bağlantıda kuyruk şişmesin
         self._sock: socket.socket | None = None
         self._pipe = None
         self._events: deque[dict[str, Any]] = deque()
@@ -65,31 +70,42 @@ class MpvIpc:
         else:
             raise MpvIpcError("bağlı değil")
 
+    def _fill(self, timeout: float | None) -> bool:
+        """Tampona veri ekler. Zaman aşımında False döner (yalnız Unix soketi)."""
+        if self._pipe:
+            try:
+                chunk = self._pipe.read(1 << 16)  # satır satır okumak büyük karelerde çok yavaş
+            except OSError as e:
+                raise MpvIpcError(f"mpv pipe okunamadı: {e}") from e
+        else:
+            assert self._sock is not None
+            self._sock.settimeout(self.timeout if timeout is None else timeout)
+            try:
+                chunk = self._sock.recv(1 << 20)
+            except TimeoutError as e:
+                if timeout is not None:
+                    return False
+                raise MpvIpcError("mpv yanıt zaman aşımı") from e
+            finally:
+                self._sock.settimeout(self.timeout)
+        if not chunk:
+            raise MpvIpcError("mpv bağlantısı kapandı")
+        self._buf += chunk
+        return True
+
     def _readline(self, timeout: float | None = None) -> bytes | None:
         """Bir satır okur. `timeout` verilirse ve süre dolarsa None döner (yalnız Unix soketi;
-        Windows pipe'ında okuma bloklar, canlı modda ayrı iş parçacığı kullanılacak)."""
-        if self._pipe:
-            line = self._pipe.readline()
-            if not line:
-                raise MpvIpcError("mpv bağlantısı kapandı")
-            return line
-        assert self._sock is not None
-        wait = self.timeout if timeout is None else timeout
-        self._sock.settimeout(wait)
-        try:
-            while b"\n" not in self._buf:
-                try:
-                    chunk = self._sock.recv(4096)
-                except TimeoutError as e:
-                    if timeout is not None:
-                        return None
-                    raise MpvIpcError("mpv yanıt zaman aşımı") from e
-                if not chunk:
-                    raise MpvIpcError("mpv bağlantısı kapandı")
-                self._buf += chunk
-        finally:
-            self._sock.settimeout(self.timeout)
-        line, self._buf = self._buf.split(b"\n", 1)
+        Windows pipe'ında okuma bloklar → canlı modda olaylar ayrı bağlantı + iş parçacığında)."""
+        start = 0
+        while True:
+            i = self._buf.find(b"\n", start)
+            if i >= 0:
+                break
+            start = len(self._buf)  # her turda tamponu baştan taramamak için (MB'lık satırlar)
+            if not self._fill(timeout):
+                return None
+        line = bytes(self._buf[:i])
+        del self._buf[: i + 1]
         return line
 
     # --- komutlar ---
@@ -102,11 +118,11 @@ class MpvIpc:
             assert line is not None
             msg = json.loads(line)
             if msg.get("request_id") != rid:
-                if "event" in msg:
+                if "event" in msg and self.keep_events:
                     self._events.append(msg)  # komut beklerken gelen olayı kaybetme
                 continue
             if msg.get("error") != "success":
-                raise MpvIpcError(f"mpv hatası: {msg.get('error')}")
+                raise MpvCommandError(f"mpv hatası: {msg.get('error')}")
             return msg.get("data")
 
     def poll_event(self, timeout: float = 0.5) -> dict[str, Any] | None:

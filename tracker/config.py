@@ -26,6 +26,9 @@ class Config:
     det_iou: float = 0.45
     det_size: int = 640
     device: str = "auto"  # auto | dml | cuda | cpu
+    live_det_conf: float = 0.1  # canlı mod: ByteTrack düşük skor aşaması için (low_thr ile aynı)
+    live_fps: float = 10.0  # canlı mod en fazla işleme hızı (screenshot-raw IPC'de ağır)
+    seek_jump: float = 2.0  # sn; time-pos bundan fazla ileri atlarsa / geri giderse atlama sayılır
 
     def __post_init__(self) -> None:
         if not self.ipc_path:
