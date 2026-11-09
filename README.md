@@ -76,4 +76,20 @@ TakipliOynat/
 - CPU-only makinelerde canlı mod düşük fps → offline mod
 
 ## Yol Haritası
-Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: Parça 1–8 (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi). Sıradaki: Parça 9 (offline mod).
+Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: Parça 1–10 (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma). Sıradaki: Parça 11 (Re-ID).
+
+## Offline mod (Parça 9)
+```
+python -m tracker offline video.mp4                       # tespit+izleme → video.mp4.track.json, en uzun izleri listeler
+python -m tracker offline video.mp4 --target-id 7         # hedefle birlikte görünüm anahtar karelerini de yazar
+python -m tracker offline video.mp4 --click 12.5 0.43 0.61  # 12.5. sn'de (nx, ny) noktasındaki kişi
+python -m tracker offline-view video.mp4.track.json --list
+python -m tracker offline-view video.mp4.track.json --target-id 3   # tespit YOK, saniyeler sürer
+```
+Şema `tracker/offline.py` başındadır (`views`: `[t, zoom, pan_x, pan_y]`).
+
+### Offline oynatma (Parça 10)
+`offline ... --target-id N` (veya `offline-view`) `video.mp4.views.json` dosyasını da yazar. Bu dosya
+videonun yanında dururken mpv'de **`o`** tuşu görünümü Python olmadan, `time-pos`'a göre sürer
+(seek/duraklatmada da çalışır). `t` (canlı) açılınca offline kapanır ve tersi; `r` ikisini de sıfırlar.
+`--out` ile farklı yola yazdıysan `*.views.json` dosyasını `<video dosya adı>.views.json` yap.

@@ -5,9 +5,9 @@ Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. exe: çalışmanın sayfasında Artifacts → TakipliOynat.
 
 ## Durum
-- Tamamlanan: **Parça 8/15**
-- Sıradaki: **Parça 9**
-- Sürüm: 0.8.0
+- Tamamlanan: **Parça 10/15**
+- Sıradaki: **Parça 11**
+- Sürüm: 0.10.0
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |
@@ -20,8 +20,8 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 | 6 | Hedef seçimi: tıklanan noktadaki bbox ID'si, hedef değiştirme/bırakma | ✅ |
 | 7 | Kalman + hız yönünde lookahead (smooth.py genişletme) | ✅ |
 | 8 | Kayıp yönetimi: son konumda bekle → kademeli zoom-out | ✅ |
-| 9 | Offline mod: `offline.py` → `track.json` şeması ve üretimi | ⬜ |
-| 10 | Lua offline oynatma: `time-pos` ile JSON'dan zoom/pan, interpolasyon | ⬜ |
+| 9 | Offline mod: `offline.py` → `track.json` şeması ve üretimi | ✅ |
+| 10 | Lua offline oynatma: `time-pos` ile JSON'dan zoom/pan, interpolasyon | ✅ |
 | 11 | Re-ID (OSNet ONNX): embedding, ID kurtarma | ⬜ |
 | 12 | Takım rengi histogramı + forma numarası OCR | ⬜ |
 | 13 | Ayarlar (config UI/tuşlar) ve OSD iyileştirmeleri | ⬜ |
@@ -123,8 +123,26 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - Kasıtlı olarak yapılmayanlar: kayıp sırasında konum tahmini ("coast", Kalman ile ileri götürme) — bekleme sırasında görünüm sabit kalıyor (futbolda kısa örtüşmelerde kamera kaymasın diye); gerekirse `BoxFilter.update` zaten `max_gap` (1 sn) içinde hızla tahmin eder, yani geri dönüşte süzgeç tutarlıdır. Zoom-out sonrası hedefi otomatik bırakma yok (Parça 11 Re-ID ile birlikte düşünülecek). `lost_hold_s` + `lost_zoomout_s` (3 sn) varsayılan olarak ByteTrack `max_lost` (30 kare ≈ 3 sn @10 fps) ile aynı mertebede seçildi; `live_fps` değişirse ikisini birlikte ayarla.
 - Doğrulama: yalnızca sentetik izlerle (yerelde 97/97, gerçek pytest ile — bu oturumda pytest kullanılabildi; ruff temiz). Gerçek videoda süreler (bekleme 1 sn, zoom-out 2 sn) **ayarlanmadı**.
 
-## Parça 9 için başlangıç
-- Offline mod: `tracker/offline.py` → tüm videoyu (ffmpeg/opencv ile) işleyip `track.json` üretir (şema: sürüm, video boyutu, fps, kare başına zaman + hedef kutusu/görünüm). Parça 8'deki bekle/zoom-out mantığı offline'da da aynı olmalı: `LiveController` mantığını (IO'suz) yeniden kullanmak ya da `_on_lost`'u ayrı bir sınıfa çıkarmak düşünülebilir. Offline'da gelecek karelere bakılabilir (non-causal): kayıp aralıkları için ileri-geri interpolasyon.
+## Parça 9'da yapılanlar
+- `tracker/offline.py` (şema başında dokümante, sürüm 1): `{"version","video":{path,w,h,fps,duration},"sample_fps","samples":[{"t","d":[[id,x1,y1,x2,y2,skor]...]}],"target":{"id"}|null,"views":[[t,zoom,pan_x,pan_y]...]}`; koordinatlar kare boyutuna normalize, zaman video zamanı. `views` mpv `video-zoom`/`video-pan-x/y` değerleridir (Parça 10 Lua `time-pos`'a göre doğrusal interpole eder); sabit duran yinelenen anahtar kareler seyreltilir (ilk/son kare hep kalır).
+- `VideoSource(path, fps)`: cv2.VideoCapture, `grab` ile atlayıp yalnızca örneklenen kareyi çözer (t = kare_no/kaynak_fps; **sabit kare hızı (CFR) varsayımı**). `run_detection(frames, pipeline)` → örnekler. `load_doc/save_doc` (sürüm doğrulamalı), `list_tracks`, `pick_target_id(doc, t, nx, ny)` (`pick_track` ile; en yakın örnek).
+- `build_views(doc, id, cfg)` **nedensel değil**: (1) `offline_interp_s` (0.6 sn)'den kısa kayıplar doğrusal doldurulur; (2) kesintisiz parçalarda kutu (cx,cy,w,h) sıfır-faz (ileri+geri EMA, `smooth_zero_phase`) yumuşatılır → gecikme/lookahead gerekmez → `compute_view`; (3) uzun kayıpta Parça 8 mantığı: `lost_hold_s` bekle, `lost_zoomout_s` ile 1x'e in, hedef dönmeden `lost_zoomout_s` önce zoom-in'e başla (ease_view); başlangıç/bitiş boşlukları 1x. Hedef hiç yoksa 1x iki anahtar kare.
+- CLI: `offline VIDEO [--out] [--model] [--device] [--fps] [--target-id N | --click SN NX NY]` (hedef verilmezse en uzun izleri listeler), `offline-view JSON [--list] [--target-id|--click] [--out]` (tespitsiz yeniden hedefleme: pahalı kısım bir kez).
+- Config: `offline_fps` 10, `offline_interp_s` 0.6, `offline_alpha` 0.4.
+- Testler: 109 (yeni 12: tespit normalizasyonu, şema gidiş-dönüş/doğrulama, list/pick, sıfır-faz gecikmesizliği, gecikmesiz takip, kısa/uzun kayıp zaman çizelgesi, zoom monotonluğu ve kenar boşluğu görünmemesi, hedef yok/başlangıç boşluğu, dedupe, CLI, gerçek AVI ile VideoSource). `ruff check` temiz. Sürüm 0.9.0.
+- Kasıtlı olarak yapılmayanlar: `track.json`'u sıkıştırma/parçalama (2 saatlik video @10 örnek/sn × ~20 iz ≈ onlarca MB olabilir; Lua yalnızca `views`'i okuyacaksa ayrı küçük dosya `*.views.json` düşünülebilir → Parça 10'da karar ver); ByteTrack'in `max_lost`'u (30 örnek) ve `offline_fps` ilişkisi; değişken kare hızlı (VFR) videoda zaman kayması; ffmpeg kaynağı; çoklu hedef.
+- Doğrulama: sentetik izler + küçük MJPG AVI; `offline` komutu gerçek YOLO modeliyle/DirectML'le ve gerçek maç videosuyla **denenmedi** (model yoksa `HATA` ile temiz çıkış denendi). Yumuşatma katsayıları (`offline_alpha`) ayarlanmadı.
+
+## Parça 10'da yapılanlar
+- Python: hedef seçilince `offline`/`offline-view` ayrıca küçük **`<video>.views.json`** yazar (`views_path`: `x.mp4.track.json` → `x.mp4.views.json`; `save_views`: yalnız version/video.path/target/views; `samples` yok → Lua büyük JSON ayrıştırmaz). `offline.view_at(views, t)` = Lua formülünün Python referansı.
+- `track.lua`: `o` (`script-binding track/offline`) → `<video yolu>.views.json` (yoksa `.track.json`) okunur (`utils.parse_json`; sürüm/boş `views` denetimi, sebep OSD'de), anahtar kareler paralel dizilere alınır. `mp.observe_property("time-pos")` → ikili arama + doğrusal interpolasyon (`view_at`) → `video-zoom/pan-x/pan-y`; değişim <1e-4 ise atlanır. Duraklatmada seek'te de çalışır. URL/akışta devre dışı. `file-loaded`'da yan dosya varsa OSD ipucu; `end-file`'da offline kapanır.
+- Canlı/offline karşılıklı dışlayıcı: `t` açılınca offline kapanır (`set_enabled` → `set_offline(false)`); `o` açılınca canlı kapanır ve Python'un async 1x sıfırlaması araya girmesin diye 0.5 sn sonra görünüm yeniden uygulanır. `r` her ikisini sıfırlar. Kod Lua 5.1/LuaJIT uyumlu (// ve goto yok).
+- Testler: 114 (yeni 5). `tests/lua_harness.lua` + `tests/test_lua_offline.py`: `track.lua` sahte `mp` ile **gerçekten çalıştırılır** (texlua/lua/luajit varsa; yoksa atlanır) ve her `time-pos` için Lua çıktısı Python `view_at` ile birebir karşılaştırılır; canlı↔offline geçişi, zamanlayıcı, end-file, dosya yok durumu. `texluac -p` sözdizimi temiz. `ruff` temiz. Sürüm 0.10.0.
+- Doğrulama: **gerçek mpv'de denenmedi**: `utils.parse_json`'ın büyük `.track.json`'da hızı/bellek tüketimi, `time-pos` gözlemcisinin oynatma sırasında gerçekten kare başı gelip gelmediği ve `video-pan` ayarının akıcılığı Windows'ta bakılmalı. Akıcı değilse: gözlemci yerine `mp.add_periodic_timer(1/60)` ya da anahtar kare yoğunluğunu artır (şu an `offline_fps`=10 örnek/sn; mpv iki anahtar kare arasında doğrusal ilerler).
+- Kasıtlı olarak yapılmayanlar: Lua'da hedef seçimi/`--click` (hedef Python'da seçilir); birden çok hedef/profil dosyası; `.views.json`'u otomatik açma (yalnız ipucu); anahtar kareler arası easing (doğrusal yeterli: kareler zaten yumuşatılmış).
+
+## Parça 11 için başlangıç
+- Re-ID (OSNet ONNX): kişi kırpıntısından embedding; `tracker/reid.py` (`Embedder`: ön işleme 256x128, ONNX Runtime oturumu `Detector`'a benzer provider seçimi, L2-normalize, kosinüs benzerliği). Canlıda hedef ID'si kaybolup ByteTrack yeni ID verirse hedefin galeri embedding'iyle (EMA'lı) yeni izleri karşılaştırıp hedefi yeni ID'ye bağla (`LiveController._on_lost` içinde, `lost_hold_s` süresince). Offline'da `samples`'a seyrek embedding eklemek yerine `build_views` öncesi aynı ID birleştirme (ID remap) düşünülebilir. Model dosyası/lisans (OSNet MIT/Apache) için `models/` ve Parça 15 notu.
 
 ## Doğrulama durumu (Parça 5; Parça 6-7 için de geçerli)
 - Parça 6: testler yerelde 76/76 (aynı uyumluluk katmanı); `track.lua`'daki `release` bağı ve `x` tuşu gerçek mpv'de denenmedi.

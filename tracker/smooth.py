@@ -182,3 +182,15 @@ class BoxFilter:
         cx, cy = self._f[0].p + dx, self._f[1].p + dy
         w, h = max(self._f[2].p, 0.0), max(self._f[3].p, 0.0)
         return BBox(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+
+
+def smooth_zero_phase(values: list[float], alpha: float) -> list[float]:
+    """İleri + geri EMA: gecikmesiz (sıfır-faz) yumuşatma; offline modda kullanılır."""
+    if not values:
+        return []
+    out = list(values)
+    for i in range(1, len(out)):
+        out[i] = out[i - 1] + alpha * (out[i] - out[i - 1])
+    for i in range(len(out) - 2, -1, -1):
+        out[i] = out[i + 1] + alpha * (out[i] - out[i + 1])
+    return out
