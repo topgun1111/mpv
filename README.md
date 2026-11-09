@@ -120,6 +120,9 @@ Takım yalnızca eleme yapar; etiket belirsizse aday elenmez. `--number` için `
 ### Canlı ayarlar ve durum etiketi (Parça 13)
 Canlı mod çalışırken mpv'de: `Ctrl+↑/↓` doluluk, `Ctrl+→/←` tepki hızı, `Ctrl+PgUp/PgDn` öngörü, `Ctrl+0` varsayılanlar, `Ctrl+S` ayarları kaydet (`--config` ya da `tracker_config.json`), `h` durum özeti, `Ctrl+H` sağ üst etiketi gizle/göster. Kayıtlı ayarla başlamak için: `python -m tracker --config tracker_config.json live ...`.
 
+### Ekran üstü düğmeler (Parça 16)
+mpv penceresinde fareyi/parmağı oynatınca sol üstte düğme paneli çıkar (3 sn sonra gizlenir; **Sabit** düğmesi ya da `Ctrl+B` ile sabitlenir): **Takip AÇIK/KAPALI**, **Bırak**, **Sıfırla**, **Offline**, **Zoom -/+**, **Tepki -/+**, **Öngörü -/+**, **Kaydet**, **Durum**. Takip açıkken Zoom +/- hedefin kareyi doldurma oranını, kapalıyken video zoom'unu değiştirir. Takip açıkken düğmelerin dışında bir oyuncuya tıklamak hedef seçer. Klavye kısayolları aynen çalışır.
+
 ### Kurulum ve başlatıcılar (Parça 14)
 Installer (`TakipliOynat-Setup-x.y.z.exe`, Windows 10 1903+) gömülü Python, mpv ve DirectML ile gelir; ayrıca Python kurmak gerekmez. Modeller lisans nedeniyle gelmez: `models\MODELLER.txt`'e bak ve `yolox_s.onnx` (önerilen) ya da `yolov8n.onnx`'i `models\` klasörüne koy.
 - **Takipli Oynat (canlı)** kısayolu / `Baslat.bat`: mpv'yi ve izleyiciyi birlikte açar (video sürükleyebilirsin). Re-ID/takım/numara modelleri `models\`'te varsa otomatik açılır.

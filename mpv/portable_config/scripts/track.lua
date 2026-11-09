@@ -8,6 +8,8 @@ local utils = require 'mp.utils'
 local enabled = false
 local set_offline -- ileri bildirim: canlı mod açılınca offline kapatılır
 local off -- ileri bildirim (offline durumu; HUD okur)
+local sync_click_binding -- ileri bildirim: sol tık bağı (ekran üstü panel + hedef seçimi)
+local refresh_panel -- ileri bildirim: ekran üstü panel yeniden çizimi
 
 -- Köşe durum etiketi (Parça 13): Python `script-message-to track track-hud <metin>` gönderir.
 -- Offline açıkken "Takip: offline ID n" gösterilir. `track/hud` tuşu etiketi gizler/gösterir.
@@ -74,32 +76,32 @@ local function set_enabled(on)
   enabled = on
   if enabled then
     set_offline(false) -- canlı ve offline aynı anda görünümü sürmesin
-    -- Takip açıkken sol tık hedef seçer (varsayılan sol tık davranışını geçersiz kılar)
-    mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", on_click)
   else
-    mp.remove_key_binding("track-click-bind")
     hud.text = ""
     render_hud()
   end
+  -- Takip açıkken sol tık hedef seçer (varsayılan sol tık davranışını geçersiz kılar)
+  sync_click_binding()
   mp.commandv("script-message", "track-toggle", enabled and "on" or "off")
   osd(enabled and "AÇIK - hedefe sol tıkla" or "KAPALI")
+  if refresh_panel then refresh_panel() end
 end
 
 mp.add_key_binding(nil, "toggle", function() set_enabled(not enabled) end)
 
-mp.add_key_binding(nil, "reset", function()
+local function do_reset()
   set_offline(false)
   mp.set_property_number("video-zoom", 0)
   mp.set_property_number("video-pan-x", 0)
   mp.set_property_number("video-pan-y", 0)
   mp.commandv("script-message", "track-reset")
   osd("sıfırlandı")
-end)
+end
+mp.add_key_binding(nil, "reset", do_reset)
 
 -- Hedefi bırak (takip açık kalır; yeni tıklama yeni hedef seçer; hedefe tekrar tıklamak da bırakır).
-mp.add_key_binding(nil, "release", function()
-  mp.commandv("script-message", "track-release")
-end)
+local function do_release() mp.commandv("script-message", "track-release") end
+mp.add_key_binding(nil, "release", do_release)
 
 -- ---------------------------------------------------------------------------------------------
 -- Offline oynatma
@@ -192,11 +194,13 @@ set_offline = function(on)
     -- Canlı mod kapanırken Python'un gönderdiği 1x sıfırlaması gecikmeli gelebilir: yeniden uygula
     if was_live then mp.add_timeout(0.5, reapply) end
     render_hud()
+    if refresh_panel then refresh_panel() end
     osd(string.format("offline AÇIK (hedef ID %s, %d anahtar kare)",
       tostring(off.target and off.target.id or "?"), off.n))
   else
     off.on, off.last = false, nil
     render_hud()
+    if refresh_panel then refresh_panel() end
     mp.set_property_number("video-zoom", 0)
     mp.set_property_number("video-pan-x", 0)
     mp.set_property_number("video-pan-y", 0)
@@ -243,6 +247,158 @@ mp.add_key_binding(nil, "hud", function()
   hud.visible = not hud.visible
   render_hud()
   osd(hud.visible and "durum etiketi AÇIK" or "durum etiketi KAPALI", 1)
+end)
+
+-- ---------------------------------------------------------------------------------------------
+-- Ekran üstü düğme paneli (Parça 16): fare/dokunma hareketinde sol üstte görünür, 3 sn sonra gizlenir
+-- (sabitlenebilir). Düğmeler tuşlarla aynı işi yapar. Panel yalnız imleç bir düğmenin üstündeyken sol
+-- tıkı yakalar; böylece mpv'nin kendi OSC'si/tıklaması bozulmaz.
+local PANEL_HIDE_S = 3
+local panel = { visible = false, pinned = false, hover = nil, rects = {}, ov = nil, timer = nil }
+
+local function manual_zoom(dir)
+  if enabled then -- canlı takip: hedefin kareyi doldurma oranı
+    mp.commandv("script-message", "track-setting", "fill", tostring(dir))
+  elseif off.on then
+    osd("offline açıkken zoom sabit; önce offline'ı kapat", 2)
+  else
+    local z = (mp.get_property_number("video-zoom", 0) or 0) + dir * 0.25
+    if z < 0 then z = 0 elseif z > 4 then z = 4 end
+    mp.set_property_number("video-zoom", z)
+    osd(string.format("zoom %.2f", z), 1)
+  end
+end
+
+local function setting_btn(key, dir)
+  return function() mp.commandv("script-message", "track-setting", key, tostring(dir)) end
+end
+
+local buttons = {
+  { label = function() return "Takip: " .. (enabled and "AÇIK" or "KAPALI") end,
+    active = function() return enabled end, act = function() set_enabled(not enabled) end },
+  { label = "Bırak", act = do_release },
+  { label = "Sıfırla", act = do_reset },
+  { label = function() return "Offline: " .. (off.on and "AÇIK" or "KAPALI") end,
+    active = function() return off.on end, act = function() set_offline(not off.on) end },
+  { label = "Zoom -", act = function() manual_zoom(-1) end },
+  { label = "Zoom +", act = function() manual_zoom(1) end },
+  { label = "Tepki -", act = setting_btn("speed", -1) },
+  { label = "Tepki +", act = setting_btn("speed", 1) },
+  { label = "Öngörü -", act = setting_btn("lead", -1) },
+  { label = "Öngörü +", act = setting_btn("lead", 1) },
+  { label = "Kaydet", act = function() mp.commandv("script-message", "track-save") end },
+  { label = "Durum", act = function() mp.commandv("script-message", "track-status") end },
+  { label = function() return "Sabit: " .. (panel.pinned and "AÇIK" or "KAPALI") end,
+    active = function() return panel.pinned end,
+    act = function() panel.pinned = not panel.pinned end },
+}
+
+local function label_of(b) if type(b.label) == "function" then return b.label() end return b.label end
+
+-- Saf yerleşim: W,H pencere pikseli; labels -> rects {x,y,w,h} (satıra sarar), yazı boyutu.
+local function panel_layout(W, H, labels)
+  local bh = math.max(30, math.floor(H * 0.06))
+  local fs = math.floor(bh * 0.5)
+  local gap = math.floor(bh * 0.2)
+  local rects, x, y = {}, gap, gap
+  for i, label in ipairs(labels) do
+    local n = 0
+    for _ in label:gmatch("[^\128-\191]") do n = n + 1 end -- UTF-8 karakter sayısı
+    local w = math.floor(n * fs * 0.62 + bh * 0.8)
+    if x > gap and x + w > W - gap then x, y = gap, y + bh + gap end
+    rects[i] = { x = x, y = y, w = w, h = bh }
+    x = x + w + gap
+  end
+  return rects, fs
+end
+
+local function hit(x, y)
+  for i, r in ipairs(panel.rects) do
+    if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then return i end
+  end
+  return nil
+end
+
+local function render_panel()
+  if not panel.ov then panel.ov = mp.create_osd_overlay("ass-events") end
+  local d = mp.get_property_native("osd-dimensions")
+  if not panel.visible or not (d and d.w and d.w > 0 and d.h and d.h > 0) then
+    panel.rects = {}
+    panel.ov.data = ""
+    panel.ov:update()
+    return
+  end
+  local labels = {}
+  for i, b in ipairs(buttons) do labels[i] = label_of(b) end
+  local rects, fs = panel_layout(d.w, d.h, labels)
+  panel.rects = rects
+  panel.ov.res_x, panel.ov.res_y = d.w, d.h
+  local ev = {}
+  for i, r in ipairs(rects) do
+    local on = buttons[i].active and buttons[i].active()
+    local col = on and "3C8C2E" or "303030" -- BGR
+    if panel.hover == i then col = on and "50B040" or "707070" end
+    ev[#ev + 1] = string.format(
+      "{\\an7\\pos(%d,%d)\\bord0\\shad0\\1c&H%s&\\1a&H30&\\p1}m 0 0 l %d 0 l %d %d l 0 %d{\\p0}",
+      r.x, r.y, col, r.w, r.w, r.h, r.h)
+    ev[#ev + 1] = string.format("{\\an5\\pos(%d,%d)\\fs%d\\bord0\\shad0\\1c&HFFFFFF&}%s",
+      r.x + math.floor(r.w / 2), r.y + math.floor(r.h / 2), fs, labels[i])
+  end
+  panel.ov.data = table.concat(ev, "\n")
+  panel.ov:update()
+end
+
+sync_click_binding = function()
+  local want = enabled or panel.hover ~= nil
+  if want and not panel.bound then
+    mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", function()
+      if panel.hover then
+        buttons[panel.hover].act()
+        render_panel()
+      elseif enabled then
+        on_click()
+      end
+    end)
+    panel.bound = true
+  elseif not want and panel.bound then
+    mp.remove_key_binding("track-click-bind")
+    panel.bound = false
+  end
+end
+
+refresh_panel = function()
+  if panel.visible then render_panel() end
+end
+
+local function hide_panel()
+  if panel.pinned then return end
+  if panel.hover then panel.timer:resume() return end
+  panel.visible, panel.hover = false, nil
+  render_panel()
+  sync_click_binding()
+end
+
+mp.observe_property("mouse-pos", "native", function(_, pos)
+  if not pos or pos.hover == false then return end
+  local was_visible, was_hover = panel.visible, panel.hover
+  panel.visible = true
+  if not panel.rects[1] then render_panel() end -- ilk çizimde yerleşim lazım
+  panel.hover = hit(pos.x or -1, pos.y or -1)
+  if not was_visible or was_hover ~= panel.hover then render_panel() end
+  sync_click_binding()
+  if not panel.timer then
+    panel.timer = mp.add_timeout(PANEL_HIDE_S, hide_panel)
+  else
+    panel.timer:kill()
+    panel.timer:resume()
+  end
+end)
+
+mp.add_key_binding(nil, "panel", function() -- panelin sabitlenmesini aç/kapa
+  panel.pinned = not panel.pinned
+  panel.visible = true
+  render_panel()
+  osd(panel.pinned and "panel sabit" or "panel otomatik gizlenir", 1)
 end)
 
 mp.msg.info("track.lua yüklendi")

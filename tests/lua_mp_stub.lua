@@ -14,7 +14,10 @@ local mp = {
   set_property_number = function(n, v) reg.set[n] = v end,
   osd_message = function(m) reg.osd[#reg.osd + 1] = m end,
   commandv = function(...) reg.cmds[#reg.cmds + 1] = table.concat({ ... }, " ") end,
-  add_timeout = function(_, fn) reg.timers[#reg.timers + 1] = fn end,
+  add_timeout = function(_, fn)
+    reg.timers[#reg.timers + 1] = fn
+    return { kill = function() end, resume = function() end }
+  end,
   register_script_message = function(name, fn) reg.msgs[name] = fn end,
   create_osd_overlay = function()
     local o = { data = "" }

@@ -183,7 +183,7 @@ def test_verify_sha256_pins_and_reports(capsys):
 
 
 def test_version_files_agree_and_release_ready():
-    assert (ROOT / "VERSION").read_text().strip() == tracker.__version__ == "1.0.0"
+    assert (ROOT / "VERSION").read_text().strip() == tracker.__version__ == "1.1.0"
 
 
 def test_notices_cover_every_bundled_component_and_model_license():

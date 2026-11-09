@@ -5,9 +5,9 @@ Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. exe: çalışmanın sayfasında Artifacts → TakipliOynat.
 
 ## Durum
-- Tamamlanan: **Parça 15/15 — PLAN BİTTİ**
+- Tamamlanan: **Parça 15/15 — PLAN BİTTİ** (+ Parça 16: ekran üstü düğme paneli)
 - Sıradaki: yok (yalnız Windows'ta gerçek doğrulama + `v1.0.0` etiketi; bkz. Parça 15 "Doğrulama")
-- Sürüm: 1.0.0
+- Sürüm: 1.1.0
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |
@@ -188,6 +188,14 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - **Doğrulama (yapılmadı)**: gerçek YOLOX ONNX ile denenmedi (yalnız sentetik ham çıktı); resmî `yolox_s.onnx` çıktısının `[1,8400,85]` ham biçimde olduğu varsayıldı (demo_postprocess ile aynı formül). Sapma olursa: `decode_in_inference` ile dışa aktarılmış dosya → `"yolox_decoded": true`. `yolox_s.onnx` indirme bağlantısı MODELLER.txt'de genel (Releases sayfası) bırakıldı. Windows'ta, CI'da, installer'da, gerçek mpv'de hâlâ hiçbir şey çalıştırılmadı (Parça 14 notları geçerli).
 - **Açık kararlar (proje sahibine)**: (1) projenin kendi **LICENSE**'ı seçilmedi — eklenmeden "tüm haklar saklıdır"; (2) `PY_SHA256` sabitleme; (3) mpv sürümünü `-Tag` ile sabitleyip kaynak arşivini yayımlamak (GPL için en güvenli yol); (4) OSNet ağırlıklarının kaynağı/veri lisansı; (5) kod imzalama yok.
 - Kasıtlı olarak yapılmayanlar: YOLOv10/RT-DETR çözücüsü; model indirme otomasyonu; Re-ID/numara modeli dağıtımı; kod imzalama.
+
+## Parça 16 (ek): ekran üstü düğme paneli
+- `track.lua`: fare/dokunma hareketinde (`mouse-pos` gözlemcisi) sol üstte ASS overlay düğme paneli, 3 sn hareketsizlikte gizlenir. Düğmeler (sırayla): Takip AÇIK/KAPALI (`t`), Bırak (`x`), Sıfırla (`r`), Offline AÇIK/KAPALI (`o`), Zoom -, Zoom +, Tepki -/+, Öngörü -/+, Kaydet (`Ctrl+S`), Durum (`h`), Sabit AÇIK/KAPALI (paneli sabitler; `Ctrl+B` aynısı). Aktif düğmeler yeşil, üstündeki açık gri. Yerleşim `panel_layout` (pencere yüksekliğinin %6'sı düğme yüksekliği, ≥30 px; genişliğe sığmazsa satıra sarar → akıllı tahta için büyük).
+- Zoom +/-: canlı takip AÇIKKEN hedef doluluğu (`track-setting fill ±1`); takip KAPALIYKEN doğrudan `video-zoom` ±0.25 (0–4); offline açıkken "zoom sabit" uyarısı.
+- Sol tık bağı (`track-click-bind`) artık yalnız takip açıkken **veya** imleç bir düğmenin üstündeyken kurulur (`sync_click_binding`); panel dışında takip açıkken tıklama hedef seçer (eski davranış). Böylece mpv'nin OSC'si/tıklaması bozulmaz. `mouse_move` bağı kullanılmadı (OSC ile çakışır) → `mouse-pos` property gözlemcisi.
+- Testler: 180 (yeni 2: `tests/test_lua_panel.py` + `tests/lua_harness_panel.lua`: panel taranıp 13 düğme bulunur, her biri ters sırada tıklanır, komutlar/zoom doğrulanır; takip açıkken zoom=doluluk, panel dışı bağ, otomatik gizleme, takip kapanınca bağ kalkar). `lua_mp_stub.lua`: `add_timeout` timer nesnesi döndürür.
+- **Doğrulama**: gerçek mpv'de DENENMEDİ: `mouse-pos` gözlemcisi dokunmatik ekranda ilk dokunuşta panel çıkmadan tıklamayı kaçırabilir (önce panel görünür, ikinci dokunuş düğmeye basar; "Sabit" ile sabitle); overlay `res_x/res_y` = `osd-dimensions` varsayımı (HiDPI'da kayarsa `mp.get_osd_size` dene); yazı tipi/boyut akıllı tahtada okunaklı mı; panel ile sağ üst HUD etiketi dar pencerede üst üste binebilir.
+- Kasıtlı olarak yapılmayanlar: sürükleyerek zoom/pan; düğmeler için ayrı yapılandırma; tek dokunuşta panel+basma.
 
 ## Doğrulama durumu (Parça 5; Parça 6-7 için de geçerli)
 - Parça 6: testler yerelde 76/76 (aynı uyumluluk katmanı); `track.lua`'daki `release` bağı ve `x` tuşu gerçek mpv'de denenmedi.
