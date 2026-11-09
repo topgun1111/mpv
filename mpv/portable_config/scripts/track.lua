@@ -560,7 +560,7 @@ local function finish_drag(pos)
 end
 
 sync_click_binding = function()
-  local want = enabled or panel.hover ~= nil or zoomc.hover ~= nil
+  local want = true -- sol sürükleme her zaman çalışsın (takip kapalıysa ilk sürükleme açar)
   if want and not panel.bound then
     mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", function(ev)
       local pos = mouse_xy()
@@ -639,3 +639,6 @@ mp.add_key_binding(nil, "panel", function() -- panelin sabitlenmesini aç/kapa
 end)
 
 mp.msg.info("track.lua yüklendi")
+
+-- Test kancası: imleç bir düğmenin üstünde mi?
+function track_over() return panel.hover ~= nil or zoomc.hover ~= nil end

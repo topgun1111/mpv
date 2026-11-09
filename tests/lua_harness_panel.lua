@@ -6,7 +6,7 @@ local function out(...) print(table.concat({ ... }, "\t")) end
 local W, H = 1280, 720
 reg.props["osd-dimensions"] = { w = W, h = H, ml = 0, mr = 0, mt = 0, mb = 0 }
 local function move(x, y) reg.obs["mouse-pos"]("mouse-pos", { x = x, y = y, hover = true }) end
-local function over() return reg.bind["track-click-bind"] ~= nil end
+local function over() return track_over() end
 
 out("BEFORE", tostring(#reg.hud), tostring(over()))
 move(W - 5, H - 5) -- panel dışı: görünür ama hiçbir düğmenin üstünde değil

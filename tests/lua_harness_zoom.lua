@@ -9,7 +9,7 @@ local function move(x, y)
   reg.props["mouse-pos"] = { x = x, y = y, hover = true }
   reg.obs["mouse-pos"]("mouse-pos", { x = x, y = y, hover = true })
 end
-local function over() return reg.bind["track-click-bind"] ~= nil end
+local function over() return track_over() end
 local function Z() return reg.ov[2] or "<yok>" end
 local function has(s, pat) return s:find(pat, 1, true) ~= nil end
 local function zoom_is(z) -- video-zoom değeri (takipte Python yazar) → özellik + gözlemci
