@@ -1,5 +1,10 @@
-; Takipli Oynat - tam kurulum (gömülü Python + mpv + DirectML). Derleme: iscc /DAppVersion=x installer.iss
-; Önkoşul: dist\TakipliOynat içinde python\ (scripts/build_embedded.py) ve mpv\mpv.exe (fetch_deps.ps1).
+; Takipli Oynat - tam kurulum (gömülü Python + mpv + DirectML + YOLOX-S modeli). Derleme: iscc /DAppVersion=x installer.iss
+; Önkoşul: dist\TakipliOynat içinde python\ (scripts/build_embedded.py), mpv\mpv.exe (fetch_deps.ps1)
+; ve models\yolox_s.onnx (fetch_model.ps1). Kurulumdan sonra elle bir şey kurmak/kopyalamak gerekmez.
+;
+; GÜNCELLEME: yeni setup.exe'yi çalıştırmak yeter. AppId aynı olduğundan eski kurulumun üstüne (aynı klasör,
+; aynı yetki, aynı Başlat menüsü grubu) sorusuz kurulur; açık mpv/python kendiliğinden kapatılır; eski
+; sürümü önce kaldırmak gerekmez. Sessiz güncelleme: TakipliOynat-Setup-x.y.z.exe /VERYSILENT /NORESTART
 #ifndef AppVersion
   #define AppVersion "0.1.0"
 #endif
@@ -23,30 +28,47 @@ MinVersion=10.0.18362
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 UninstallDisplayName={#AppName}
+; Güncelleme = eski kurulumun üstüne: önceki klasör/yetki/grup yeniden kullanılır, bu sayfalar atlanır
+UsePreviousAppDir=yes
+UsePreviousGroup=yes
+UsePreviousPrivileges=yes
+DisableDirPage=auto
+DisableProgramGroupPage=auto
+; Çalışan mpv.exe / python.exe dosyaları kilitler: kapatılır (sessiz kurulumda da)
+CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "tr"; MessagesFile: "compiler:Languages\Turkish.isl"
 
 [Files]
-Source: "dist\TakipliOynat\*"; DestDir: "{app}"; Excludes: "models\*.onnx"; Flags: recursesubdirs createallsubdirs ignoreversion
+; models\yolox_s.onnx (Apache-2.0) pakete CI'da konur ve kurulumla gelir. AGPL (Ultralytics YOLOv8) modeller dağıtılmaz.
+Source: "dist\TakipliOynat\*"; DestDir: "{app}"; Excludes: "models\yolov8*.onnx"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+[InstallDelete]
+; Güncellemede eski sürümden artakalan dosyalar çalışmayı bozmasın (kullanıcı verisi %APPDATA%'da, models\ ve
+; mpv\portable_config\watch_later korunur)
+Type: filesandordirs; Name: "{app}\python"
+Type: filesandordirs; Name: "{app}\tracker"
+Type: filesandordirs; Name: "{app}\mpv\portable_config\scripts"
 
 [Dirs]
 ; Modeller kullanıcı tarafından eklenir; kaldırmada silinmesin
 Name: "{app}\models"; Flags: uninsneveruninstall
 
 [Icons]
-Name: "{group}\{#AppName} (canlı)"; Filename: "{app}\Baslat.bat"; WorkingDir: "{app}"; IconFilename: "{app}\mpv\mpv.exe"
+Name: "{group}\{#AppName} (canlı)"; Filename: "{app}\Baslat.bat"; WorkingDir: "{app}"; IconFilename: "{app}\mpv\mpv.exe"; Flags: runminimized
 Name: "{group}\{#AppName} (offline, video sürükle)"; Filename: "{app}\Offline.bat"; WorkingDir: "{app}"; IconFilename: "{app}\mpv\mpv.exe"
 Name: "{group}\Modeller klasörü"; Filename: "{app}\models"
 Name: "{group}\Üçüncü taraf lisanslar"; Filename: "notepad.exe"; Parameters: """{app}\THIRD_PARTY_NOTICES.md"""
 Name: "{group}\Kaldır"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\Baslat.bat"; WorkingDir: "{app}"; IconFilename: "{app}\mpv\mpv.exe"; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\Baslat.bat"; WorkingDir: "{app}"; IconFilename: "{app}\mpv\mpv.exe"; Flags: runminimized; Tasks: desktopicon
 
 [Tasks]
-Name: "desktopicon"; Description: "Masaüstü kısayolu oluştur"; Flags: unchecked
+Name: "desktopicon"; Description: "Masaüstü kısayolu oluştur"
 
 [Run]
-Filename: "notepad.exe"; Parameters: """{app}\models\MODELLER.txt"""; Description: "Gerekli modeller hakkında bilgi (MODELLER.txt)"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{app}\Baslat.bat"; WorkingDir: "{app}"; Description: "Takipli Oynat'ı şimdi başlat"; Flags: postinstall nowait skipifsilent runminimized
 
 [UninstallDelete]
 ; Çalışma sırasında oluşan .pyc önbellekleri

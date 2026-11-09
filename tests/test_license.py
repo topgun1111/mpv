@@ -183,7 +183,7 @@ def test_verify_sha256_pins_and_reports(capsys):
 
 
 def test_version_files_agree_and_release_ready():
-    assert (ROOT / "VERSION").read_text().strip() == tracker.__version__ == "1.1.0"
+    assert (ROOT / "VERSION").read_text().strip() == tracker.__version__ == "1.2.0"
 
 
 def test_notices_cover_every_bundled_component_and_model_license():
@@ -195,7 +195,9 @@ def test_notices_cover_every_bundled_component_and_model_license():
     req = (ROOT / "requirements.txt").read_text()
     for pkg in ("numpy", "opencv-python-headless", "onnxruntime"):  # bildirimsiz bağımlılık olmasın
         assert pkg in req and pkg.split("-")[0].lower() in n.lower()
-    assert 'Excludes: "models\\*.onnx"' in (ROOT / "installer.iss").read_text(encoding="utf-8")
+    iss = (ROOT / "installer.iss").read_text(encoding="utf-8")
+    assert 'Excludes: "models\\yolov8*.onnx"' in iss  # AGPL model dağıtılmaz; YOLOX-S dağıtılır
+    assert "YOLOX-S" in n and "YOLOX_LICENSE.txt" in n  # pakette gelen model + Apache-2.0 metni
 
 
 def test_package_ships_notices_and_workflow_checks_them(tmp_path, monkeypatch):

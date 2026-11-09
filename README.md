@@ -58,7 +58,7 @@ TakipliOynat/
 Ayrıntılı denetim: **`THIRD_PARTY_NOTICES.md`** (pakete ve Başlat menüsüne de konur; hukuki görüş değildir).
 - **Dağıtılanlar**: mpv (GPL-2.0+, değiştirilmeden; kaynak teklifi + `mpv\BUILD_INFO.txt`), Python (PSF), NumPy (BSD), OpenCV (Apache-2.0; FFmpeg LGPL), ONNX Runtime-DirectML (MIT; DirectML Microsoft bileşeni).
 - **Modeller dağıtılmaz** (`installer.iss` `models\*.onnx` hariç):
-  - **YOLOX** (Apache-2.0) — önerilen, dağıtıma uygun. `yolox_s.onnx` → `models\`; dosya adında "yolox" varsa otomatik seçilir (`model_type`: auto | yolov8 | yolox).
+  - **YOLOX** (Apache-2.0) — önerilen, dağıtıma uygun; **kurulum paketine CI'da (`scripts/fetch_model.ps1`) konur**. Dosya adında "yolox" varsa otomatik seçilir (`model_type`: auto | yolov8 | yolox).
   - **YOLOv8/YOLO11** (Ultralytics, AGPL-3.0) — kişisel/okul içi kullanımda sorun yok; modeli başkalarına dağıtırsan AGPL şartları geçerli.
   - **OSNet** ağırlıkları eğitim verisinin (Market-1501 vb.) koşullarına tabidir; dağıtmadan önce doğrula.
 - Takipli Oynat kodunun kendi lisansını proje sahibi seçer (depoda `LICENSE` yoksa tüm haklar saklıdır; `make_package.py` `LICENSE` varsa pakete koyar).
@@ -121,10 +121,19 @@ Takım yalnızca eleme yapar; etiket belirsizse aday elenmez. `--number` için `
 Canlı mod çalışırken mpv'de: `Ctrl+↑/↓` doluluk, `Ctrl+→/←` tepki hızı, `Ctrl+PgUp/PgDn` öngörü, `Ctrl+0` varsayılanlar, `Ctrl+S` ayarları kaydet (`--config` ya da `tracker_config.json`), `h` durum özeti, `Ctrl+H` sağ üst etiketi gizle/göster. Kayıtlı ayarla başlamak için: `python -m tracker --config tracker_config.json live ...`.
 
 ### Ekran üstü düğmeler (Parça 16)
-mpv penceresinde fareyi/parmağı oynatınca sol üstte düğme paneli çıkar (3 sn sonra gizlenir; **Sabit** düğmesi ya da `Ctrl+B` ile sabitlenir): **Takip AÇIK/KAPALI**, **Bırak**, **Sıfırla**, **Offline**, **Zoom -/+**, **Tepki -/+**, **Öngörü -/+**, **Kaydet**, **Durum**. Takip açıkken Zoom +/- hedefin kareyi doldurma oranını, kapalıyken video zoom'unu değiştirir. Takip açıkken düğmelerin dışında bir oyuncuya tıklamak hedef seçer. Klavye kısayolları aynen çalışır.
+mpv penceresinde fareyi/parmağı oynatınca sol üstte düğme paneli çıkar (3 sn sonra gizlenir; **Sabit** düğmesi ya da `Ctrl+B` ile sabitlenir): **Takip AÇIK/KAPALI**, **Bırak**, **Sıfırla**, **Offline**, **Zoom -/+**, **Tepki -/+**, **Öngörü -/+**, **Kaydet**, **Durum**. Zoom düğmeleri artık ayrı bir **ekran üstü zoom kontrolüne** taşındı (aşağıda). Takip açıkken düğmelerin dışında bir oyuncuya sol tıklamak da hedef seçer. Klavye kısayolları aynen çalışır.
+
+### Sağ tık ile takip noktası ve ekran üstü zoom kontrolü (Parça 17)
+- **Sağ tık**: tıklanan oyuncu takip noktası olur; takip kapalıysa kendiliğinden açılır (önce `t` basmak gerekmez). Hedefin üstüne tekrar sağ tık hedefi bırakır, başka oyuncuya sağ tık hedefi değiştirir. (mpv'nin sağ tık = duraklat davranışı yerine geçer; duraklatma Boşluk tuşuyla.)
+- **Zoom kontrolü**: pencerenin sağ kenarında ortada **+** / anlık zoom (ör. `x1.5`) / **−**. Fare/dokunma hareketinde, takip açıkken ya da zoom yapılmışken görünür (zoom varken panel gizlense de kalır). `+` ve `-` tuşları aynı işi yapar.
+  - Hedef kilitliyken +/− hedefin kareyi doldurma oranını ayarlar (zoom'u takip sürer; değer etiketi canlı güncellenir).
+  - Hedef yokken ya da takip kapalıyken +/− doğrudan video zoom'unu 1x–16x arasında 0.25 (log2) adımla değiştirir.
+  - Offline oynatma açıkken zoom sabittir (uyarı verir).
 
 ### Kurulum ve başlatıcılar (Parça 14)
-Installer (`TakipliOynat-Setup-x.y.z.exe`, Windows 10 1903+) gömülü Python, mpv ve DirectML ile gelir; ayrıca Python kurmak gerekmez. Modeller lisans nedeniyle gelmez: `models\MODELLER.txt`'e bak ve `yolox_s.onnx` (önerilen) ya da `yolov8n.onnx`'i `models\` klasörüne koy.
+Installer (`TakipliOynat-Setup-x.y.z.exe`, Windows 10 1903+) gömülü Python, mpv, DirectML ve **YOLOX-S modeliyle (Apache-2.0)** gelir: kurduktan sonra elle bir şey kurmak ya da kopyalamak gerekmez, kurulum bitince "şimdi başlat" ile çalışır. AGPL (Ultralytics) modeller pakete konmaz; Re-ID/numara modelleri isteğe bağlıdır (`models\MODELLER.txt`).
+
+**Güncelleme**: yeni `setup.exe`'yi çalıştırmak yeter; AppId aynı olduğundan eski kurulumun üstüne (aynı klasör/yetki) sorusuz kurulur, açık mpv/python kapatılır, eski artıklar (`python\`, `tracker\`, Lua betikleri) temizlenip yenisi yazılır. Ayarlar (`%APPDATA%\TakipliOynat\config.json`) ve `models\` içine kendi eklediğin dosyalar korunur. Sessiz: `TakipliOynat-Setup-x.y.z.exe /VERYSILENT /NORESTART`.
 - **Takipli Oynat (canlı)** kısayolu / `Baslat.bat`: mpv'yi ve izleyiciyi birlikte açar (video sürükleyebilirsin). Re-ID/takım/numara modelleri `models\`'te varsa otomatik açılır.
 - **Offline** kısayolu / `Offline.bat`: videoyu üstüne sürükle → işlenir → oyuncu ID'sini yaz → mpv'de `o`.
 - Ayarlar `%APPDATA%\TakipliOynat\config.json` dosyasına kaydedilir.
@@ -133,7 +142,7 @@ Paket derleme (CI): `python scripts/make_package.py` → `python scripts/build_e
 ### Release (Parça 15)
 1. `main`'e push → CI (`ci.yml`) ve `build.yml` (artifact: portable ZIP + `TakipliOynat-Setup-x.y.z.exe`).
 2. Derleme günlüğündeki `SHA256 python-...` ve `SHA256 mpv-...` satırlarını doğrulayıp `scripts/build_embedded.py` (`PY_SHA256`) içine yaz; mpv için `fetch_deps.ps1 -Tag <sürüm>` ile sürümü sabitle.
-3. Temiz Windows'ta kur → `models\`'e `yolox_s.onnx` koy → `Baslat.bat` ile dene.
+3. Temiz Windows'ta kur (model pakette gelir) → `Baslat.bat` ile dene. Üzerine yeni sürüm kurup ayarların/kısayolların korunduğunu da dene.
 4. `git tag v1.0.0 && git push origin v1.0.0` → GitHub Release otomatik oluşur (`generate_release_notes`).
 
 İlk gerçek denemede kontrol: `python -m tracker detect kare.jpg --model models\yolox_s.onnx --out sonuc.jpg` (kutular doğru yerde mi, `provider=DmlExecutionProvider`); `live --stats 2` (fps/gecikme); `o` ile offline oynatma; Ctrl+S ayar kaydı.

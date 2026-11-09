@@ -88,7 +88,8 @@ def test_installer_references_existing_files_and_win10_directml():
     assert "MinVersion=10.0.18362" in iss and "ArchitecturesAllowed=x64compatible" in iss
     for bat in re.findall(r'\{app\}\\(\w+\.bat)', iss):
         assert (ROOT / "launcher" / bat).is_file(), bat
-    assert 'Excludes: "models\\*.onnx"' in iss  # AGPL/lisans: model kurulumla dağıtılmaz
+    # YOLOX-S (Apache-2.0) kurulumla gelir; AGPL (Ultralytics YOLOv8) modeller asla pakete girmez
+    assert 'Excludes: "models\\yolov8*.onnx"' in iss and 'Excludes: "models\\*.onnx"' not in iss
     assert "uninsneveruninstall" in iss
     assert 'MessagesFile: "compiler:Languages\\Turkish.isl"' in iss
 
@@ -96,7 +97,8 @@ def test_installer_references_existing_files_and_win10_directml():
 def test_build_workflow_orders_steps_and_checks_directml():
     wf = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
     order = [wf.index(k) for k in ("make_package.py", "build_embedded.py", "fetch_deps.ps1",
-                                   "DmlExecutionProvider", "Compress-Archive", "iscc")]
+                                   "fetch_model.ps1", "DmlExecutionProvider", "Compress-Archive",
+                                   "iscc")]
     assert order == sorted(order)
 
 
@@ -145,3 +147,32 @@ def test_config_save_creates_parent_dirs(tmp_path):
     p = tmp_path / "a" / "b" / "c.json"
     Config(ipc_path="x", target_fill=0.4).save(p)
     assert Config.load(p).target_fill == 0.4
+
+
+def test_installer_upgrades_in_place_and_ships_model_with_license():
+    iss = (ROOT / "installer.iss").read_text(encoding="utf-8")
+    # güncelleme: aynı AppId → eskinin üstüne, aynı klasör/yetki, çalışan uygulama kapatılır
+    assert re.search(r"^AppId=\{\{[0-9A-F-]{36}\}", iss, re.M)
+    for key in ("UsePreviousAppDir=yes", "UsePreviousPrivileges=yes", "CloseApplications=yes",
+                "RestartApplications=no", "DisableDirPage=auto", "DisableProgramGroupPage=auto"):
+        assert key in iss, key
+    sect = iss.split("[InstallDelete]")[1].split("\n[")[0]
+    # eski artıklar silinir…
+    inst_delete = "\n".join(ln for ln in sect.splitlines() if not ln.startswith(";"))
+    assert r'{app}\python"' in inst_delete and r'{app}\tracker"' in inst_delete
+    # …ama kullanıcı verisi (models, %APPDATA%) kalır
+    assert "models" not in inst_delete and "AppData" not in inst_delete
+    assert "{userappdata}" not in iss
+    # model kurulumla gelir: elle kopyalamak gerekmez
+    fm = (ROOT / "scripts" / "fetch_model.ps1").read_text(encoding="utf-8")
+    assert "yolox_s.onnx" in fm and "YOLOX_LICENSE.txt" in fm and "Megvii-BaseDetection" in fm
+    assert "throw" in fm and "SHA256" in fm  # indirme bozuksa derleme durur; özet günlüğe yazılır
+    wf = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+    assert r"models\yolox_s.onnx" in wf and "yolov8*.onnx" in wf and "tracker detect" in wf
+    # kurulum sonrası otomatik başlatma seçeneği (sessiz kurulumda atlanır)
+    assert "postinstall" in iss and "skipifsilent" in iss
+
+
+def test_models_note_says_bundled_and_stays_ascii():
+    m = (ROOT / "models" / "MODELLER.txt").read_text(encoding="ascii")
+    assert "HAZIR GELIR" in m and "GEREKMEZ" in m

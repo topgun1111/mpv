@@ -317,19 +317,21 @@ def run_live(
     cfg_path: str | None = None,
 ) -> None:
     ctl = LiveController(pipeline, cfg, reid=reid, cfg_path=cfg_path)
-    last_hud = ""
+    last_hud: tuple[str, bool] = ("", False)
     min_dt = 1.0 / max(cfg.live_fps, 1.0)
     last_view: View | None = None
     n, lag_sum, t_stat = 0, 0.0, clock()
 
     def sync_hud() -> None:
+        # Lua'ya (etiket metni, hedef kilitli mi) gider; yalnız ikisinden biri değişince.
+        # "Kilitli" ekran üstü zoom +/- düğmesinin ne yapacağını belirler (doluluk / video zoom).
         nonlocal last_hud
-        text = ctl.hud_text()
-        if text == last_hud:
+        state = (ctl.hud_text(), ctl.target_id is not None and ctl.enabled)
+        if state == last_hud:
             return
-        last_hud = text
+        last_hud = state
         try:
-            mpv.command("script-message-to", "track", HUD_MSG, text)
+            mpv.command("script-message-to", "track", HUD_MSG, state[0], "1" if state[1] else "0")
         except MpvCommandError as e:
             log(f"HUD gönderilemedi: {e}")
 
@@ -349,7 +351,7 @@ def run_live(
                 log(f"görünüm uygulanamadı: {e}")
         sync_hud()
 
-    log("Canlı mod hazır (Ctrl+C ile çık). mpv'de t ile takibi aç, oyuncuya sol tıkla.")
+    log("Canlı mod hazır (Ctrl+C ile çık). mpv'de oyuncuya sağ tıkla: takip kendiliğinden açılır.")
     try:
         while not (stop is not None and stop.is_set()):
             t0 = clock()

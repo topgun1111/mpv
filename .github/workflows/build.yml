@@ -35,6 +35,10 @@ jobs:
       - name: mpv indir
         shell: pwsh
         run: ./scripts/fetch_deps.ps1 -Target dist/TakipliOynat/mpv
+      - name: Model indir (YOLOX-S, Apache-2.0; kurulumla birlikte gelir)
+        shell: pwsh
+        run: ./scripts/fetch_model.ps1 -Target dist/TakipliOynat/models
+        # Özeti doğrulayınca env: YOLOX_S_SHA256 olarak sabitle (tedarik zinciri)
       - name: Paketlenmiş Python duman testi
         shell: pwsh
         working-directory: dist/TakipliOynat
@@ -44,6 +48,14 @@ jobs:
           .\python\python.exe -m tracker detect --help | Out-Null
           if (-not (Test-Path THIRD_PARTY_NOTICES.md)) { throw "THIRD_PARTY_NOTICES.md pakette yok" }
           if (-not (Test-Path mpv\BUILD_INFO.txt)) { throw "mpv/BUILD_INFO.txt yok (GPL kaynak teklifi)" }
+          # Kurulumdan sonra elle bir şey gerekmesin: model pakette olmalı ve gerçekten çalışmalı
+          if (-not (Test-Path models\yolox_s.onnx)) { throw "models\yolox_s.onnx pakette yok" }
+          if (-not (Test-Path models\YOLOX_LICENSE.txt)) { throw "YOLOX lisans metni (Apache-2.0) pakette yok" }
+          if (Get-ChildItem models -Filter "yolov8*.onnx") { throw "AGPL (yolov8) model pakete girmemeli" }
+          .\python\python.exe -c "import numpy as np, cv2; cv2.imwrite('blank.jpg', np.zeros((720, 1280, 3), np.uint8))"
+          .\python\python.exe -m tracker detect blank.jpg --model models\yolox_s.onnx --out blank_out.jpg
+          if ($LASTEXITCODE -ne 0) { throw "YOLOX modeli duman testinde çalışmadı" }
+          Remove-Item blank.jpg, blank_out.jpg -ErrorAction SilentlyContinue
       - name: Taşınabilir ZIP
         shell: pwsh
         run: Compress-Archive -Path dist/TakipliOynat -DestinationPath dist/TakipliOynat-portable.zip

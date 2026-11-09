@@ -5,9 +5,9 @@ Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. exe: çalışmanın sayfasında Artifacts → TakipliOynat.
 
 ## Durum
-- Tamamlanan: **Parça 15/15 — PLAN BİTTİ** (+ Parça 16: ekran üstü düğme paneli)
+- Tamamlanan: **Parça 15/15 — PLAN BİTTİ** (+ Parça 16: ekran üstü düğme paneli, Parça 17: sağ tık + zoom kontrolü + modelli/otomatik güncellenen installer)
 - Sıradaki: yok (yalnız Windows'ta gerçek doğrulama + `v1.0.0` etiketi; bkz. Parça 15 "Doğrulama")
-- Sürüm: 1.1.0
+- Sürüm: 1.2.0
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |
@@ -196,6 +196,17 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - Testler: 180 (yeni 2: `tests/test_lua_panel.py` + `tests/lua_harness_panel.lua`: panel taranıp 13 düğme bulunur, her biri ters sırada tıklanır, komutlar/zoom doğrulanır; takip açıkken zoom=doluluk, panel dışı bağ, otomatik gizleme, takip kapanınca bağ kalkar). `lua_mp_stub.lua`: `add_timeout` timer nesnesi döndürür.
 - **Doğrulama**: gerçek mpv'de DENENMEDİ: `mouse-pos` gözlemcisi dokunmatik ekranda ilk dokunuşta panel çıkmadan tıklamayı kaçırabilir (önce panel görünür, ikinci dokunuş düğmeye basar; "Sabit" ile sabitle); overlay `res_x/res_y` = `osd-dimensions` varsayımı (HiDPI'da kayarsa `mp.get_osd_size` dene); yazı tipi/boyut akıllı tahtada okunaklı mı; panel ile sağ üst HUD etiketi dar pencerede üst üste binebilir.
 - Kasıtlı olarak yapılmayanlar: sürükleyerek zoom/pan; düğmeler için ayrı yapılandırma; tek dokunuşta panel+basma.
+
+## Parça 17 (ek): sağ tık, zoom kontrolü, kurulumda model + üstüne otomatik güncelleme
+- **Sağ tık = takip noktası**: `input.conf` `MBTN_RIGHT script-binding track/pick` (mpv'nin sağ tık = duraklat'ı yerine geçer). `track.lua` `pick_target`: takip kapalıysa `set_enabled(true)` (offline'ı da kapatır) sonra `on_click` → `track-click`; panel/zoom düğmesi üstündeyken işlem yok. Python tarafı değişmedi (tıklama zaten takibi açıyor, aynı ID'ye tekrar tıklama bırakır). Sol tık (takip açıkken) de çalışır.
+- **Zoom kontrolü** (`track.lua`, `zoom_layout`/`render_zoom`, overlay katmanı z=2; HUD 0, panel 1): sağ kenar ortada + / `xN.N` / −. Görünür: fare hareketi (panel ile) **veya** takip açık **veya** zoom>1x **veya** offline. `video-zoom` gözlemcisi değeri günceller; yalnız metin/yerleşim değişince yeniden çizer. Tıklama: `track-click-bind` artık `enabled or panel.hover or zoomc.hover`. `+`/`-` tuşları (`track/zoom-in|out`, repeatable). Davranış `zoom_step`: offline → uyarı; takip açık **ve hedef kilitli** → `track-setting fill ±1`; aksi halde `video-zoom` ±0.25 (0..4, log2) doğrudan. Panelden Zoom -/+ düğmeleri kaldırıldı (11 düğme).
+- Python→Lua `track-hud <metin> <0|1>`: ikinci argüman "hedef kilitli" (`sync_hud` artık (metin, kilit) çiftini değişimde gönderir). `cfg.hud=False` olsa da kilit durumu gider.
+- Hata düzeltmesi: `track.lua`'da `string.format("%d", kesirli)` Lua 5.3+'ta hata veriyordu (mpv Lua 5.3/5.4 ile derliyse tıklama çökerdi) → `math.floor`. Fare konumu `mouse-pos` özelliğinden (yoksa `mp.get_mouse_pos`).
+- **Kurulumda model**: `scripts/fetch_model.ps1` (CI, `build.yml` adım "Model indir") resmî `yolox_s.onnx` (0.1.1rc0 sürümü) + `YOLOX_LICENSE.txt` indirir; <10 MB ya da özet uyuşmazsa derleme durur. `installer.iss` artık yalnız `models\yolov8*.onnx`'i hariç tutar. Duman testi: model + lisans var, yolov8 yok, boş kareyle `tracker detect` çalışır. `YOLOX_S_SHA256` env'i boş (özet günlüğe yazılır; doğrulayıp sabitle).
+- **Üstüne güncelleme**: AppId sabit; `UsePreviousAppDir/Group/Privileges=yes`, `DisableDirPage/ProgramGroupPage=auto`, `CloseApplications=yes`, `[InstallDelete]` (`python`, `tracker`, Lua betikleri). Kısayollar `runminimized`; masaüstü kısayolu varsayılan açık; kurulum sonu "şimdi başlat". Uygulama içi (kendi kendine indiren) güncelleme YOK: yeni setup.exe çalıştırılır.
+- Testler: 184 (yeni: `tests/test_lua_zoom.py` + `lua_harness_zoom.lua`, offline harness'e zoom uyarısı, paketleme/güncelleme testleri, HUD kilit argümanı). Stub overlay'leri z'ye göre ayırır (`reg.ov[z]`). `ruff` bu ortamda yok; satır ≤100 elle denetlendi.
+- **Doğrulama (yapılmadı)**: gerçek mpv/Windows/Inno'da çalıştırılmadı. İlk CI koşusunda bak: `releases/download/0.1.1rc0/yolox_s.onnx` adresi (hata verirse `fetch_model.ps1 -Url`), `UsePreviousPrivileges`/`DisableDirPage=auto` Inno sürümünde derleniyor mu, gerçekten eski kurulumun üstüne yazıyor mu (iki sürümü art arda kur), `+`/`-` tuşlarının mpv'nin varsayılan ses gecikmesi bağlarını geçersiz kıldığı, sağ tıkın OSC üzerinde duraklatmadığı, zoom kontrolünün akıllı tahtada boyutu (`bh` = pencere yüksekliğinin %9'u, ≥36 px).
+- Kasıtlı olarak yapılmayanlar: uygulama içi otomatik güncelleme denetimi/indirme; uzun basılı tutarak zoom (yalnız tuş tekrarı); sürükleyerek zoom; zoom kontrolü için yapılandırma.
 
 ## Doğrulama durumu (Parça 5; Parça 6-7 için de geçerli)
 - Parça 6: testler yerelde 76/76 (aynı uyumluluk katmanı); `track.lua`'daki `release` bağı ve `x` tuşu gerçek mpv'de denenmedi.

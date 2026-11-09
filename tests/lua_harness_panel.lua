@@ -10,9 +10,11 @@ local function over() return reg.bind["track-click-bind"] ~= nil end
 
 out("BEFORE", tostring(#reg.hud), tostring(over()))
 move(W - 5, H - 5) -- panel dışı: görünür ama hiçbir düğmenin üstünde değil
-out("SHOWN", tostring(reg.hud[#reg.hud] ~= "" and reg.hud[#reg.hud] ~= nil), tostring(over()))
-out("LABELS", tostring(reg.hud[#reg.hud]:find("Takip: KAPALI", 1, true) ~= nil),
-  tostring(reg.hud[#reg.hud]:find("Offline: KAPALI", 1, true) ~= nil))
+local P = function() return reg.ov[1] end -- panel katmanı
+out("SHOWN", tostring(P() ~= "" and P() ~= nil), tostring(over()))
+out("LABELS", tostring(P():find("Takip: KAPALI", 1, true) ~= nil),
+  tostring(P():find("Offline: KAPALI", 1, true) ~= nil),
+  tostring(P():find("Zoom", 1, true) == nil)) -- zoom düğmeleri artık panelde değil
 
 -- satırlar: soldaki ilk düğmenin x'inde dikey tarama
 local rows, inrow = {}, nil
@@ -39,16 +41,13 @@ for i = #btns, 1, -1 do
   out("BTN", tostring(i), reg.cmds[1] or "-", tostring(reg.set["video-zoom"]))
 end
 -- Takip artık açık (Takip düğmesi en son tıklandı)
-reg.cmds = {}
-move(btns[6][1], btns[6][2]); reg.bind["track-click-bind"]()
-out("ENABLED_ZOOM", reg.cmds[1] or "-")
-move(btns[13][1], btns[13][2]); reg.bind["track-click-bind"]() -- sabitlemeyi kaldır
+move(btns[11][1], btns[11][2]); reg.bind["track-click-bind"]() -- sabitlemeyi kaldır
 move(W - 5, H - 5)
 out("ENABLED_BOUND", tostring(over())) -- hedef seçimi için bağ açık
 reg.cmds = {}
 reg.bind["track-click-bind"]() -- panel dışı tıklama = hedef seçimi (video-params yok: komut yok)
 out("TARGET_CLICK", reg.cmds[1] or "-")
 reg.timers[#reg.timers]() -- otomatik gizleme
-out("HIDDEN", tostring(reg.hud[#reg.hud] == ""))
+out("HIDDEN", tostring(P() == ""))
 reg.bind.toggle() -- takip kapanınca sol tık bağı da kalkar
 out("UNBOUND", tostring(not over()))

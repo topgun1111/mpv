@@ -24,26 +24,22 @@ def test_panel_buttons_hit_test_and_actions(tmp_path):
 
     assert d["BEFORE"] == ["0", "false"]  # fare hareketi olmadan panel yok
     assert d["SHOWN"] == ["true", "false"]  # panel çizildi, ama sol tık yakalanmıyor
-    assert d["LABELS"] == ["true", "true"]
-    assert int(d["ROWS"][0]) >= 2 and d["BTNS"] == ["13"]  # 13 düğme, birden çok satıra sarılı
+    assert d["LABELS"] == ["true", "true", "true"]
+    assert int(d["ROWS"][0]) >= 2 and d["BTNS"] == ["11"]  # 11 düğme, birden çok satıra sarılı
 
     cmd = {i: v[0] for i, v in btn.items()}
     assert cmd[1] == "script-message track-toggle on"
     assert cmd[2] == "script-message track-release"
     assert cmd[3] == "script-message track-reset"
     assert cmd[4] == "-"  # offline: video dosyası yok → komut yok (OSD uyarısı)
-    assert cmd[5] == cmd[6] == "-"  # takip kapalıyken zoom doğrudan video-zoom'a yazılır
-    assert btn[6][1] == "0.25" and btn[5][1] == "0"  # Zoom+ 0.25, Zoom- alt sınır 0
-    assert cmd[7] == "script-message track-setting speed -1"
-    assert cmd[8] == "script-message track-setting speed 1"
-    assert cmd[9] == "script-message track-setting lead -1"
-    assert cmd[10] == "script-message track-setting lead 1"
-    assert cmd[11] == "script-message track-save"
-    assert cmd[12] == "script-message track-status"
-    assert cmd[13] == "-"  # Sabit: yalnız panel durumu
+    assert cmd[5] == "script-message track-setting speed -1"
+    assert cmd[6] == "script-message track-setting speed 1"
+    assert cmd[7] == "script-message track-setting lead -1"
+    assert cmd[8] == "script-message track-setting lead 1"
+    assert cmd[9] == "script-message track-save"
+    assert cmd[10] == "script-message track-status"
+    assert cmd[11] == "-"  # Sabit: yalnız panel durumu
 
-    # takip açıkken zoom = hedef doluluğu
-    assert d["ENABLED_ZOOM"] == ["script-message track-setting fill 1"]
     assert d["ENABLED_BOUND"] == ["true"]
     assert d["TARGET_CLICK"] == ["-"]
     assert d["HIDDEN"] == ["true"]

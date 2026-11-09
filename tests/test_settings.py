@@ -163,6 +163,7 @@ def test_run_live_sends_hud_only_on_change():
              log=lambda *_: None, sleep=lambda _s: None)
     assert [a[3] for a in sent] == ["Takip: hedef seç (tıkla)", "Takip: ID 3"]
     assert all(a[1:3] == ("track", "track-hud") for a in sent)
+    assert [a[4] for a in sent] == ["0", "1"]  # 2. argüman: hedef kilitli mi (zoom +/- için)
 
 
 @pytest.mark.skipif(LUA is None, reason="lua/texlua yok")

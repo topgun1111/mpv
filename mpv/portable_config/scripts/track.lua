@@ -1,4 +1,6 @@
 -- Takipli Oynat: tıklama ile hedef seçimi (Parça 2), hedef bırakma (Parça 6).
+-- SAĞ TIK (track/pick): tıklanan noktadaki oyuncuyu takip noktası yapar; takip kapalıysa kendiliğinden açar.
+-- Ekran üstü ZOOM kontrolü (sağ kenar): + / - düğmeleri ve anlık zoom değeri; + / - tuşları da aynı işi yapar.
 -- Tıklama -> video-normalize koordinat -> `script-message track-click` (Python IPC olarak alır).
 -- Offline oynatma (Parça 10): `o` ile <video>.views.json'daki anahtar karelerden zoom/pan uygular
 -- (Python gerekmez). Lua 5.1/LuaJIT uyumlu yazıldı (// ve goto yok).
@@ -6,6 +8,10 @@ local mp = require 'mp'
 local utils = require 'mp.utils'
 
 local enabled = false
+local locked = false -- Python: bir hedef kilitli mi (track-hud'un 2. argümanı); zoom +/- ne yapacağını buna göre seçer
+-- Ekran üstü zoom kontrolü durumu (çizim/yerleşim aşağıda). z = video-zoom (log2).
+local zoomc = { z = 0, hover = nil, rects = {}, ov = nil, shown = "" }
+local render_zoom -- ileri bildirim
 local set_offline -- ileri bildirim: canlı mod açılınca offline kapatılır
 local off -- ileri bildirim (offline durumu; HUD okur)
 local sync_click_binding -- ileri bildirim: sol tık bağı (ekran üstü panel + hedef seçimi)
@@ -30,9 +36,11 @@ local function render_hud()
   hud.ov:update()
 end
 
-mp.register_script_message("track-hud", function(text)
+mp.register_script_message("track-hud", function(text, lock)
   hud.text = text or ""
+  locked = (lock == "1")
   render_hud()
+  render_zoom() -- + / - davranışı değişmiş olabilir; değer etiketi aynı kalır
 end)
 
 local function osd(msg, sec) mp.osd_message("Takipli Oynat: " .. msg, sec or 2) end
@@ -50,10 +58,18 @@ local function screen_to_video(mx, my, d)
   return nx, ny
 end
 
+-- Fare konumu: `mouse-pos` özelliği (mpv >= 0.30); yoksa eski mp.get_mouse_pos.
+local function mouse_xy()
+  local p = mp.get_property_native("mouse-pos")
+  if p and p.x then return p end
+  if mp.get_mouse_pos then return mp.get_mouse_pos() end
+  return nil
+end
+
 local function on_click()
   local d = mp.get_property_native("osd-dimensions")
   local params = mp.get_property_native("video-params")
-  local pos = mp.get_mouse_pos()
+  local pos = mouse_xy()
   if not (d and params and params.w and params.h and pos) then
     osd("video henüz hazır değil")
     return
@@ -66,9 +82,9 @@ local function on_click()
   local t = mp.get_property_number("time-pos", 0)
   mp.commandv("script-message", "track-click",
     string.format("%.6f", nx), string.format("%.6f", ny),
-    string.format("%d", params.w), string.format("%d", params.h),
+    string.format("%d", math.floor(params.w)), string.format("%d", math.floor(params.h)),
     string.format("%.3f", t))
-  osd(string.format("hedef (%d, %d) px", nx * params.w, ny * params.h), 1)
+  osd(string.format("hedef (%d, %d) px", math.floor(nx * params.w), math.floor(ny * params.h)), 1) -- Lua 5.3+: %d tamsayı ister
 end
 
 local function set_enabled(on)
@@ -77,13 +93,13 @@ local function set_enabled(on)
   if enabled then
     set_offline(false) -- canlı ve offline aynı anda görünümü sürmesin
   else
-    hud.text = ""
+    hud.text, locked = "", false
     render_hud()
   end
-  -- Takip açıkken sol tık hedef seçer (varsayılan sol tık davranışını geçersiz kılar)
+  -- Takip açıkken sol tık da hedef seçer (sağ tık her zaman seçer)
   sync_click_binding()
   mp.commandv("script-message", "track-toggle", enabled and "on" or "off")
-  osd(enabled and "AÇIK - hedefe sol tıkla" or "KAPALI")
+  osd(enabled and "AÇIK - oyuncuya sağ tıkla" or "KAPALI")
   if refresh_panel then refresh_panel() end
 end
 
@@ -95,6 +111,8 @@ local function do_reset()
   mp.set_property_number("video-pan-x", 0)
   mp.set_property_number("video-pan-y", 0)
   mp.commandv("script-message", "track-reset")
+  zoomc.z, locked = 0, false
+  render_zoom()
   osd("sıfırlandı")
 end
 mp.add_key_binding(nil, "reset", do_reset)
@@ -252,22 +270,30 @@ end)
 -- ---------------------------------------------------------------------------------------------
 -- Ekran üstü düğme paneli (Parça 16): fare/dokunma hareketinde sol üstte görünür, 3 sn sonra gizlenir
 -- (sabitlenebilir). Düğmeler tuşlarla aynı işi yapar. Panel yalnız imleç bir düğmenin üstündeyken sol
--- tıkı yakalar; böylece mpv'nin kendi OSC'si/tıklaması bozulmaz.
+-- tıkı yakalar; böylece mpv'nin kendi OSC'si/tıklaması bozulmaz. Zoom kontrolü (sağ kenar) için de aynı.
 local PANEL_HIDE_S = 3
 local panel = { visible = false, pinned = false, hover = nil, rects = {}, ov = nil, timer = nil }
+local ZOOM_Z, PANEL_Z = 2, 1 -- overlay katmanları: HUD 0, panel 1, zoom kontrolü 2
 
-local function manual_zoom(dir)
-  if enabled then -- canlı takip: hedefin kareyi doldurma oranı
-    mp.commandv("script-message", "track-setting", "fill", tostring(dir))
-  elseif off.on then
+-- Zoom + / - (ekran düğmeleri ve + / - tuşları). Hedef kilitliyken hedefin kareyi doldurma oranı
+-- (Python zoom'u buna göre sürer); aksi halde doğrudan video-zoom (log2) ±0.25 (0..4).
+local ZOOM_STEP, ZOOM_MAX = 0.25, 4
+local function zoom_step(dir)
+  if off.on then
     osd("offline açıkken zoom sabit; önce offline'ı kapat", 2)
+  elseif enabled and locked then
+    mp.commandv("script-message", "track-setting", "fill", tostring(dir))
   else
-    local z = (mp.get_property_number("video-zoom", 0) or 0) + dir * 0.25
-    if z < 0 then z = 0 elseif z > 4 then z = 4 end
+    local z = (mp.get_property_number("video-zoom", 0) or 0) + dir * ZOOM_STEP
+    if z < 0 then z = 0 elseif z > ZOOM_MAX then z = ZOOM_MAX end
     mp.set_property_number("video-zoom", z)
-    osd(string.format("zoom %.2f", z), 1)
+    zoomc.z = z
+    render_zoom()
+    osd(string.format("zoom x%.2f", 2 ^ z), 1)
   end
 end
+mp.add_key_binding(nil, "zoom-in", function() zoom_step(1) end, { repeatable = true })
+mp.add_key_binding(nil, "zoom-out", function() zoom_step(-1) end, { repeatable = true })
 
 local function setting_btn(key, dir)
   return function() mp.commandv("script-message", "track-setting", key, tostring(dir)) end
@@ -280,8 +306,6 @@ local buttons = {
   { label = "Sıfırla", act = do_reset },
   { label = function() return "Offline: " .. (off.on and "AÇIK" or "KAPALI") end,
     active = function() return off.on end, act = function() set_offline(not off.on) end },
-  { label = "Zoom -", act = function() manual_zoom(-1) end },
-  { label = "Zoom +", act = function() manual_zoom(1) end },
   { label = "Tepki -", act = setting_btn("speed", -1) },
   { label = "Tepki +", act = setting_btn("speed", 1) },
   { label = "Öngörü -", act = setting_btn("lead", -1) },
@@ -320,7 +344,10 @@ local function hit(x, y)
 end
 
 local function render_panel()
-  if not panel.ov then panel.ov = mp.create_osd_overlay("ass-events") end
+  if not panel.ov then
+    panel.ov = mp.create_osd_overlay("ass-events")
+    panel.ov.z = PANEL_Z
+  end
   local d = mp.get_property_native("osd-dimensions")
   if not panel.visible or not (d and d.w and d.w > 0 and d.h and d.h > 0) then
     panel.rects = {}
@@ -348,13 +375,98 @@ local function render_panel()
   panel.ov:update()
 end
 
+-- Ekran üstü zoom kontrolü: sağ kenarda ortada dikey [ + ] / x1.5 / [ - ]. Takip açıkken, zoom
+-- yapılmışken (>1x) ya da fare/dokunma hareketinden sonra görünür. Saf yerleşim `zoom_layout`.
+local function zoom_layout(W, H)
+  local bh = math.max(36, math.floor(H * 0.09))
+  local gap = math.floor(bh * 0.15)
+  local x = W - bh - gap
+  local rh = math.floor(bh * 0.7) -- değer kutusu yüksekliği
+  local total = bh + gap + rh + gap + bh
+  local y0 = math.floor((H - total) / 2)
+  local plus = { x = x, y = y0, w = bh, h = bh }
+  local val = { x = x, y = y0 + bh + gap, w = bh, h = rh }
+  local minus = { x = x, y = y0 + bh + gap + rh + gap, w = bh, h = bh }
+  return { plus, minus }, val, math.floor(bh * 0.6), math.floor(bh * 0.34)
+end
+
+local function zoom_wanted()
+  return panel.visible or enabled or off.on or zoomc.z > 0.01
+end
+
+local function zoom_text() return string.format("x%.1f", 2 ^ zoomc.z) end
+
+local function zoom_hit(x, y)
+  for i, r in ipairs(zoomc.rects) do
+    if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then return i end
+  end
+  return nil
+end
+
+render_zoom = function()
+  if not zoomc.ov then
+    zoomc.ov = mp.create_osd_overlay("ass-events")
+    zoomc.ov.z = ZOOM_Z
+  end
+  local d = mp.get_property_native("osd-dimensions")
+  local ok = zoom_wanted() and d and d.w and d.w > 0 and d.h and d.h > 0
+  if not ok then
+    zoomc.rects, zoomc.hover = {}, nil
+    if zoomc.shown ~= "" then zoomc.shown = ""; zoomc.ov.data = ""; zoomc.ov:update() end
+    return
+  end
+  local rects, val, fs_btn, fs_val = zoom_layout(d.w, d.h)
+  zoomc.rects = rects
+  zoomc.ov.res_x, zoomc.ov.res_y = d.w, d.h
+  local ev = {}
+  for i, r in ipairs(rects) do
+    local col = (zoomc.hover == i) and "707070" or "303030" -- BGR
+    ev[#ev + 1] = string.format(
+      "{\\an7\\pos(%d,%d)\\bord0\\shad0\\1c&H%s&\\1a&H30&\\p1}m 0 0 l %d 0 l %d %d l 0 %d{\\p0}",
+      r.x, r.y, col, r.w, r.w, r.h, r.h)
+    ev[#ev + 1] = string.format("{\\an5\\pos(%d,%d)\\fs%d\\b1\\bord0\\shad0\\1c&HFFFFFF&}%s",
+      r.x + math.floor(r.w / 2), r.y + math.floor(r.h / 2), fs_btn, i == 1 and "+" or "-")
+  end
+  ev[#ev + 1] = string.format(
+    "{\\an7\\pos(%d,%d)\\bord0\\shad0\\1c&H000000&\\1a&H60&\\p1}m 0 0 l %d 0 l %d %d l 0 %d{\\p0}",
+    val.x, val.y, val.w, val.w, val.h, val.h)
+  ev[#ev + 1] = string.format("{\\an5\\pos(%d,%d)\\fs%d\\b1\\bord0\\shad0\\1c&HFFFFFF&}%s",
+    val.x + math.floor(val.w / 2), val.y + math.floor(val.h / 2), fs_val, zoom_text())
+  local data = table.concat(ev, "\n")
+  if data ~= zoomc.shown then -- değişmediyse yeniden çizme (takipte zoom sürekli güncellenir)
+    zoomc.shown = data
+    zoomc.ov.data = data
+    zoomc.ov:update()
+  end
+end
+
+-- video-zoom (takipte Python, elle zoomda biz) değişince değer etiketi güncellenir
+mp.observe_property("video-zoom", "number", function(_, z)
+  zoomc.z = z or 0
+  render_zoom()
+end)
+
+local zoom_buttons = { function() zoom_step(1) end, function() zoom_step(-1) end }
+
+-- Sağ tık: takip noktası. Takip kapalıysa açılır; tıklanan noktadaki oyuncu hedef olur (hedefin
+-- üstüne tekrar sağ tık hedefi bırakır). Panel/zoom düğmelerinin üstünde işlem yapmaz.
+local function pick_target()
+  if panel.hover or zoomc.hover then return end
+  if not enabled then set_enabled(true) end
+  on_click()
+end
+mp.add_key_binding(nil, "pick", pick_target)
+
 sync_click_binding = function()
-  local want = enabled or panel.hover ~= nil
+  local want = enabled or panel.hover ~= nil or zoomc.hover ~= nil
   if want and not panel.bound then
     mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", function()
       if panel.hover then
         buttons[panel.hover].act()
         render_panel()
+      elseif zoomc.hover then
+        zoom_buttons[zoomc.hover]()
+        render_zoom()
       elseif enabled then
         on_click()
       end
@@ -368,13 +480,15 @@ end
 
 refresh_panel = function()
   if panel.visible then render_panel() end
+  render_zoom()
 end
 
 local function hide_panel()
   if panel.pinned then return end
-  if panel.hover then panel.timer:resume() return end
+  if panel.hover or zoomc.hover then panel.timer:resume() return end
   panel.visible, panel.hover = false, nil
   render_panel()
+  render_zoom() -- zoom yapılmıyor ve takip kapalıysa kontrol de gizlenir
   sync_click_binding()
 end
 
@@ -385,6 +499,10 @@ mp.observe_property("mouse-pos", "native", function(_, pos)
   if not panel.rects[1] then render_panel() end -- ilk çizimde yerleşim lazım
   panel.hover = hit(pos.x or -1, pos.y or -1)
   if not was_visible or was_hover ~= panel.hover then render_panel() end
+  local was_zoom_hover = zoomc.hover
+  if not zoomc.rects[1] then render_zoom() end -- ilk çizimde yerleşim lazım
+  zoomc.hover = zoom_hit(pos.x or -1, pos.y or -1)
+  if was_zoom_hover ~= zoomc.hover or not was_visible then render_zoom() end
   sync_click_binding()
   if not panel.timer then
     panel.timer = mp.add_timeout(PANEL_HIDE_S, hide_panel)

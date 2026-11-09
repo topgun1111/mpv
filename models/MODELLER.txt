@@ -1,12 +1,13 @@
 Takipli Oynat - modeller
 ========================
-Bu klasore ONNX modelleri konur (lisans nedeniyle kurulumla birlikte gelmez).
-Ayrintili lisans bilgisi: THIRD_PARTY_NOTICES.md
+KURULUM PAKETI yolox_s.onnx ILE HAZIR GELIR (YOLOX-S, Apache-2.0, Megvii): kurduktan sonra elle model
+kopyalamak GEREKMEZ. Lisans metni: models\YOLOX_LICENSE.txt. Ayrintili lisans bilgisi: THIRD_PARTY_NOTICES.md
+Asagisi yalnizca BASKA bir model kullanmak (ya da istege bagli Re-ID/numara modeli eklemek) isteyenler icindir.
+Guncelleme yeni setup.exe'yi calistirarak yapilir; yolox_s.onnx de yenilenir, kendi eklediginiz dosyalara dokunulmaz.
 
-PERSON TESPITI - bunlardan BIRI zorunlu (hepsi yoksa uygulama acilmaz)
-  yolox_s.onnx   ONERILEN (Apache-2.0, dagitima uygun). YOLOX, Megvii-BaseDetection/YOLOX.
-                 Hazir ONNX: depodaki "Releases" sayfasindan (0.1.1rc0) yolox_s.onnx indir
-                 ya da kendin disa aktar: python tools/export_onnx.py --output-name yolox_s.onnx -n yolox-s -c yolox_s.pth
+PERSON TESPITI - bunlardan BIRI zorunlu (pakette yolox_s.onnx var)
+  yolox_s.onnx   PAKETTE (Apache-2.0, dagitima uygun). YOLOX, Megvii-BaseDetection/YOLOX.
+                 Kaynak: depodaki "Releases" sayfasi (0.1.1rc0) yolox_s.onnx; ya da kendin disa aktar: python tools/export_onnx.py --output-name yolox_s.onnx -n yolox-s -c yolox_s.pth
                  Disa aktarma --decode_in_inference ile yapildiysa tracker_config.json'a "yolox_decoded": true yaz.
                  Dosya adinda "yolox" gecmeli (model_type otomatik secilir); yolox_m/tiny/nano de olur.
   yolov8n.onnx   AGPL-3.0 (Ultralytics). pip install ultralytics, sonra

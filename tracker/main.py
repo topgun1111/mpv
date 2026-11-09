@@ -279,7 +279,7 @@ def detect_image(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def listen(mpv: MpvIpc, follow: bool, zoom: float) -> None:
-    print("Dinleniyor (Ctrl+C ile çık). mpv'de t tuşu ile takibi aç, videoya sol tıkla.")
+    print("Dinleniyor (Ctrl+C ile çık). mpv'de videoya sağ tıkla: takip kendiliğinden açılır.")
     while True:
         ev = mpv.poll_event(1.0)
         if ev is None:

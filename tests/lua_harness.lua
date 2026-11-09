@@ -16,6 +16,10 @@ for t in os.getenv("TIMES"):gmatch("[^,]+") do
   out("T", t, tostring(reg.set["video-zoom"]), tostring(reg.set["video-pan-x"]),
     tostring(reg.set["video-pan-y"]))
 end
+-- offline açıkken + / - zoom'u değiştirmez (görünümü anahtar kareler sürer), uyarı verir
+reg.set = {}
+reg.bind["zoom-in"]()
+out("OFF_ZOOM", tostring(reg.set["video-zoom"]), last_osd())
 -- canlı mod açılınca offline kapanır ve görünüm sıfırlanır
 reg.bind.toggle()
 out("LIVE", last_osd(), tostring(reg.set["video-zoom"]))

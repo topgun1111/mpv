@@ -3,7 +3,7 @@ local dir = (arg and arg[0] or ""):match("^(.*)[/\\]") or "."
 local reg = dofile(dir .. "/lua_mp_stub.lua")
 dofile(os.getenv("TRACK_LUA"))
 local function out(...) print(table.concat({ ... }, "\t")) end
-local function last_hud() return reg.hud[#reg.hud] or "<yok>" end
+local function last_hud() return reg.ov[0] or "<yok>" end -- HUD katmanı (0)
 
 reg.msgs["track-hud"]("Takip: ID 5")
 out("HUD", last_hud())
