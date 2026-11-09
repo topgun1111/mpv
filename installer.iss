@@ -57,18 +57,18 @@ Type: filesandordirs; Name: "{app}\mpv\portable_config\scripts"
 Name: "{app}\models"; Flags: uninsneveruninstall
 
 [Icons]
-Name: "{group}\{#AppName} (canlı)"; Filename: "{app}\Baslat.bat"; WorkingDir: "{app}"; IconFilename: "{app}\mpv\mpv.exe"; Flags: runminimized
+Name: "{group}\{#AppName} (canlı)"; Filename: "{app}\mpv\mpv.exe"; Parameters: "--player-operation-mode=pseudo-gui"; WorkingDir: "{app}"
 Name: "{group}\{#AppName} (offline, video sürükle)"; Filename: "{app}\Offline.bat"; WorkingDir: "{app}"; IconFilename: "{app}\mpv\mpv.exe"
 Name: "{group}\Modeller klasörü"; Filename: "{app}\models"
 Name: "{group}\Üçüncü taraf lisanslar"; Filename: "notepad.exe"; Parameters: """{app}\THIRD_PARTY_NOTICES.md"""
 Name: "{group}\Kaldır"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\Baslat.bat"; WorkingDir: "{app}"; IconFilename: "{app}\mpv\mpv.exe"; Flags: runminimized; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\mpv\mpv.exe"; Parameters: "--player-operation-mode=pseudo-gui"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Masaüstü kısayolu oluştur"
 
 [Run]
-Filename: "{app}\Baslat.bat"; WorkingDir: "{app}"; Description: "Takipli Oynat'ı şimdi başlat"; Flags: postinstall nowait skipifsilent runminimized
+Filename: "{app}\mpv\mpv.exe"; Parameters: "--player-operation-mode=pseudo-gui"; WorkingDir: "{app}"; Description: "Takipli Oynat'ı şimdi başlat"; Flags: postinstall nowait skipifsilent
 
 [UninstallDelete]
 ; Çalışma sırasında oluşan .pyc önbellekleri

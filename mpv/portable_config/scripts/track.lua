@@ -352,7 +352,8 @@ local function render_panel()
     panel.ov.z = PANEL_Z
   end
   local d = mp.get_property_native("osd-dimensions")
-  if not panel.visible or not (d and d.w and d.w > 0 and d.h and d.h > 0) then
+  -- Düğme paneli kapalı (yalnız sol sürükleme + ekrandaki +/− zoom); TRACK_SHOW_PANEL=true ile açılır
+  if not TRACK_SHOW_PANEL or not panel.visible or not (d and d.w and d.w > 0 and d.h and d.h > 0) then
     panel.rects = {}
     panel.ov.data = ""
     panel.ov:update()
@@ -642,3 +643,28 @@ mp.msg.info("track.lua yüklendi")
 
 -- Test kancası: imleç bir düğmenin üstünde mi?
 function track_over() return panel.hover ~= nil or zoomc.hover ~= nil end
+
+-- Otomatik başlatma: mpv açılınca Python takip programı da (gizli, ayrı süreç) başlar; mpv kapanınca
+-- kendiliğinden biter. Kurulumdan sonra bat dosyası gerekmez: yalnız mpv.exe açılır.
+do
+  local utils = require("mp.utils")
+  local exe = mp.command_native and mp.command_native({ "expand-path", "~~exe_dir/" })
+  if type(exe) == "string" and exe ~= "" then
+    local root = exe:gsub("[/\\]+$", ""):gsub("[/\\][^/\\]*$", "") -- mpv klasörünün üstü
+    local py = nil
+    for _, name in ipairs({ "pythonw.exe", "python.exe" }) do
+      local p = root .. "/python/" .. name
+      if utils.file_info(p) then py = p break end
+    end
+    if py then
+      local appdata = os.getenv("APPDATA") or root
+      local cfg = appdata .. "/TakipliOynat/config.json"
+      mp.command_native({ name = "subprocess", playback_only = false, detached = true,
+        capture_stdout = false, capture_stderr = false,
+        args = { py, "-m", "tracker", "--config", cfg, "live", "--wait", "30" } })
+      mp.msg.info("takip programı başlatıldı: " .. py)
+    else
+      mp.msg.warn("python/ bulunamadı; takip programı otomatik başlatılmadı")
+    end
+  end
+end

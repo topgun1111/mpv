@@ -1,6 +1,7 @@
 -- Parça 16: ekran üstü panel (Ortam: TRACK_LUA, VIDEO, DATA_LUA). Tüm panel düğmelerini tarayıp tıklar.
 local dir = (arg and arg[0] or ""):match("^(.*)[/\\]") or "."
 local reg = dofile(dir .. "/lua_mp_stub.lua")
+TRACK_SHOW_PANEL = true
 dofile(os.getenv("TRACK_LUA"))
 local function out(...) print(table.concat({ ... }, "\t")) end
 local W, H = 1280, 720
