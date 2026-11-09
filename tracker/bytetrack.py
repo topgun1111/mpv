@@ -208,9 +208,9 @@ class ByteTracker:
         rest_high = [high[j] for j in ud]
 
         # 2. aşama: düşük skor, kalan izler (ByteTrack'in özü)
-        pairs2, ut2, _ = match([t.bbox for t in rest], [d.bbox for d in low], self.second_iou)
+        pairs2, _, _ = match([t.bbox for t in rest], [d.bbox for d in low], self.second_iou)
         apply(rest, low, pairs2)
-        rest2 = [rest[i] for i in ut2]  # eşleşmeyen izler: lost>=1 kalır
+        # eşleşmeyen izler lost>=1 olarak kalır
 
         # yeni nesne: eşleşmeyen yüksek skorlu tespitler
         for d in rest_high:
@@ -222,7 +222,6 @@ class ByteTracker:
 
         # kayıp izleri temizle
         self._tracks = [t for t in self._tracks if t.lost <= self.max_lost]
-        del rest2
         return [
             Track(t.id, t.bbox, t.score, t.age, t.lost)
             for t in self._tracks

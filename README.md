@@ -29,19 +29,23 @@ Oynatma sırasında seçilen bir nesneyi (ör. futbolcu) takip edip `video-zoom`
 ## Dosya Yapısı
 ```
 TakipliOynat/
-├─ mpv/                  # portable mpv
-│  ├─ mpv.conf           # --input-ipc-server=\\.\pipe\mpv
-│  ├─ input.conf
-│  └─ scripts/track.lua  # tıklama seçimi, zoom/pan, OSD, tuşlar
-├─ python/               # gömülü Python (embeddable)
-├─ tracker/
-│  ├─ main.py            # CLI, IPC, canlı mod
-│  ├─ detect_track.py    # YOLO + ByteTrack + Re-ID
-│  ├─ smooth.py          # EMA/Kalman, dead-zone, lookahead
-│  └─ offline.py         # track.json üretimi
-├─ models/               # YOLO ONNX, OSNet ağırlıkları
-└─ installer.iss         # Inno Setup
+├─ mpv/                          # portable mpv (mpv.exe + portable_config/)
+│  └─ portable_config/
+│     ├─ mpv.conf                # input-ipc-server=\\.\pipe\mpv
+│     ├─ input.conf              # t: aç/kapa, r: sıfırla, x: hedefi bırak
+│     └─ scripts/track.lua       # tıklama seçimi, OSD, tuşlar
+├─ tracker/                      # Python paketi (python -m tracker ...)
+│  ├─ main.py                    # CLI: ping, view, listen, detect, live
+│  ├─ ipc.py, clicks.py, frames.py, geometry.py, smooth.py, config.py
+│  ├─ detector.py                # YOLO ONNX
+│  ├─ bytetrack.py, pipeline.py  # ByteTrack + birleşim
+│  └─ live.py                    # canlı mod (hedef seçimi dahil)
+├─ models/                       # YOLO ONNX buraya
+├─ scripts/                      # make_package.py, fetch_deps.ps1
+├─ installer.iss                 # Inno Setup
+└─ handover.md                   # parça parça ilerleme notu (15 parçalık plan)
 ```
+(Planlanan, henüz yok: `offline.py`, Re-ID, forma OCR, gömülü Python.)
 
 ## Paketleme
 - **Installer**: Inno Setup / NSIS → tek `setup.exe`, kısayol "Takipli Oynat" (mpv + Python süreci birlikte)
@@ -72,10 +76,4 @@ TakipliOynat/
 - CPU-only makinelerde canlı mod düşük fps → offline mod
 
 ## Yol Haritası
-- [ ] 1. Prototip: YOLO + ByteTrack + EMA + mpv IPC + Lua tıklama seçimi
-- [ ] 2. Offline `track.json` üretimi ve oynatma
-- [ ] 3. Re-ID ile ID kurtarma
-- [ ] 4. Forma numarası OCR + takım rengi
-- [ ] 5. Ayarlar (zoom oranı, yumuşatma, dead-zone) ve OSD
-- [ ] 6. Inno Setup installer, DirectML varsayılanı
-- [ ] 7. Lisans denetimi (AGPL/ticari/Apache alternatif)
+Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: Parça 1–7 (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead). Sıradaki: Parça 8 (kayıp yönetimi).

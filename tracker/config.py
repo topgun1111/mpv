@@ -30,6 +30,10 @@ class Config:
     live_fps: float = 10.0  # canlı mod en fazla işleme hızı (screenshot-raw IPC'de ağır)
     pick_tol: float = 0.03  # kutu dışı tıklama toleransı (kare yüksekliği oranı)
     seek_jump: float = 2.0  # sn; time-pos bundan fazla ileri atlarsa / geri giderse atlama sayılır
+    lookahead_s: float = 0.15  # sn; hedef merkezi hız yönünde bu kadar ileri alınır (0: kapalı)
+    max_lead: float = 0.15  # lookahead'in kare genişliği/yüksekliği oranında üst sınırı
+    kf_accel: float = 0.5  # hedef Kalman süreç gürültüsü: ivme std (kare boyutu/sn²)
+    kf_meas: float = 0.01  # hedef Kalman ölçüm gürültüsü std (kare boyutu oranı)
 
     def __post_init__(self) -> None:
         if not self.ipc_path:

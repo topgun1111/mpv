@@ -39,6 +39,9 @@ class BBox:
     def from_xywh(cls, x: float, y: float, w: float, h: float) -> BBox:
         return cls(x, y, x + w, y + h)
 
+    def scaled(self, sx: float, sy: float) -> BBox:
+        return BBox(self.x1 * sx, self.y1 * sy, self.x2 * sx, self.y2 * sy)
+
     def contains(self, px: float, py: float) -> bool:
         return self.x1 <= px <= self.x2 and self.y1 <= py <= self.y2
 

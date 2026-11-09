@@ -16,7 +16,7 @@ from .config import Config
 from .frames import grab_frame
 from .geometry import View, compute_view
 from .ipc import MpvCommandError, MpvIpc, MpvIpcError
-from .smooth import ViewSmoother
+from .smooth import BoxFilter, ViewSmoother
 
 CLOSED = {"event": "__closed__"}
 
@@ -82,8 +82,15 @@ def pick_track(tracks, px: float, py: float, tol: float = 0.0):
 
 
 class LiveController:
-    def __init__(self, pipeline, cfg: Config, smoother: ViewSmoother | None = None):
+    def __init__(
+        self,
+        pipeline,
+        cfg: Config,
+        smoother: ViewSmoother | None = None,
+        box_filter: BoxFilter | None = None,
+    ):
         self.pipeline, self.cfg = pipeline, cfg
+        self.flt = box_filter or BoxFilter(cfg.kf_accel, cfg.kf_meas)
         self.smoother = smoother or ViewSmoother(
             cfg.alpha_pos, cfg.alpha_zoom, cfg.dead_zone_pos, cfg.dead_zone_zoom
         )
@@ -97,6 +104,7 @@ class LiveController:
     def _reset_tracking(self) -> None:
         self.pipeline.reset()
         self.smoother.reset()
+        self.flt.reset()
         self.target_id = None
         self._click = None
         self._last_t = None
@@ -107,6 +115,7 @@ class LiveController:
         had = self.target_id is not None
         self.target_id, self._lost = None, 0
         self.smoother.reset()
+        self.flt.reset()
         if not had:
             return Output(osd="Bırakılacak hedef yok")
         return Output(view=View(), osd="Hedef bırakıldı")
@@ -169,6 +178,7 @@ class LiveController:
                 if self.target_id is None:
                     self.smoother.reset()  # yeni hedefe geçişte yumuşatıcı korunur: kayarak gider
                 self.target_id, self._lost = picked.id, 0
+                self.flt.reset()  # süzgeç eski hedefin hızını taşımasın
                 osd = f"Hedef: ID {picked.id}"
         if self.target_id is None:
             return Output(osd=osd)
@@ -177,7 +187,9 @@ class LiveController:
             self._lost += 1
             return Output(osd=osd or ("Hedef kayboldu" if self._lost == 1 else None))
         self._lost = 0
-        raw = compute_view(tr.bbox, fw, fh, self.cfg.target_fill, self.cfg.min_zoom,
+        self.flt.update(tr.bbox.scaled(1 / fw, 1 / fh), t)  # kare boyutuna göre normalize
+        lead = self.flt.lookahead(self.cfg.lookahead_s, self.cfg.max_lead).scaled(fw, fh)
+        raw = compute_view(lead, fw, fh, self.cfg.target_fill, self.cfg.min_zoom,
                            self.cfg.max_zoom)
         return Output(view=self.smoother.update(raw), osd=osd)
 
@@ -203,11 +215,17 @@ def run_live(
     def emit(out: Output) -> None:
         nonlocal last_view
         if out.osd:
-            mpv.command("show-text", out.osd, 1500)
             log(out.osd)
+            try:
+                mpv.command("show-text", out.osd, 1500)
+            except MpvCommandError as e:  # OSD hatası döngüyü durdurmasın
+                log(f"OSD gösterilemedi: {e}")
         if out.view is not None and out.view != last_view:
-            mpv.set_view(out.view)
-            last_view = out.view
+            try:
+                mpv.set_view(out.view)
+                last_view = out.view
+            except MpvCommandError as e:  # mpv reddetti: sonraki karede yeniden dene
+                log(f"görünüm uygulanamadı: {e}")
 
     log("Canlı mod hazır (Ctrl+C ile çık). mpv'de t ile takibi aç, oyuncuya sol tıkla.")
     try:

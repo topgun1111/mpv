@@ -60,3 +60,8 @@ def test_screen_to_video_degenerate():
     from tracker.geometry import screen_to_video
 
     assert screen_to_video(1, 1, 100, 100, 60, 60, 0, 0) is None
+
+
+def test_bbox_scaled():
+    b = BBox(10, 20, 30, 60).scaled(0.5, 2.0)
+    assert (b.x1, b.y1, b.x2, b.y2) == (5.0, 40.0, 15.0, 120.0)

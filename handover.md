@@ -5,9 +5,9 @@ Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. exe: çalışmanın sayfasında Artifacts → TakipliOynat.
 
 ## Durum
-- Tamamlanan: **Parça 6/15**
-- Sıradaki: **Parça 7**
-- Sürüm: 0.6.0
+- Tamamlanan: **Parça 7/15**
+- Sıradaki: **Parça 8**
+- Sürüm: 0.7.0
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |
@@ -18,7 +18,7 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 | 4 | Tracker: ByteTrack (kalıcı ID), detector ile birleştirme | ✅ |
 | 5 | Canlı mod `main.py`: kare okuma (mpv screenshot-raw/ffmpeg), time-pos senkronu, IPC çıkışı | ✅ |
 | 6 | Hedef seçimi: tıklanan noktadaki bbox ID'si, hedef değiştirme/bırakma | ✅ |
-| 7 | Kalman + hız yönünde lookahead (smooth.py genişletme) | ⬜ |
+| 7 | Kalman + hız yönünde lookahead (smooth.py genişletme) | ✅ |
 | 8 | Kayıp yönetimi: son konumda bekle → kademeli zoom-out | ⬜ |
 | 9 | Offline mod: `offline.py` → `track.json` şeması ve üretimi | ⬜ |
 | 10 | Lua offline oynatma: `time-pos` ile JSON'dan zoom/pan, interpolasyon | ⬜ |
@@ -99,10 +99,23 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - Testler: 76 (yeni 8). Sürüm 0.6.0.
 - Kasıtlı olarak yapılmayanlar: tıklama anındaki kareye geri dönük eşleme (`click.time_pos` ile; canlıda gecikme küçük), çoklu hedef.
 
-## Parça 7 için başlangıç
-- `smooth.py` genişletme: Kalman (hedef merkez/ölçek) + hız yönünde lookahead (canlıda kare gecikmesini telafi). `ByteTracker`'daki `KalmanBox` yeniden kullanılabilir; `LiveController.step` içinde `compute_view` girdisi olan bbox'ı ileri öteleyip `ViewSmoother`'a ver. Lookahead miktarı `Config`'e (ör. `lookahead_s`) eklenmeli.
+## Parça 6 sonrası düzeltme
+- `scripts/make_package.py` 0 bayt (boş) çıkmıştı → yeniden yazıldı: `dist/TakipliOynat` içine `tracker/`, `mpv/portable_config/`, `models/`, `requirements.txt`, `README.md`, `VERSION` kopyalar (mpv.exe'yi `fetch_deps.ps1` ekler). Yerelde çalıştırıldı (20 dosya).
+- Tüm dosyalar yeniden gözden geçirildi: `run_live.emit` artık `MpvCommandError`'da (set_view/show-text reddi) döngüyü bitirmiyor, loglayıp sürdürüyor (+1 test → 77/77); `bytetrack.py`'deki ölü `rest2` kodu silindi; README dosya yapısı/yol haritası gerçeğe göre güncellendi (`portable_config`, 15 parçalık plan).
 
-## Doğrulama durumu (Parça 5; Parça 6 için de geçerli)
+## Parça 7'de yapılanlar
+- `tracker/smooth.py`: `Kalman1D` (zaman tabanlı sabit hız süzgeci: durum konum+hız, `predict(dt)` sn, beyaz ivme süreç gürültüsü, saf Python) ve `BoxFilter` (hedef kutusunun cx, cy, w, h kanallarını süzer; `update(bbox, t) -> BBox`, `lookahead(ahead_s, max_lead) -> BBox` = merkez hızı × süre kadar ileri öteleme, eksen başına ±max_lead; boyut kanalları `size_ratio`=0.2 ile daha yumuşak; geri atlama veya `max_gap`=1 sn'den uzun boşlukta ölçümden yeniden başlar; `reset`, `velocity`, `active`). `ViewSmoother` (dead-zone + EMA) değişmedi, süzgeçten SONRA çalışır.
+- `tracker/geometry.py`: `BBox.scaled(sx, sy)`.
+- `tracker/live.py`: `LiveController` içinde hedef kutusu kareye göre normalize (0..1) edilip `BoxFilter`'dan geçer, lookahead'li kutu `compute_view`'a verilir. Süzgeç; yeni hedef seçilince, hedef bırakılınca, sıfırlama/kapatma/atlamada sıfırlanır (eski hedefin hızı taşınmaz). Hedef kayıpken güncellenmez (Parça 8 kayıp yönetimi bunu kullanacak).
+- `tracker/config.py`: `lookahead_s` 0.15 (0 = kapalı), `max_lead` 0.15, `kf_accel` 0.5, `kf_meas` 0.01 (birimler kare boyutuna göre normalize).
+- Testler: 89 (yeni 12: Kalman hız öğrenme/durağan/gürültü azaltma/dt≤0, BoxFilter geçiş-lookahead-sınır-yeniden başlatma, `scaled`, denetleyicide lookahead hareketli hedefi öne alır / durağanda etkisiz, hedef değişince-bırakınca süzgeç sıfırlanır). Sürüm 0.7.0.
+- Kasıtlı olarak yapılmayanlar: ByteTrack içindeki `KalmanBox` yeniden kullanılmadı (o kare tabanlı ve piksel birimli; canlıda kare aralığı değişken olduğundan ayrı zaman tabanlı süzgeç yazıldı); kayıp hedef için tahmin/coast (Parça 8); lookahead süresinin gerçek gecikmeye göre otomatik ayarı.
+- Doğrulama: yalnızca sentetik hareketle (yerelde 89/89, pytest yerine basit uyumluluk katmanı). Varsayılan değerler (`lookahead_s`, `kf_accel`, `kf_meas`) gerçek maç videosunda **ayarlanmadı**; Windows'ta `live --stats 2` ile gecikmeye bakıp `lookahead_s`'i ~ (ölçülen gecikme + EMA gecikmesi) civarına getir. Yüksek hızda görüntü hedefin önüne geçerse `lookahead_s`'i düşür.
+
+## Parça 8 için başlangıç
+- Kayıp yönetimi: hedef görünmeyince son konumda bekle → kademeli zoom-out. `LiveController.step` içindeki `tr is None` dalı (şu an yalnız `_lost` sayar ve OSD verir) genişletilecek; `BoxFilter`'a kayıp için `predict`-only (coast) eklenebilir; `ByteTracker.lost_tracks` tahmini konum verir. Config'e `lost_hold_s` (bekleme) ve `lost_zoomout_s` (zoom-out süresi) benzeri ayarlar eklenmeli.
+
+## Doğrulama durumu (Parça 5; Parça 6-7 için de geçerli)
 - Parça 6: testler yerelde 76/76 (aynı uyumluluk katmanı); `track.lua`'daki `release` bağı ve `x` tuşu gerçek mpv'de denenmedi.
 - Testler yerelde 68/68 (pytest yüklenemediği için basit uyumluluk katmanıyla). `ruff` ve GitHub Actions yine **çalıştırılmadı** (satır ≤100 ve kullanılmayan import elle kontrol edildi). Yüklenen arşivde `.github/workflows/` (git'te kayıtlı) çalışma klasöründen silinmişti ve `pyproject.toml`'daki `pythonpath = ["."]` satırı eksikti (CI'da `import tracker` için gerekli); ikisi de git HEAD'den geri yüklendi.
 - **Gerçek mpv ile denenmedi**: `screenshot-raw`'ın JSON IPC'de base64 `data` döndürdüğü, 1080p karede IPC hızı (kare başı ~8 MB bayt → ~11 MB base64) ve `live_fps` 10'un tutup tutmadığı Windows'ta doğrulanmalı. Yavaşsa: ffmpeg kare kaynağı veya mpv'de küçültülmüş kare (ör. `vf` ile) düşün.

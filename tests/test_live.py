@@ -14,6 +14,7 @@ from tracker.frames import decode_raw, grab_frame
 from tracker.geometry import BBox, View
 from tracker.ipc import MpvCommandError, MpvIpc, MpvIpcError
 from tracker.live import CLOSED, LiveController, pick_track, run_live
+from tracker.smooth import ViewSmoother
 
 FRAME = np.zeros((100, 200, 3), np.uint8)
 
@@ -234,6 +235,45 @@ def test_release_drops_pending_click():
     assert c.step(FRAME, 1.0).osd is None and c.target_id is None
 
 
+def _final_pan_x(lookahead_s, steps=20, dx=2):
+    cfg = _cfg()
+    cfg.lookahead_s = lookahead_s
+    seq = [[_tr(1, 75 + dx * i, 30, 85 + dx * i, 50)] for i in range(steps)]  # 20 px/sn sağa
+    c = LiveController(FakePipeline(seq), cfg, ViewSmoother(1.0, 1.0, 0.0, 0.0))
+    c.handle_event(_click(80, 40))
+    out = None
+    for i in range(steps):
+        out = c.step(FRAME, 0.1 * (i + 1))
+    return out.view.pan_x, c
+
+
+def test_lookahead_leads_moving_target():
+    pan_off, _ = _final_pan_x(0.0)
+    pan_on, c = _final_pan_x(0.5)
+    assert pan_on < pan_off - 0.03  # hedef sağa gidiyor: pan = 0.5 - c, öndeki merkez → daha küçük
+    assert c.flt.velocity[0] > 0.05
+
+
+def test_lookahead_zero_for_static_target():
+    pan_off, _ = _final_pan_x(0.0, dx=0)
+    pan_on, _ = _final_pan_x(0.5, dx=0)
+    assert pan_on == pytest.approx(pan_off, abs=1e-6)
+
+
+def test_filter_resets_on_target_switch_and_release():
+    seq = [[_tr(1, 75 + 2 * i, 30, 85 + 2 * i, 50), _tr(2, 150, 30, 160, 50)] for i in range(12)]
+    c = LiveController(FakePipeline(seq), _cfg())
+    c.handle_event(_click(80, 40))
+    for i in range(8):
+        c.step(FRAME, 0.1 * (i + 1))
+    assert c.flt.velocity[0] > 0.0
+    c.handle_event(_click(155, 40))  # ikinci kişiye geç
+    c.step(FRAME, 0.9)
+    assert c.target_id == 2 and c.flt.velocity == (0.0, 0.0)
+    c.handle_event(_msg("track-release"))
+    assert not c.flt.active
+
+
 class FakeMpv:
     def __init__(self, stop, frames):
         self.stop, self.frames, self.t, self.views, self.texts = stop, frames, 0.0, [], []
@@ -292,6 +332,34 @@ def test_run_live_closed_event_and_command_error():
     run_live(NoVideo(None, 0), ev, FakePipeline([[]]), _cfg(), log=logs.append,
              sleep=lambda _s: None)
     assert "kesildi" in logs[-1]  # komut hatası döngüyü bozmaz; bağlantı hatası temiz çıkar
+
+
+def test_run_live_survives_rejected_set_view():
+    stop = threading.Event()
+
+    class Rejecting(FakeMpv):
+        def set_view(self, v):
+            self.views.append(v)
+            raise MpvCommandError("mpv hatası: refused")
+
+    mpv = Rejecting(stop, 4)
+
+    def grab(m):
+        m.grabs += 1
+        if m.grabs >= 3:
+            stop.set()
+        return FRAME
+
+    ev = queue.Queue()
+    ev.put(_toggle(True))
+    ev.put(_click(90, 50))
+    cfg = _cfg()
+    cfg.live_fps = 1000.0
+    logs = []
+    run_live(mpv, ev, FakePipeline([[_tr(3, 85, 40, 95, 60)]]), cfg, grab=grab, stop=stop,
+             log=logs.append, sleep=lambda _s: None)
+    assert mpv.grabs >= 3 and len(mpv.views) >= 2  # hata sonrası döngü sürdü, yeniden denendi
+    assert any("uygulanamadı" in x for x in logs)
 
 
 # --- gerçek soket: büyük satır ---
