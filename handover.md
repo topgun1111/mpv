@@ -7,7 +7,7 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 ## Durum
 - Tamamlanan: **Parça 15/15 — PLAN BİTTİ** (+ Parça 16: ekran üstü düğme paneli, Parça 17: sağ tık + zoom kontrolü + modelli/otomatik güncellenen installer)
 - Sıradaki: yok (yalnız Windows'ta gerçek doğrulama + `v1.0.0` etiketi; bkz. Parça 15 "Doğrulama")
-- Sürüm: 1.2.0
+- Sürüm: 1.3.0 (Parça 19)
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |
@@ -228,3 +228,11 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 
 ## Notlar (devam)
 - Lisans notu (Parça 15): Ultralytics YOLO modelleri AGPL-3.0; ONNX dışa aktarımı da buna tabidir. Kapalı dağıtım için YOLOX (Apache-2.0) ONNX'i düşün; `decode_yolo` YOLOX çıktısı (objectness'li) için ayrı bir çözücü gerektirir.
+
+## Parça 19 (ek): sol tuşla dikdörtgen sürükleme + kamera telafili nokta takibi
+- **İstek**: kişinin ayağı gibi bir noktayı sol tuşu basılı tutup dikdörtgenle seç; kamera kayınca/hedef kare dışına çıkınca bile takip sürsün; +/- zoom takip noktasında çalışsın.
+- `point.py::WorldPointTracker`: arka plan köşelerinden (LK + RANSAC `estimateAffinePartial2D`, 480 px ölçekte) kareden kareye kamera dönüşümü birikir (`W`: kare→dünya). Hedef dünya koordinatında tutulur; görünürken `PointTracker` düzeltir, görünmezken (kare dışı/kapanma) sönümlü dünya hızıyla ilerletilir, öngörülen konum kareye girince şablon aramasıyla yeniden bulunur. `update` hep kutu döner (kare dışı olabilir), `visible` bayrağı. `PointTracker(box=...)` kullanıcı kutusunu kabul eder. Varsayılan fabrika artık `WorldPointTracker` (sağ tık da kamera telafili).
+- `clicks.py`: `track-rect nx1 ny1 nx2 ny2 vw vh t` → `ClickEvent(kind="rect", nx2, ny2).box`. `live.py::_start_point` rect'i kutu olarak geçirir; kırmızı nokta kare dışında gizlenir (`visible`).
+- `track.lua`: `MBTN_LEFT` karmaşık bağ (`complex=true`): kısa tıklama = eski oyuncu seçimi, ≥6 px sürükleme = kırmızı çerçeve çizilir, bırakınca `track-rect`. Sürükleme bağı takip açıkken (T ya da sağ tık) veya düğme üstündeyken aktif (mpv OSC'sini bozmamak için eski koşul korundu). Zoom: ekrandaki +/− = `fill ±1`, hedef kilitliyken hedef noktası üstünde zoom değiştirir (Parça 17).
+- Testler: 202 + `tests/test_world.py` (kamera kayıp hedef sol dışına çıkıp geri gelir; parse_rect).
+- **Doğrulama (yapılmadı)**: gerçek maç videosu/mpv ile denenmedi; yalnız sentetik sahne. Windows'ta bak: kalabalıkta kamera kestirimi (oyuncular dışlayıcı sayılır), uzun süre kare dışında kalınca dünya konumu kayması (hız sönümü `vel_decay` 0.9), `complex` bağın `mouse-pos` ile sürükleme çerçevesi.

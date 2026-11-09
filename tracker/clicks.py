@@ -6,7 +6,8 @@ from typing import Any
 
 CLICK_MSG = "track-click"  # sol tık: tıklanan OYUNCU (YOLO + ByteTrack kimliği)
 POINT_MSG = "track-point"  # sağ tık: tıklanan NOKTA/nesne (sınıfsız, tracker/point.py)
-_KINDS = {CLICK_MSG: "person", POINT_MSG: "point"}
+RECT_MSG = "track-rect"  # sol tuşla çizilen dikdörtgen: nokta takibi (kamera telafili)
+_KINDS = {CLICK_MSG: "person", POINT_MSG: "point", RECT_MSG: "rect"}
 RESET_MSG = "track-reset"
 RELEASE_MSG = "track-release"
 TOGGLE_MSG = "track-toggle"
@@ -24,7 +25,17 @@ class ClickEvent:
     vw: int  # video piksel genişliği
     vh: int
     time_pos: float  # tıklama anındaki oynatma zamanı (sn)
-    kind: str = "person"  # "person" (track-click) | "point" (track-point)
+    kind: str = "person"  # "person" (track-click) | "point" (track-point) | "rect" (track-rect)
+    nx2: float | None = None  # yalnız "rect": karşı köşe (video-normalize); (nx,ny) ilk köşe
+    ny2: float | None = None
+
+    @property
+    def box(self) -> tuple[float, float, float, float] | None:
+        """"rect" için piksel (x1, y1, x2, y2); sıralı."""
+        if self.nx2 is None or self.ny2 is None:
+            return None
+        xs, ys = sorted((self.px, self.nx2 * self.vw)), sorted((self.py, self.ny2 * self.vh))
+        return xs[0], ys[0], xs[1], ys[1]
 
     @property
     def px(self) -> float:
@@ -40,17 +51,23 @@ def parse_click(event: dict[str, Any]) -> ClickEvent | None:
     if event.get("event") != "client-message":
         return None
     args = event.get("args") or []
-    if len(args) != 6 or args[0] not in _KINDS:
+    if not args or args[0] not in _KINDS:
+        return None
+    rect = args[0] == RECT_MSG
+    if len(args) != (8 if rect else 6):
         return None
     try:
         nx, ny = float(args[1]), float(args[2])
-        vw, vh = int(float(args[3])), int(float(args[4]))
-        t = float(args[5])
+        o = 2 if rect else 0  # rect: nx ny nx2 ny2 vw vh t
+        nx2, ny2 = (float(args[3]), float(args[4])) if rect else (None, None)
+        vw, vh = int(float(args[3 + o])), int(float(args[4 + o]))
+        t = float(args[5 + o])
     except (TypeError, ValueError):
         return None
-    if not (0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0) or vw <= 0 or vh <= 0:
+    pts = [nx, ny] + ([nx2, ny2] if rect else [])
+    if not all(0.0 <= v <= 1.0 for v in pts) or vw <= 0 or vh <= 0:
         return None
-    return ClickEvent(nx, ny, vw, vh, t, _KINDS[args[0]])
+    return ClickEvent(nx, ny, vw, vh, t, _KINDS[args[0]], nx2, ny2)
 
 
 def message_name(event: dict[str, Any]) -> str | None:

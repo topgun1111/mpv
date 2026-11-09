@@ -85,13 +85,14 @@ class PointTracker:
 
     def __init__(self, frame_bgr: np.ndarray, px: float, py: float, *,
                  box_frac: float = 0.06, refine: bool = True, max_side: int = 640,
-                 min_score: float = 0.55):
+                 min_score: float = 0.55, box: tuple[float, ...] | None = None):
         import cv2
 
         self._cv2 = cv2
         self.fh, self.fw = frame_bgr.shape[:2]
         self.min_score = min_score
-        box = refine_box(frame_bgr, px, py) if refine else None
+        if box is None:  # kullanıcı kutu çizmediyse tıklanan noktadan tahmin et
+            box = refine_box(frame_bgr, px, py) if refine else None
         if box is None:
             box = default_box(self.fw, self.fh, px, py, box_frac)
         x1, y1, x2, y2 = box
@@ -246,3 +247,131 @@ class PointTracker:
         patch = self._crop(cur, self.cx, self.cy, self.bw, self.bh)
         t = self._tmpl_for(patch.shape[1], patch.shape[0])
         self.tmpl = cv2.addWeighted(t, 0.85, patch, 0.15, 0)
+
+
+class WorldPointTracker:
+    """Kamera hareketini telafi eden izleyici: hedef "dünya" koordinatında tutulur.
+
+    Her karede arka plan köşe noktalarından kareden kareye benzerlik dönüşümü (kaydırma+zoom+
+    dönme, RANSAC) kestirilir ve birikir. Hedefin dünya konumu bu sayede kamera kaydığında ya da
+    hedef kare dışına çıktığında bile hesaplanabilir: hedef görünürken `PointTracker` konumu
+    düzeltir; görünmüyorsa (kare dışı / kapanma) son dünya hızıyla (sönümlenerek) ilerletilir ve
+    öngörülen konum karenin içine girince şablon aramasıyla yeniden bulunur.
+    `update` her zaman bir kutu döner (kare dışında olabilir); `visible` gerçek görünürlüğü söyler.
+    """
+
+    def __init__(self, frame_bgr: np.ndarray, px: float, py: float, *, box=None,
+                 cam_side: int = 480, vel_decay: float = 0.9, **kw):
+        import cv2
+
+        self._cv2 = cv2
+        self.inner = PointTracker(frame_bgr, px, py, box=box, **kw)
+        self.fw, self.fh = self.inner.fw, self.inner.fh
+        self.cs = min(1.0, cam_side / max(self.fw, self.fh))
+        self.cprev = self._cgray(frame_bgr)
+        self.W = np.eye(3)  # kare -> dünya (tam çözünürlük pikseli)
+        self.vel_decay = vel_decay
+        b = self.inner.bbox
+        self.wx, self.wy = self._to_world(b.cx, b.cy)
+        self.bw, self.bh = b.x2 - b.x1, b.y2 - b.y1  # tam çözünürlük kutu boyutu
+        self._wsize = (self.bw, self.bh)  # kutunun dünya boyutu
+        self.wvx = self.wvy = 0.0  # dünya hızı (px/kare)
+        self.visible = True
+        self.blind = 0  # ardışık görünmez kare
+
+    # --- dış arayüz ---
+    @property
+    def bbox(self) -> BBox:
+        """Son bilinen/öngörülen kutu (kare dışına taşabilir)."""
+        x, y = self._to_frame(self.wx, self.wy)
+        return BBox(x - self.bw / 2, y - self.bh / 2, x + self.bw / 2, y + self.bh / 2)
+
+    def update(self, frame_bgr: np.ndarray) -> BBox:
+        cur = self._cgray(frame_bgr)
+        self._camera(cur)
+        self.cprev = cur
+        in_frame = self._inside(*self._to_frame(self.wx, self.wy))
+        box = None
+        if in_frame or self.inner.lost == 0:
+            if self.inner.lost:  # öngörülen konuma göre yeniden bul
+                x, y = self._to_frame(self.wx, self.wy)
+                self.inner.cx = min(max(x * self.inner.s, 0.0), self.inner.gw - 1.0)
+                self.inner.cy = min(max(y * self.inner.s, 0.0), self.inner.gh - 1.0)
+            box = self.inner.update(frame_bgr)
+        else:
+            self.inner.prev = self.inner._prep(frame_bgr)
+            self.inner.lost += 1
+        if box is not None:
+            nx, ny = self._to_world(box.cx, box.cy)
+            k = 0.3 if self.blind == 0 else 0.0
+            self.wvx += k * ((nx - self.wx) - self.wvx)
+            self.wvy += k * ((ny - self.wy) - self.wvy)
+            self.wx, self.wy = nx, ny
+            sc = self._scale()
+            self.bw, self.bh = (box.x2 - box.x1), (box.y2 - box.y1)
+            self._wsize = (self.bw / sc, self.bh / sc)
+            self.visible, self.blind = True, 0
+        else:
+            self.wvx *= self.vel_decay
+            self.wvy *= self.vel_decay
+            self.wx += self.wvx
+            self.wy += self.wvy
+            self.visible = False
+            self.blind += 1
+            self.bw, self.bh = self._wsize[0] * self._scale(), self._wsize[1] * self._scale()
+        return self.bbox
+
+    # --- iç işlemler ---
+    def _cgray(self, frame_bgr: np.ndarray) -> np.ndarray:
+        g = self._cv2.cvtColor(frame_bgr, self._cv2.COLOR_BGR2GRAY)
+        if self.cs < 1.0:
+            g = self._cv2.resize(g, (round(self.fw * self.cs), round(self.fh * self.cs)),
+                                 interpolation=self._cv2.INTER_AREA)
+        return g
+
+    def _scale(self) -> float:
+        """Dünya -> kare ölçeği (kamera zoom'u)."""
+        return float(np.sqrt(abs(np.linalg.det(np.linalg.inv(self.W)[:2, :2]))) or 1.0)
+
+    def _inside(self, x: float, y: float, m: float = 0.0) -> bool:
+        return -m <= x <= self.fw + m and -m <= y <= self.fh + m
+
+    def _to_world(self, x: float, y: float) -> tuple[float, float]:
+        v = self.W @ np.array([x, y, 1.0])
+        return float(v[0]), float(v[1])
+
+    def _to_frame(self, wx: float, wy: float) -> tuple[float, float]:
+        v = np.linalg.inv(self.W) @ np.array([wx, wy, 1.0])
+        return float(v[0]), float(v[1])
+
+    def _camera(self, cur: np.ndarray) -> None:
+        """Önceki kareden bu kareye arka plan hareketi; W'yi günceller (kestirilemezse değişmez)."""
+        cv2 = self._cv2
+        prev = self.cprev
+        mask = np.full(prev.shape, 255, np.uint8)
+        if self.visible:  # hedefin ve çevresinin köşelerini kullanma
+            b = self.bbox
+            c = self.cs
+            m = max(b.x2 - b.x1, b.y2 - b.y1) * c
+            x1, y1 = int(b.x1 * c - m), int(b.y1 * c - m)
+            x2, y2 = int(b.x2 * c + m), int(b.y2 * c + m)
+            mask[max(y1, 0):max(y2, 0), max(x1, 0):max(x2, 0)] = 0
+        pts = cv2.goodFeaturesToTrack(prev, 250, 0.01, 8, mask=mask)
+        if pts is None or len(pts) < 10:
+            return
+        lk = {"winSize": (21, 21), "maxLevel": 4,
+              "criteria": (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.03)}
+        p1, st, _ = cv2.calcOpticalFlowPyrLK(prev, cur, pts, None, **lk)
+        p0, st2, _ = cv2.calcOpticalFlowPyrLK(cur, prev, p1, None, **lk)
+        fb = np.linalg.norm((pts - p0).reshape(-1, 2), axis=1)
+        good = (st.ravel() == 1) & (st2.ravel() == 1) & (fb < 1.0)
+        if int(good.sum()) < 10:
+            return
+        a, b = p1[good].reshape(-1, 2), pts[good].reshape(-1, 2)  # kare t -> kare t-1
+        A, inl = cv2.estimateAffinePartial2D(a, b, method=cv2.RANSAC, ransacReprojThreshold=2.0)
+        if A is None or inl is None or int(inl.sum()) < 8:
+            return
+        S = np.diag([self.cs, self.cs, 1.0])
+        step = np.vstack([A, [0, 0, 1]])
+        full = np.linalg.inv(S) @ step @ S
+        self.W = self.W @ full

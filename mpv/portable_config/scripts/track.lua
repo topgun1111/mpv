@@ -507,20 +507,88 @@ local function pick_target()
 end
 mp.add_key_binding(nil, "pick", pick_target)
 
+-- Sol tuş: tıkla (oyuncu seç) ya da basılı tutup sürükle (dikdörtgen = takip noktası; kamera
+-- hareketi telafi edilir, hedef kare dışına çıksa da konumu tahmin edilir). Sürüklerken çerçeve çizilir.
+local drag = { x0 = nil, y0 = nil, ov = nil }
+local DRAG_MIN = 6 -- px: bundan kısa sürükleme tıklama sayılır
+
+local function render_drag(x1, y1)
+  if not drag.ov then
+    drag.ov = mp.create_osd_overlay("ass-events")
+    drag.ov.z = 4
+  end
+  if not x1 then
+    drag.ov.data = ""
+    drag.ov:update()
+    return
+  end
+  local d = mp.get_property_native("osd-dimensions")
+  if not (d and d.w and d.w > 0) then return end
+  local x0, y0 = drag.x0, drag.y0
+  drag.ov.res_x, drag.ov.res_y = d.w, d.h
+  drag.ov.data = string.format(
+    "{\\an7\\pos(0,0)\\bord2\\shad0\\1a&HFF&\\3c&H0000FF&\\p1}m %d %d l %d %d %d %d %d %d{\\p0}",
+    math.floor(x0), math.floor(y0), math.floor(x1), math.floor(y0), math.floor(x1), math.floor(y1),
+    math.floor(x0), math.floor(y1))
+  drag.ov:update()
+end
+
+local function finish_drag(pos)
+  local x0, y0 = drag.x0, drag.y0
+  drag.x0, drag.y0 = nil, nil
+  render_drag(nil)
+  if not pos then return end
+  if math.abs(pos.x - x0) < DRAG_MIN and math.abs(pos.y - y0) < DRAG_MIN then
+    if enabled then on_click() end
+    return
+  end
+  local d = mp.get_property_native("osd-dimensions")
+  local params = mp.get_property_native("video-params")
+  if not (d and params and params.w and params.h) then return end
+  local function clampn(v) return math.min(math.max(v, 0), 1) end
+  local vw, vh = d.w - d.ml - d.mr, d.h - d.mt - d.mb
+  if vw <= 0 or vh <= 0 then return end
+  local ax, ay = clampn((x0 - d.ml) / vw), clampn((y0 - d.mt) / vh)
+  local bx, by = clampn((pos.x - d.ml) / vw), clampn((pos.y - d.mt) / vh)
+  if not enabled then set_enabled(true) end
+  mp.commandv("script-message", "track-rect",
+    string.format("%.6f", ax), string.format("%.6f", ay),
+    string.format("%.6f", bx), string.format("%.6f", by),
+    string.format("%d", math.floor(params.w)), string.format("%d", math.floor(params.h)),
+    string.format("%.3f", mp.get_property_number("time-pos", 0)))
+  osd("alan seçildi - takip ediliyor", 1)
+end
+
 sync_click_binding = function()
   local want = enabled or panel.hover ~= nil or zoomc.hover ~= nil
   if want and not panel.bound then
-    mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", function()
-      if panel.hover then
-        buttons[panel.hover].act()
-        render_panel()
-      elseif zoomc.hover then
-        zoom_buttons[zoomc.hover]()
-        render_zoom()
-      elseif enabled then
-        on_click()
+    mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", function(ev)
+      local pos = mouse_xy()
+      ev = ev or { event = "press" } -- eski tek-olay çağrısı: tıklama gibi
+      if ev.event == "press" then
+        if panel.hover then
+          buttons[panel.hover].act()
+          render_panel()
+        elseif zoomc.hover then
+          zoom_buttons[zoomc.hover]()
+          render_zoom()
+        elseif enabled then
+          on_click()
+        end
+      elseif ev.event == "down" then
+        if panel.hover then
+          buttons[panel.hover].act()
+          render_panel()
+        elseif zoomc.hover then
+          zoom_buttons[zoomc.hover]()
+          render_zoom()
+        elseif pos then
+          drag.x0, drag.y0 = pos.x, pos.y
+        end
+      elseif ev.event == "up" and drag.x0 then
+        finish_drag(pos)
       end
-    end)
+    end, { complex = true })
     panel.bound = true
   elseif not want and panel.bound then
     mp.remove_key_binding("track-click-bind")
@@ -543,6 +611,7 @@ local function hide_panel()
 end
 
 mp.observe_property("mouse-pos", "native", function(_, pos)
+  if drag.x0 and pos and pos.x then render_drag(pos.x, pos.y) end -- sürükleme çerçevesi
   if not pos or pos.hover == false then return end
   local was_visible, was_hover = panel.visible, panel.hover
   panel.visible = true

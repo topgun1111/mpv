@@ -62,11 +62,12 @@ class Output:
     osd: str | None = None
 
 
-def _default_point_factory(frame, px: float, py: float, cfg: Config):
-    from .point import PointTracker  # cv2 yalnız nesne takibi başlayınca içe aktarılır
+def _default_point_factory(frame, px: float, py: float, cfg: Config, box=None):
+    from .point import WorldPointTracker  # cv2 yalnız nesne takibi başlayınca içe aktarılır
 
-    return PointTracker(frame, px, py, box_frac=cfg.point_box, refine=cfg.point_refine,
-                        max_side=cfg.point_max_side, min_score=cfg.point_min_score)
+    return WorldPointTracker(frame, px, py, box=box, box_frac=cfg.point_box,
+                             refine=cfg.point_refine, max_side=cfg.point_max_side,
+                             min_score=cfg.point_min_score)
 
 
 def _box_gap(t, px: float, py: float) -> float:
@@ -252,7 +253,7 @@ class LiveController:
                 return Output(view=View(), osd="Atlama: hedefi yeniden seç")
         self._last_t = t
         click = self._click
-        if click is not None and click.kind == "point":  # sağ tık: herhangi bir nesne
+        if click is not None and click.kind in ("point", "rect"):  # sağ tık / sol sürükleme: herhangi bir nesne
             self._click = None
             return self._start_point(frame, t, click)
         if self.point is not None and click is None:  # nesne izleniyor: detector gerekmez
@@ -300,7 +301,8 @@ class LiveController:
         if self._zooming_out:  # zoom-out sırasında bulundu: bulunduğumuz görünümden devam
             self.smoother.seed(self._view)
         self._clear_lost()
-        self._dot = (bbox.cx / fw, bbox.cy / fh)
+        vis = getattr(self.point, "visible", True) if self.point is not None else True
+        self._dot = (bbox.cx / fw, bbox.cy / fh) if vis else None  # kare dışında nokta çizilmez
         self.flt.update(bbox.scaled(1 / fw, 1 / fh), t)  # kare boyutuna göre normalize
         lead = self.flt.lookahead(self.cfg.lookahead_s, self.cfg.max_lead).scaled(fw, fh)
         raw = compute_view(lead, fw, fh, self.cfg.target_fill, self.cfg.min_zoom,
@@ -313,15 +315,23 @@ class LiveController:
         Zaten izlenen hedefin üstüne tekrar sağ tık hedefi bırakır."""
         fh, fw = frame.shape[:2]
         px, py = click.px * fw / click.vw, click.py * fh / click.vh
-        if self.point is not None and self._lost_t0 is None and self.point.bbox.contains(px, py):
+        box = None
+        if click.kind == "rect" and click.box is not None:
+            x1, y1, x2, y2 = click.box
+            sx, sy = fw / click.vw, fh / click.vh
+            box = (x1 * sx, y1 * sy, max(x2 * sx, x1 * sx + 4), max(y2 * sy, y1 * sy + 4))
+            px, py = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+        if (box is None and self.point is not None and self._lost_t0 is None
+                and self.point.bbox.contains(px, py)):
             out = self._release()
             return Output(view=out.view, osd=out.osd)
         cur = next((x for x in self.last_tracks if x.id == self.target_id), None)
-        if cur is not None and cur.bbox.contains(px, py):  # izlenen oyuncuya tekrar sağ tık
+        if box is None and cur is not None and cur.bbox.contains(px, py):  # izlenen oyuncuya tekrar sağ tık
             out = self._release()
             return Output(view=out.view, osd=out.osd)
         try:
-            pt = self._point_factory(frame, px, py, self.cfg)
+            pt = (self._point_factory(frame, px, py, self.cfg, box=box) if box is not None
+                  else self._point_factory(frame, px, py, self.cfg))
         except Exception as e:  # cv2 yok / kare bozuk: takip döngüsü düşmesin
             return Output(osd=f"Nesne takibi başlatılamadı: {e}")
         if not self.has_target:
