@@ -5,9 +5,9 @@ Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. exe: çalışmanın sayfasında Artifacts → TakipliOynat.
 
 ## Durum
-- Tamamlanan: **Parça 7/15**
-- Sıradaki: **Parça 8**
-- Sürüm: 0.7.0
+- Tamamlanan: **Parça 8/15**
+- Sıradaki: **Parça 9**
+- Sürüm: 0.8.0
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |
@@ -19,7 +19,7 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 | 5 | Canlı mod `main.py`: kare okuma (mpv screenshot-raw/ffmpeg), time-pos senkronu, IPC çıkışı | ✅ |
 | 6 | Hedef seçimi: tıklanan noktadaki bbox ID'si, hedef değiştirme/bırakma | ✅ |
 | 7 | Kalman + hız yönünde lookahead (smooth.py genişletme) | ✅ |
-| 8 | Kayıp yönetimi: son konumda bekle → kademeli zoom-out | ⬜ |
+| 8 | Kayıp yönetimi: son konumda bekle → kademeli zoom-out | ✅ |
 | 9 | Offline mod: `offline.py` → `track.json` şeması ve üretimi | ⬜ |
 | 10 | Lua offline oynatma: `time-pos` ile JSON'dan zoom/pan, interpolasyon | ⬜ |
 | 11 | Re-ID (OSNet ONNX): embedding, ID kurtarma | ⬜ |
@@ -112,8 +112,19 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - Kasıtlı olarak yapılmayanlar: ByteTrack içindeki `KalmanBox` yeniden kullanılmadı (o kare tabanlı ve piksel birimli; canlıda kare aralığı değişken olduğundan ayrı zaman tabanlı süzgeç yazıldı); kayıp hedef için tahmin/coast (Parça 8); lookahead süresinin gerçek gecikmeye göre otomatik ayarı.
 - Doğrulama: yalnızca sentetik hareketle (yerelde 89/89, pytest yerine basit uyumluluk katmanı). Varsayılan değerler (`lookahead_s`, `kf_accel`, `kf_meas`) gerçek maç videosunda **ayarlanmadı**; Windows'ta `live --stats 2` ile gecikmeye bakıp `lookahead_s`'i ~ (ölçülen gecikme + EMA gecikmesi) civarına getir. Yüksek hızda görüntü hedefin önüne geçerse `lookahead_s`'i düşür.
 
-## Parça 8 için başlangıç
-- Kayıp yönetimi: hedef görünmeyince son konumda bekle → kademeli zoom-out. `LiveController.step` içindeki `tr is None` dalı (şu an yalnız `_lost` sayar ve OSD verir) genişletilecek; `BoxFilter`'a kayıp için `predict`-only (coast) eklenebilir; `ByteTracker.lost_tracks` tahmini konum verir. Config'e `lost_hold_s` (bekleme) ve `lost_zoomout_s` (zoom-out süresi) benzeri ayarlar eklenmeli.
+## Parça 8'de yapılanlar
+- `LiveController._on_lost(t, osd)` (hedef bu karede yok): kaybın ilk karesinde OSD "Hedef kayboldu" ve o anki görünüm (`_lost_from`) kaydedilir. `lost_hold_s` (1.0 sn) boyunca görünüm DEĞİŞMEZ (bekle); sonra `lost_zoomout_s` (2.0 sn) içinde `ease_view` (smoothstep) ile `View()` (1x, pan 0) değerine iner. Süre **video zamanıyla** (`t`) ölçülür: duraklatmada ilerlemez, kare hızına bağlı değildir. `lost_zoomout_s <= 0` → bekleme sonrası anında 1x.
+- Zoom-out bitince hedef ID korunur (1x'te bekler); ByteTrack aynı ID'yi `max_lost` kare içinde geri getirirse (bekleme/zoom-out sırasında ya da sonrasında) takip kaldığı yerden sürer. Hedefi yeniden seçmek için tıkla; `x`/`r`/atlama durumu temizler.
+- Sıçramasız dönüş: zoom-out başladıysa ve hedef geri gelirse (ya da zoom-out'tayken başka kişi seçilirse) `ViewSmoother.seed(self._view)` yumuşatıcıyı o anki görünüme kurar → görüntü eski yakın plana ışınlanmaz, kayarak gider. Bekleme sırasında geri gelirse görünüm zaten sabittir, seed gerekmez.
+- `tracker/smooth.py`: `ease_view(a, b, p)` (zoom log2 uzayında doğrusal; pan doğrusal → 1x'e inerken kenar boşluğu görünmez, çünkü izinli pan aralığı zoom'un içbükey fonksiyonu), `ViewSmoother.seed(view)`.
+- `tracker/live.py`: `_view` (son istenen görünüm), `_lost_t0/_lost_from/_zooming_out`, `_clear_lost()`; `_reset_tracking`/`_release` hepsini temizler.
+- `tracker/config.py`: `lost_hold_s` 1.0, `lost_zoomout_s` 2.0.
+- Testler: 97 (yeni 8: bekle→zoom-out→1x zaman çizelgesi, 0 süreli anında zoom-out, video zamanı/kare sayısı, zoom-out'ta geri dönüş sıçramaz, zoom-out'ta yeni hedef sıçramaz, release temizliği, `ease_view`, `seed`). `ruff check` temiz. Sürüm 0.8.0.
+- Kasıtlı olarak yapılmayanlar: kayıp sırasında konum tahmini ("coast", Kalman ile ileri götürme) — bekleme sırasında görünüm sabit kalıyor (futbolda kısa örtüşmelerde kamera kaymasın diye); gerekirse `BoxFilter.update` zaten `max_gap` (1 sn) içinde hızla tahmin eder, yani geri dönüşte süzgeç tutarlıdır. Zoom-out sonrası hedefi otomatik bırakma yok (Parça 11 Re-ID ile birlikte düşünülecek). `lost_hold_s` + `lost_zoomout_s` (3 sn) varsayılan olarak ByteTrack `max_lost` (30 kare ≈ 3 sn @10 fps) ile aynı mertebede seçildi; `live_fps` değişirse ikisini birlikte ayarla.
+- Doğrulama: yalnızca sentetik izlerle (yerelde 97/97, gerçek pytest ile — bu oturumda pytest kullanılabildi; ruff temiz). Gerçek videoda süreler (bekleme 1 sn, zoom-out 2 sn) **ayarlanmadı**.
+
+## Parça 9 için başlangıç
+- Offline mod: `tracker/offline.py` → tüm videoyu (ffmpeg/opencv ile) işleyip `track.json` üretir (şema: sürüm, video boyutu, fps, kare başına zaman + hedef kutusu/görünüm). Parça 8'deki bekle/zoom-out mantığı offline'da da aynı olmalı: `LiveController` mantığını (IO'suz) yeniden kullanmak ya da `_on_lost`'u ayrı bir sınıfa çıkarmak düşünülebilir. Offline'da gelecek karelere bakılabilir (non-causal): kayıp aralıkları için ileri-geri interpolasyon.
 
 ## Doğrulama durumu (Parça 5; Parça 6-7 için de geçerli)
 - Parça 6: testler yerelde 76/76 (aynı uyumluluk katmanı); `track.lua`'daki `release` bağı ve `x` tuşu gerçek mpv'de denenmedi.

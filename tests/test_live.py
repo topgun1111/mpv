@@ -14,7 +14,7 @@ from tracker.frames import decode_raw, grab_frame
 from tracker.geometry import BBox, View
 from tracker.ipc import MpvCommandError, MpvIpc, MpvIpcError
 from tracker.live import CLOSED, LiveController, pick_track, run_live
-from tracker.smooth import ViewSmoother
+from tracker.smooth import ViewSmoother, ease_view
 
 FRAME = np.zeros((100, 200, 3), np.uint8)
 
@@ -136,7 +136,93 @@ def test_target_lost_osd_once_and_view_held():
     c.step(FRAME, 1.0)
     o1, o2 = c.step(FRAME, 1.04), c.step(FRAME, 1.08)
     assert o1.osd == "Hedef kayboldu" and o1.view is None
-    assert o2.osd is None and c.target_id == 3  # kayıp yönetimi Parça 8
+    assert o2.osd is None and c.target_id == 3  # varsayılan bekleme 1 sn
+
+
+def _lost_ctl(seq, **kw):
+    cfg = Config(ipc_path="x", lost_hold_s=1.0, lost_zoomout_s=2.0, **kw)
+    c = LiveController(FakePipeline(seq), cfg)
+    c.handle_event(_click(90, 50))
+    out = c.step(FRAME, 1.0)
+    return c, out.view
+
+
+def test_lost_holds_then_zooms_out_gradually():
+    t = _tr(3, 85, 40, 95, 60)
+    c, v0 = _lost_ctl([[t]] + [[]] * 80)
+    assert v0.zoom > 0.5
+    views = {}
+    for k in range(1, 40):  # t = 1.1 .. 4.9
+        views[round(1.0 + 0.1 * k, 1)] = c.step(FRAME, 1.0 + 0.1 * k).view
+    assert views[1.5] is None and views[2.0] is None  # bekleme: görünüm değişmez
+    zs = [views[x].zoom for x in (2.5, 2.9, 3.4, 3.9)]  # zoom-out: tekdüze azalan
+    assert all(a > b for a, b in zip(zs, zs[1:])) and 0.0 < zs[-1] < v0.zoom
+    assert views[4.9] == View() and views[4.9].zoom == 0.0  # 1 + 1 (bekle) + 2 (zoom-out) = 4 sn
+    assert c.target_id == 3  # hedef korunur
+
+
+def test_lost_zoomout_zero_duration_snaps():
+    c, _ = _lost_ctl([[_tr(3, 85, 40, 95, 60)]] + [[]] * 5)
+    c.cfg.lost_zoomout_s = 0.0
+    assert c.step(FRAME, 1.5).view is None
+    assert c.step(FRAME, 2.6).view == View()  # kayıp 1.5'te başladı, bekleme 2.5'te bitti
+
+
+def test_lost_time_is_video_time_not_frame_count():
+    c, _ = _lost_ctl([[_tr(3, 85, 40, 95, 60)]] + [[]] * 50)
+    for k in range(1, 20):  # 19 kare ama yalnız 0.19 sn
+        assert c.step(FRAME, 1.0 + 0.01 * k).view is None
+
+
+def test_target_returns_during_zoomout_resumes_without_jump():
+    t = _tr(3, 85, 40, 95, 60)
+    c, v0 = _lost_ctl([[t]] + [[]] * 15 + [[t]] * 5)
+    last = None
+    for k in range(1, 16):  # t=1.1..2.6 → zoom-out yarıda
+        last = c.step(FRAME, 1.0 + 0.1 * k).view or last
+    assert last is not None and 0.0 < last.zoom < v0.zoom
+    back = c.step(FRAME, 2.7).view
+    assert back is not None and abs(back.zoom - last.zoom) < 0.15  # sıçrama yok
+    for k in range(60):
+        back = c.step(FRAME, 2.8 + 0.1 * k).view
+    assert back.zoom > v0.zoom - 0.1  # tekrar yakınlaştı
+    assert c._lost_t0 is None and not c._zooming_out
+
+
+def test_new_target_during_zoomout_does_not_jump():
+    a, b = _tr(3, 85, 40, 95, 60), _tr(4, 150, 40, 160, 60)
+    c, v0 = _lost_ctl([[a, b]] + [[b]] * 15 + [[b]] * 5)
+    last = None
+    for k in range(1, 16):
+        last = c.step(FRAME, 1.0 + 0.1 * k).view or last
+    c.handle_event(_click(155, 50))
+    out = c.step(FRAME, 2.7)
+    assert c.target_id == 4 and out.view is not None
+    assert abs(out.view.zoom - last.zoom) < 0.2
+
+
+def test_release_and_seek_clear_lost_state():
+    c, _ = _lost_ctl([[_tr(3, 85, 40, 95, 60)]] + [[]] * 5)
+    c.step(FRAME, 1.1)
+    assert c._lost_t0 is not None
+    c.handle_event(_msg("track-release"))
+    assert c._lost_t0 is None and c._view == View()
+
+
+def test_ease_view_endpoints_and_monotonic():
+    a = View(2.0, 0.2, -0.1)
+    assert ease_view(a, View(), 0.0) == a and ease_view(a, View(), 1.0) == View()
+    assert ease_view(a, View(), 2.0) == View() and ease_view(a, View(), -1.0) == a
+    zs = [ease_view(a, View(), i / 10).zoom for i in range(11)]
+    assert all(x >= y for x, y in zip(zs, zs[1:]))
+
+
+def test_smoother_seed_continues_from_view():
+    sm = ViewSmoother()
+    sm.update(View(2.0, 0.1, 0.1))
+    sm.seed(View(1.0, 0.05, 0.0))
+    out = sm.update(View(1.0, 0.05, 0.0))
+    assert out == View(1.0, 0.05, 0.0)
 
 
 def test_pause_skips_frames_until_click():

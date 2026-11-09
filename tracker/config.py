@@ -34,6 +34,8 @@ class Config:
     max_lead: float = 0.15  # lookahead'in kare genişliği/yüksekliği oranında üst sınırı
     kf_accel: float = 0.5  # hedef Kalman süreç gürültüsü: ivme std (kare boyutu/sn²)
     kf_meas: float = 0.01  # hedef Kalman ölçüm gürültüsü std (kare boyutu oranı)
+    lost_hold_s: float = 1.0  # sn (video zamanı); hedef kaybolunca son görünümde bu kadar bekle
+    lost_zoomout_s: float = 2.0  # sn; bekleme sonrası 1x'e kademeli zoom-out süresi (0: anında)
 
     def __post_init__(self) -> None:
         if not self.ipc_path:

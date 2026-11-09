@@ -16,7 +16,7 @@ from .config import Config
 from .frames import grab_frame
 from .geometry import View, compute_view
 from .ipc import MpvCommandError, MpvIpc, MpvIpcError
-from .smooth import BoxFilter, ViewSmoother
+from .smooth import BoxFilter, ViewSmoother, ease_view
 
 CLOSED = {"event": "__closed__"}
 
@@ -99,7 +99,14 @@ class LiveController:
         self.last_tracks: list = []
         self._click = None
         self._last_t: float | None = None
-        self._lost = 0
+        self._lost = 0  # üst üste hedefsiz kare sayısı
+        self._lost_t0: float | None = None  # kaybın başladığı video zamanı
+        self._lost_from: View | None = None  # kayıp anındaki görünüm (zoom-out başlangıcı)
+        self._zooming_out = False
+        self._view = View()  # en son uygulanması istenen görünüm
+
+    def _clear_lost(self) -> None:
+        self._lost, self._lost_t0, self._lost_from, self._zooming_out = 0, None, None, False
 
     def _reset_tracking(self) -> None:
         self.pipeline.reset()
@@ -108,14 +115,17 @@ class LiveController:
         self.target_id = None
         self._click = None
         self._last_t = None
-        self._lost = 0
+        self._clear_lost()
+        self._view = View()
 
     def _release(self) -> Output:
         """Hedefi bırak: görünüm 1x'e döner; takip açık kalır, yeni tıklama hedef seçer."""
         had = self.target_id is not None
-        self.target_id, self._lost = None, 0
+        self.target_id = None
+        self._clear_lost()
         self.smoother.reset()
         self.flt.reset()
+        self._view = View()
         if not had:
             return Output(osd="Bırakılacak hedef yok")
         return Output(view=View(), osd="Hedef bırakıldı")
@@ -177,21 +187,43 @@ class LiveController:
             else:
                 if self.target_id is None:
                     self.smoother.reset()  # yeni hedefe geçişte yumuşatıcı korunur: kayarak gider
-                self.target_id, self._lost = picked.id, 0
+                elif self._zooming_out:
+                    self.smoother.seed(self._view)  # zoom-out'tan yeni hedefe sıçramadan geç
+                self.target_id = picked.id
+                self._clear_lost()
                 self.flt.reset()  # süzgeç eski hedefin hızını taşımasın
                 osd = f"Hedef: ID {picked.id}"
         if self.target_id is None:
             return Output(osd=osd)
         tr = next((x for x in tracks if x.id == self.target_id), None)
-        if tr is None:  # kayıp yönetimi Parça 8'de; şimdilik son görünümde bekle
-            self._lost += 1
-            return Output(osd=osd or ("Hedef kayboldu" if self._lost == 1 else None))
-        self._lost = 0
+        if tr is None:
+            return self._on_lost(t, osd)
+        if self._zooming_out:  # zoom-out sırasında bulundu: bulunduğumuz görünümden devam
+            self.smoother.seed(self._view)
+        self._clear_lost()
         self.flt.update(tr.bbox.scaled(1 / fw, 1 / fh), t)  # kare boyutuna göre normalize
         lead = self.flt.lookahead(self.cfg.lookahead_s, self.cfg.max_lead).scaled(fw, fh)
         raw = compute_view(lead, fw, fh, self.cfg.target_fill, self.cfg.min_zoom,
                            self.cfg.max_zoom)
-        return Output(view=self.smoother.update(raw), osd=osd)
+        self._view = self.smoother.update(raw)
+        return Output(view=self._view, osd=osd)
+
+    def _on_lost(self, t: float, osd: str | None) -> Output:
+        """Hedef bu karede yok: `lost_hold_s` son görünümde bekle, sonra `lost_zoomout_s` içinde
+        1x'e kademeli zoom-out; hedef geri gelirse (aynı ID) takip kaldığı yerden sürer.
+        Süre video zamanıyla ölçülür (duraklatma/atlama gerçek süreyi şişirmez)."""
+        self._lost += 1
+        if self._lost_t0 is None:
+            self._lost_t0, self._lost_from = t, self._view
+            osd = osd or "Hedef kayboldu"
+        el = t - self._lost_t0 - max(self.cfg.lost_hold_s, 0.0)
+        if el < 0.0:
+            return Output(osd=osd)  # bekle
+        self._zooming_out = True
+        dur = self.cfg.lost_zoomout_s
+        assert self._lost_from is not None
+        self._view = ease_view(self._lost_from, View(), el / dur if dur > 0 else 1.0)
+        return Output(view=self._view, osd=osd)
 
 
 def run_live(

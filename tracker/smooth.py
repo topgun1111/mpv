@@ -59,9 +59,25 @@ class ViewSmoother:
         for s in (*self._dz, *self._ema):
             s.reset()
 
+    def seed(self, view: View) -> None:
+        """Durumu `view`'a kur: sonraki `update` buradan yumuşakça ilerler (sıçrama olmaz)."""
+        for dz, ema, v in zip(self._dz, self._ema, (view.zoom, view.pan_x, view.pan_y),
+                              strict=True):
+            dz.value = ema.value = v
+
 
 def _clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
+
+
+def ease_view(a: View, b: View, p: float) -> View:
+    """`a`'dan `b`'ye smoothstep ile geçiş (p: 0..1). zoom log2 uzayında doğrusal olduğundan
+    algısal olarak düzgündür; pan de doğrusal → hedef 1x ise kenar boşluğu hiç görünmez
+    (izinli pan aralığı zoom'un içbükey fonksiyonu)."""
+    p = _clamp(p, 0.0, 1.0)
+    e = p * p * (3.0 - 2.0 * p)
+    return View(a.zoom + (b.zoom - a.zoom) * e, a.pan_x + (b.pan_x - a.pan_x) * e,
+                a.pan_y + (b.pan_y - a.pan_y) * e)
 
 
 class Kalman1D:
