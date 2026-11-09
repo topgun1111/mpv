@@ -55,6 +55,11 @@ class ViewSmoother:
         out = [e.update(d.update(v)) for d, e, v in zip(self._dz, self._ema, raw, strict=True)]
         return View(*out)
 
+    def set_alpha(self, alpha_pos: float, alpha_zoom: float) -> None:
+        """Katsayıları durumu bozmadan değiştir (canlı ayar)."""
+        self._ema[0].alpha = alpha_zoom
+        self._ema[1].alpha = self._ema[2].alpha = alpha_pos
+
     def reset(self) -> None:
         for s in (*self._dz, *self._ema):
             s.reset()

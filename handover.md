@@ -5,9 +5,9 @@ Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. exe: çalışmanın sayfasında Artifacts → TakipliOynat.
 
 ## Durum
-- Tamamlanan: **Parça 12/15**
-- Sıradaki: **Parça 13**
-- Sürüm: 0.12.0
+- Tamamlanan: **Parça 14/15**
+- Sıradaki: **Parça 15**
+- Sürüm: 0.14.0
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |
@@ -24,8 +24,8 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 | 10 | Lua offline oynatma: `time-pos` ile JSON'dan zoom/pan, interpolasyon | ✅ |
 | 11 | Re-ID (OSNet ONNX): embedding, ID kurtarma | ✅ |
 | 12 | Takım rengi histogramı + forma numarası OCR | ✅ |
-| 13 | Ayarlar (config UI/tuşlar) ve OSD iyileştirmeleri | ⬜ |
-| 14 | Gömülü Python (embeddable) + bağımlılık paketleme + Inno Setup tam installer, DirectML varsayılanı | ⬜ |
+| 13 | Ayarlar (config UI/tuşlar) ve OSD iyileştirmeleri | ✅ |
+| 14 | Gömülü Python (embeddable) + bağımlılık paketleme + Inno Setup tam installer, DirectML varsayılanı | ✅ |
 | 15 | Lisans denetimi (AGPL/Apache alternatif, THIRD_PARTY_NOTICES), son testler, dokümantasyon, release | ⬜ |
 
 ## Parça 1'de yapılanlar (özet)
@@ -159,6 +159,24 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - Testler: 145 (yeni 12, `tests/test_team.py`; sahte `ConstEmbedder` Re-ID'yi kör eder, yalnız takım/numara ayırır). `ruff` temiz. pytest/ruff bu oturumda kuruldu ve gerçekten çalıştırıldı. Sürüm 0.12.0.
 - Doğrulama: **gerçek maç görüntüsünde ve gerçek numara modeliyle denenmedi.** Windows'ta bak: `team_margin` (0.15) ve üst gövde bölgesi gerçek kamera açılarında/uzak planlarda yeterli mi; aynı renk forma + kaleci/hakem durumu (k=2 hakemi bir takıma katabilir → yalnız belirsizse elenmez, yani zarar değil kayıp fırsat); `team_min_px` (100) uzak oyuncuda sık None veriyor mu (küçük kutu → özellik yok → elemez). Numara modeli için sözleşme `number.py` başında; ayrı eğitilmesi gerekir.
 - Kasıtlı olarak yapılmayanlar: hakem/kaleci için ayrı üçüncü küme; takım rengini embedding'e katmak (yalnız eleme); numara eşleşmesiyle `reid_thres`'i gevşetmek; `--list` çıktısında takım/numara gösterimi; ağır OCR bağımlılığı (installer boyutu; Parça 14'te model dağıtımı/lisansı ayrıca düşünülür).
+
+## Parça 13'te yapılanlar
+- **Canlı ayar tuşları** (`input.conf` → `track.lua` → `script-message track-setting <anahtar> <+1|-1|0>` → `LiveController._on_setting`): `Ctrl+↑/↓` doluluk (`target_fill`, ±0.05, 0.10–0.80), `Ctrl+→/←` tepki hızı (`alpha_pos` ve `alpha_zoom` birlikte ×1.25 / ÷1.25; `alpha_pos` 0.03–0.60), `Ctrl+PgUp/PgDn` öngörü (`lookahead_s` ±0.05, 0–0.6), `Ctrl+0` hepsini varsayılana, `Ctrl+S` ayarları config JSON'a kaydet (`track-save`; mpv'nin varsayılan Ctrl+S'sini geçersiz kılar), `h` durum özeti (tüm ayarlar + hedef), `Ctrl+H` etiketi gizle/göster. Mantık `tracker/settings.py` (`adjust`, `reset_all`, `status_text`); sınırda "(üst/alt sınır)" OSD'si. `ViewSmoother.set_alpha` durumu bozmadan katsayıyı değiştirir; `target_fill`/`lookahead_s` zaten her karede cfg'den okunur → bir sonraki karede etkili.
+- **Kaydetme**: `run_live(..., cfg_path)`; CLI `--config` verildiyse oraya, yoksa çalışma klasöründeki `tracker_config.json`'a yazar. Yazma hatası OSD'de görünür, döngü durmaz.
+- **HUD etiketi** (sağ üst, ASS overlay): Python durum değişince `script-message-to track track-hud <metin>` yollar ("Takip: hedef seç (tıkla)" / "Takip: ID n" / "Takip: hedef kayıp" / "... (uzaklaşıyor)"; takip kapalı → boş); yalnız metin değişince gönderilir. Lua offline açıkken kendisi "Takip: offline ID n" gösterir; canlı kapanınca/`end-file`'da temizlenir. ASS kaçış karakterleri ({ } \ satır sonu) temizlenir. `cfg.hud=False` ile kapanır. Kaydetmeden gelen yeni `hud` alanı config'e eklendi.
+- Testler: 154 (yeni 9, `tests/test_settings.py`; Lua tarafı için ortak `tests/lua_mp_stub.lua` + `tests/lua_harness_hud.lua`; eski offline harness ortak stub'a taşındı, çıktısı değişmedi). `ruff` temiz. Sürüm 0.13.0.
+- Doğrulama: **gerçek mpv'de denenmedi**: `create_osd_overlay` etiketinin yazı tipi/boyutu (`\\fs20`) akıllı tahtada okunaklı mı, `ctrl+up/down/left/right` ve `ctrl+pgup/pgdwn`'in Pardus/mpv sürümünde başka bir şeye bağlı olup olmadığı, `script-message-to track` istemci adının gerçekten "track" olduğu (`track.lua` dosya adından türer). Ayar tuşları yalnız Python canlı modu çalışırken etki eder (offline oynatmada yok; Lua bunu bilemez, geri bildirim vermez).
+- Kasıtlı olarak yapılmayanlar: ayrı bir ayar penceresi/GUI (tuşlar + JSON yeterli sayıldı); offline oynatmada ayar; `det_conf`, `lost_hold_s`, Re-ID eşikleri gibi ince ayarların tuşları (config dosyasından); ayarın mpv yeniden başlatmada otomatik yüklenmesi (`--config tracker_config.json` ile).
+
+## Parça 14'te yapılanlar
+- `scripts/build_embedded.py` (CI'da, Windows): python.org 3.11.9 embeddable (amd64) indirilip `dist/TakipliOynat/python/`'a açılır; `pythonXY._pth` yamalanır (`import site` açık + `..` yola eklenir → `python -m tracker` uygulama kökünden çalışır; gömülü Python PYTHONPATH/cwd'yi yok sayar), get-pip ile pip kurulur, `requirements.txt` (Windows'ta **onnxruntime-directml**) içine kurulur, sonra `prune` (`__pycache__`, `tests`/`test`/`testing`, `.pyc`, pip/setuptools/wheel/pkg_resources) ile boyut düşürülür. `patch_pth` ve `prune` saf mantık, Linux'ta testli. `--no-install` yalnız Python'u açar.
+- Başlatıcılar (`launcher/`, paketlenirken CRLF'ye çevrilir): `Baslat.bat` (mpv'yi `pseudo-gui` ile açar, `python -m tracker --config %APPDATA%\TakipliOynat\config.json live --wait 30 --stats 5`; `models\osnet_x0_25.onnx` varsa `--reid --team`, `jersey_number.onnx` de varsa `--number` eklenir; video sürükle-bırak çalışır; yolov8n.onnx yoksa anlaşılır hata), `Offline.bat` (video sürükle → `offline` → ID sor → `offline-view --target-id` → mpv; `o` ile aç). Config `%APPDATA%`'da: Program Files'a yazma sorunu yok, kaldırmada silinmez; `Ctrl+S` buraya yazar.
+- Yeni: `tracker.ipc.wait_for_ipc` + `live --wait SN` (mpv'nin pipe'ı açılana kadar 0.5 sn arayla dener; başlatıcıda izleyici mpv'den önce açılırsa düşmesin). `Config` dosyası yoksa (`--config` verilse bile) varsayılanla başlar; `Config.save` üst klasörü oluşturur.
+- `installer.iss` tam sürüm: `MinVersion=10.0.18362` (DirectML için Win10 1903+), x64, `lzma2/max`, Türkçe (`Turkish.isl`), `PrivilegesRequiredOverridesAllowed=dialog`, kısayollar (canlı / offline / modeller klasörü / masaüstü isteğe bağlı), `models\*.onnx` kurulumdan dışlanır (lisans: AGPL modeller dağıtılmaz) ve `models` kaldırmada silinmez, `MODELLER.txt` bilgi dosyası. `models/MODELLER.txt`: hangi modeller nereden/nasıl.
+- `build.yml`: test → paket → **gömülü Python** → mpv → **duman testi** (`python -m tracker --version`; `import numpy, cv2, onnxruntime`; `DmlExecutionProvider` mevcut olmalı; `detect --help`) → zip → installer. DirectML varsayılanı: `device="auto"` zaten DirectML → CUDA → CPU sırasıyla seçer.
+- Testler: 164 (yeni 10, `tests/test_packaging.py`: `_pth` yaması, prune, Python/DirectML sabitleri, `make_package` çıktısı + CRLF, başlatıcı içerikleri, installer'daki dosya referansları, workflow adım sırası, `wait_for_ipc`, eksik config, `--wait` hatası). `ruff` temiz. Sürüm 0.14.0.
+- Doğrulama: **Windows'ta, CI'da ve gerçek installer'la hiç çalıştırılmadı** (bu ortam Linux; indirme/kurulum adımları, ISCC derlemesi, `Turkish.isl` varlığı, `.bat`'lerin cmd.exe'de davranışı, DirectML provider'ın runner'da listelenmesi doğrulanmadı). İlk CI koşusunda şunlara bak: embeddable Python'a pip kurulumu (`get-pip` + `_pth`), `opencv-python-headless`/`onnxruntime-directml` cp311 tekerlekleri, installer boyutu (tahmin: ~200–300 MB hedefi aşılabilir; aşılırsa opencv/onnxruntime paketlerini incele), `prune`'un çalışma zamanını bozup bozmadığı (duman testi yakalar). Kurulumdan sonra `Baslat.bat`'ı elle dene.
+- Kasıtlı olarak yapılmayanlar: indirilen Python/get-pip/mpv için sağlama toplamı (SHA256) doğrulaması (Parça 15 tedarik zinciri denetimi); mpv sürümünü sabitleme (`fetch_deps.ps1` hâlâ "latest"); kod imzalama; modelleri installer içinde indirme; Python'a `tracker`'ı .pyc/zip olarak derleme.
 
 ## Doğrulama durumu (Parça 5; Parça 6-7 için de geçerli)
 - Parça 6: testler yerelde 76/76 (aynı uyumluluk katmanı); `track.lua`'daki `release` bağı ve `x` tuşu gerçek mpv'de denenmedi.

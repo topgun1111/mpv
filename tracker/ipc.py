@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import time
 from collections import deque
 from typing import Any
 
@@ -148,3 +149,24 @@ class MpvIpc:
         self.set_property("video-zoom", view.zoom)
         self.set_property("video-pan-x", view.pan_x)
         self.set_property("video-pan-y", view.pan_y)
+
+
+def wait_for_ipc(path: str, timeout: float, *, connect=None, sleep=time.sleep,
+                 clock=time.monotonic) -> bool:
+    """mpv'nin IPC kanalı açılana kadar (en çok `timeout` sn) 0.5 sn arayla dener.
+    Başlatıcı mpv'yi ve izleyiciyi aynı anda açtığında izleyicinin erken düşmesini önler."""
+    def default_connect() -> None:
+        c = MpvIpc(path)
+        c.connect()
+        c.close()
+
+    connect = connect or default_connect
+    end = clock() + max(timeout, 0.0)
+    while True:
+        try:
+            connect()
+            return True
+        except MpvIpcError:
+            if clock() >= end:
+                return False
+            sleep(0.5)

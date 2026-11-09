@@ -7,6 +7,31 @@ local utils = require 'mp.utils'
 
 local enabled = false
 local set_offline -- ileri bildirim: canlı mod açılınca offline kapatılır
+local off -- ileri bildirim (offline durumu; HUD okur)
+
+-- Köşe durum etiketi (Parça 13): Python `script-message-to track track-hud <metin>` gönderir.
+-- Offline açıkken "Takip: offline ID n" gösterilir. `track/hud` tuşu etiketi gizler/gösterir.
+local hud = { text = "", visible = true, ov = nil }
+
+local function render_hud()
+  if not hud.ov then hud.ov = mp.create_osd_overlay("ass-events") end
+  local text = hud.text
+  if off and off.on then
+    text = "Takip: offline ID " .. tostring(off.target and off.target.id or "?")
+  end
+  text = text:gsub("[{}\\\n]", " ") -- ASS kaçışlarını ve satır sonunu etkisiz kıl
+  if hud.visible and text ~= "" then
+    hud.ov.data = "{\\an9\\fs20\\bord2\\shad0\\1c&HFFFFFF&\\3c&H000000&}" .. text
+  else
+    hud.ov.data = ""
+  end
+  hud.ov:update()
+end
+
+mp.register_script_message("track-hud", function(text)
+  hud.text = text or ""
+  render_hud()
+end)
 
 local function osd(msg, sec) mp.osd_message("Takipli Oynat: " .. msg, sec or 2) end
 
@@ -53,6 +78,8 @@ local function set_enabled(on)
     mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", on_click)
   else
     mp.remove_key_binding("track-click-bind")
+    hud.text = ""
+    render_hud()
   end
   mp.commandv("script-message", "track-toggle", enabled and "on" or "off")
   osd(enabled and "AÇIK - hedefe sol tıkla" or "KAPALI")
@@ -76,7 +103,7 @@ end)
 
 -- ---------------------------------------------------------------------------------------------
 -- Offline oynatma
-local off = { on = false, n = 0, T = {}, Z = {}, PX = {}, PY = {}, last = nil, target = nil }
+off = { on = false, n = 0, T = {}, Z = {}, PX = {}, PY = {}, last = nil, target = nil }
 
 local function read_file(path)
   local f = io.open(path, "rb")
@@ -164,10 +191,12 @@ set_offline = function(on)
     reapply()
     -- Canlı mod kapanırken Python'un gönderdiği 1x sıfırlaması gecikmeli gelebilir: yeniden uygula
     if was_live then mp.add_timeout(0.5, reapply) end
+    render_hud()
     osd(string.format("offline AÇIK (hedef ID %s, %d anahtar kare)",
       tostring(off.target and off.target.id or "?"), off.n))
   else
     off.on, off.last = false, nil
+    render_hud()
     mp.set_property_number("video-zoom", 0)
     mp.set_property_number("video-pan-x", 0)
     mp.set_property_number("video-pan-y", 0)
@@ -185,6 +214,7 @@ mp.add_key_binding(nil, "offline", function() set_offline(not off.on) end)
 mp.register_event("end-file", function()
   if off.on then -- veri eski videoya aitti
     off.on, off.last = false, nil
+    render_hud()
   end
 end)
 
@@ -193,6 +223,26 @@ mp.register_event("file-loaded", function()
   if vpath and not off.on and read_file(vpath .. ".views.json") then
     osd("offline takip verisi var - o tuşuyla aç", 3)
   end
+end)
+
+-- ---------------------------------------------------------------------------------------------
+-- Canlı ayar tuşları (Parça 13): Python `track-setting` mesajını işler (canlı mod çalışıyorsa).
+local function setting(key, dir)
+  return function() mp.commandv("script-message", "track-setting", key, tostring(dir)) end
+end
+mp.add_key_binding(nil, "fill-up", setting("fill", 1))
+mp.add_key_binding(nil, "fill-down", setting("fill", -1))
+mp.add_key_binding(nil, "speed-up", setting("speed", 1))
+mp.add_key_binding(nil, "speed-down", setting("speed", -1))
+mp.add_key_binding(nil, "lead-up", setting("lead", 1))
+mp.add_key_binding(nil, "lead-down", setting("lead", -1))
+mp.add_key_binding(nil, "settings-reset", setting("all", 0))
+mp.add_key_binding(nil, "settings-save", function() mp.commandv("script-message", "track-save") end)
+mp.add_key_binding(nil, "status", function() mp.commandv("script-message", "track-status") end)
+mp.add_key_binding(nil, "hud", function()
+  hud.visible = not hud.visible
+  render_hud()
+  osd(hud.visible and "durum etiketi AÇIK" or "durum etiketi KAPALI", 1)
 end)
 
 mp.msg.info("track.lua yüklendi")

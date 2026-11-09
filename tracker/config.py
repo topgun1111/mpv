@@ -56,6 +56,7 @@ class Config:
     number_conf: float = 0.6  # tek okuma için softmax güveni alt sınırı
     number_min_votes: int = 3  # hedef numarası için en az bu kadar aynı okuma
     number_share: float = 0.6  # ... ve oy ağırlığının en az bu payı
+    hud: bool = True  # canlı mod: köşede küçük durum etiketi (Takip: ID 5 / hedef kayıp)
     lost_zoomout_s: float = 2.0  # sn; bekleme sonrası 1x'e kademeli zoom-out süresi (0: anında)
 
     def __post_init__(self) -> None:
@@ -69,4 +70,6 @@ class Config:
         return cls(**{k: v for k, v in data.items() if k in known})
 
     def save(self, path: str | Path) -> None:
-        Path(path).write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")

@@ -11,11 +11,22 @@ import threading
 import time
 from dataclasses import dataclass
 
-from .clicks import RELEASE_MSG, RESET_MSG, TOGGLE_MSG, message_name, parse_click
+from .clicks import (
+    HUD_MSG,
+    RELEASE_MSG,
+    RESET_MSG,
+    SAVE_MSG,
+    SETTING_MSG,
+    STATUS_MSG,
+    TOGGLE_MSG,
+    message_name,
+    parse_click,
+)
 from .config import Config
 from .frames import grab_frame
 from .geometry import View, compute_view
 from .ipc import MpvCommandError, MpvIpc, MpvIpcError
+from .settings import adjust, status_text
 from .smooth import BoxFilter, ViewSmoother, ease_view
 
 CLOSED = {"event": "__closed__"}
@@ -89,8 +100,10 @@ class LiveController:
         smoother: ViewSmoother | None = None,
         box_filter: BoxFilter | None = None,
         reid=None,
+        cfg_path: str | None = None,
     ):
         self.pipeline, self.cfg, self.reid = pipeline, cfg, reid  # reid: ReIdManager | None
+        self.cfg_path = cfg_path  # `track-save` ayarları buraya yazar
         self._id_mark = 0  # hedef son görüldüğünde izlerin en büyük ID'si (ID'ler artan)
         self.flt = box_filter or BoxFilter(cfg.kf_accel, cfg.kf_meas)
         self.smoother = smoother or ViewSmoother(
@@ -157,7 +170,43 @@ class LiveController:
         if name == RELEASE_MSG:
             self._click = None
             return self._release()
+        if name == SETTING_MSG:
+            return self._on_setting(ev.get("args") or [])
+        if name == STATUS_MSG:
+            return Output(osd=status_text(self.cfg, self.target_id))
+        if name == SAVE_MSG:
+            return self._on_save()
         return Output()
+
+    def _on_setting(self, args: list) -> Output:
+        try:
+            key, direction = str(args[1]), int(float(args[2]))
+        except (IndexError, ValueError):
+            return Output()
+        osd = adjust(self.cfg, key, max(-1, min(1, direction)))
+        if osd is None:
+            return Output()
+        self.smoother.set_alpha(self.cfg.alpha_pos, self.cfg.alpha_zoom)
+        return Output(osd=osd)
+
+    def _on_save(self) -> Output:
+        if not self.cfg_path:
+            return Output(osd="Kaydedilemedi: config yolu yok")
+        try:
+            self.cfg.save(self.cfg_path)
+        except OSError as e:
+            return Output(osd=f"Kaydedilemedi: {e}")
+        return Output(osd=f"Ayarlar kaydedildi: {self.cfg_path}")
+
+    def hud_text(self) -> str:
+        """Köşe etiketi (boş = gizle). Python → Lua `track-hud`."""
+        if not self.enabled or not self.cfg.hud:
+            return ""
+        if self.target_id is None:
+            return "Takip: hedef seç (tıkla)"
+        if self._lost_t0 is not None:
+            return "Takip: hedef kayıp" + (" (uzaklaşıyor)" if self._zooming_out else "")
+        return f"Takip: ID {self.target_id}"
 
     def needs_frame(self, t: float) -> bool:
         """Duraklatılmış (time-pos değişmiyor) ve bekleyen tıklama yoksa kare işlemeye gerek yok."""
@@ -265,11 +314,24 @@ def run_live(
     sleep=time.sleep,
     stats_every: float = 0.0,
     reid=None,
+    cfg_path: str | None = None,
 ) -> None:
-    ctl = LiveController(pipeline, cfg, reid=reid)
+    ctl = LiveController(pipeline, cfg, reid=reid, cfg_path=cfg_path)
+    last_hud = ""
     min_dt = 1.0 / max(cfg.live_fps, 1.0)
     last_view: View | None = None
     n, lag_sum, t_stat = 0, 0.0, clock()
+
+    def sync_hud() -> None:
+        nonlocal last_hud
+        text = ctl.hud_text()
+        if text == last_hud:
+            return
+        last_hud = text
+        try:
+            mpv.command("script-message-to", "track", HUD_MSG, text)
+        except MpvCommandError as e:
+            log(f"HUD gönderilemedi: {e}")
 
     def emit(out: Output) -> None:
         nonlocal last_view
@@ -285,6 +347,7 @@ def run_live(
                 last_view = out.view
             except MpvCommandError as e:  # mpv reddetti: sonraki karede yeniden dene
                 log(f"görünüm uygulanamadı: {e}")
+        sync_hud()
 
     log("Canlı mod hazır (Ctrl+C ile çık). mpv'de t ile takibi aç, oyuncuya sol tıkla.")
     try:

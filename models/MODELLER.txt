@@ -1,0 +1,14 @@
+Takipli Oynat - modeller
+========================
+Bu klasore ONNX modelleri konur (lisans nedeniyle kurulumla birlikte gelmez).
+
+ZORUNLU
+  yolov8n.onnx   Kisi tespiti. Ornek: pip install ultralytics, sonra
+                 yolo export model=yolov8n.pt format=onnx
+                 (Ultralytics YOLO modelleri AGPL-3.0'dur; lisansi kontrol et.)
+
+ISTEGE BAGLI
+  osnet_x0_25.onnx    Re-ID (oyuncu ID degisirse yeniden bulur). torchreid ile disa aktar.
+  jersey_number.onnx  Forma numarasi (girdi [N,C,H,W], cikti [N,101]; bkz. tracker/number.py).
+
+Baslat.bat modelleri otomatik algilar: osnet varsa --reid --team, jersey varsa --number eklenir.

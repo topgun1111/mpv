@@ -45,7 +45,7 @@ TakipliOynat/
 ├─ installer.iss                 # Inno Setup
 └─ handover.md                   # parça parça ilerleme notu (15 parçalık plan)
 ```
-(Planlanan, henüz yok: `offline.py`, Re-ID, forma OCR, gömülü Python.)
+(Parça 14: `launcher/`, `scripts/build_embedded.py` da pakete dahildir.)
 
 ## Paketleme
 - **Installer**: Inno Setup / NSIS → tek `setup.exe`, kısayol "Takipli Oynat" (mpv + Python süreci birlikte)
@@ -76,7 +76,7 @@ TakipliOynat/
 - CPU-only makinelerde canlı mod düşük fps → offline mod
 
 ## Yol Haritası
-Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: Parça 1–12 (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası). Sıradaki: Parça 13 (ayarlar + OSD).
+Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: Parça 1–14 (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası, canlı ayar tuşları + durum etiketi,  Python + tam installer). Sıradaki: Parça 15 (lisans denetimi + release).
 
 ## Offline mod (Parça 9)
 ```
@@ -111,3 +111,13 @@ python -m tracker live --reid --team --number        # + hedefle farklı numaral
 python -m tracker offline video.mp4 --reid --team    # izlerin takımı track.json'a yazılır, zincirleme takımı gözetir
 ```
 Takım yalnızca eleme yapar; etiket belirsizse aday elenmez. `--number` için `models/jersey_number.onnx` gerekir (girdi [N,C,H,W], çıktı [N,101]: 0–99 numara, 100 = yok; ayrıntı `tracker/number.py`). Ayarlar: `team_margin` (0.15), `team_min_samples` (40), `number_min_votes` (3).
+
+### Canlı ayarlar ve durum etiketi (Parça 13)
+Canlı mod çalışırken mpv'de: `Ctrl+↑/↓` doluluk, `Ctrl+→/←` tepki hızı, `Ctrl+PgUp/PgDn` öngörü, `Ctrl+0` varsayılanlar, `Ctrl+S` ayarları kaydet (`--config` ya da `tracker_config.json`), `h` durum özeti, `Ctrl+H` sağ üst etiketi gizle/göster. Kayıtlı ayarla başlamak için: `python -m tracker --config tracker_config.json live ...`.
+
+### Kurulum ve başlatıcılar (Parça 14)
+Installer (`TakipliOynat-Setup-x.y.z.exe`, Windows 10 1903+) gömülü Python, mpv ve DirectML ile gelir; ayrıca Python kurmak gerekmez. Modeller lisans nedeniyle gelmez: `models\MODELLER.txt`'e bak ve `yolov8n.onnx`'i `models\` klasörüne koy.
+- **Takipli Oynat (canlı)** kısayolu / `Baslat.bat`: mpv'yi ve izleyiciyi birlikte açar (video sürükleyebilirsin). Re-ID/takım/numara modelleri `models\`'te varsa otomatik açılır.
+- **Offline** kısayolu / `Offline.bat`: videoyu üstüne sürükle → işlenir → oyuncu ID'sini yaz → mpv'de `o`.
+- Ayarlar `%APPDATA%\TakipliOynat\config.json` dosyasına kaydedilir.
+Paket derleme (CI): `python scripts/make_package.py` → `python scripts/build_embedded.py` → `scripts/fetch_deps.ps1` → `iscc installer.iss`.

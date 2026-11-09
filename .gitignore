@@ -5,6 +5,7 @@ __pycache__/
 dist/
 build/
 *.onnx
+!models/MODELLER.txt
 *.pt
 track.json
 .venv/

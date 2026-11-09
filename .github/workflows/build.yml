@@ -30,9 +30,18 @@ jobs:
           pytest -q
       - name: Paket klasörünü hazırla
         run: python scripts/make_package.py
+      - name: Gömülü Python + bağımlılıklar
+        run: python scripts/build_embedded.py
       - name: mpv indir
         shell: pwsh
         run: ./scripts/fetch_deps.ps1 -Target dist/TakipliOynat/mpv
+      - name: Paketlenmiş Python duman testi
+        shell: pwsh
+        working-directory: dist/TakipliOynat
+        run: |
+          .\python\python.exe -m tracker --version
+          .\python\python.exe -c "import tracker, numpy, cv2, onnxruntime as o; p = o.get_available_providers(); print(p); assert 'DmlExecutionProvider' in p, 'DirectML yok'"
+          .\python\python.exe -m tracker detect --help | Out-Null
       - name: Taşınabilir ZIP
         shell: pwsh
         run: Compress-Archive -Path dist/TakipliOynat -DestinationPath dist/TakipliOynat-portable.zip

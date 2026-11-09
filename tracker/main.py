@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from . import __version__
 from .clicks import RESET_MSG, message_name, parse_click
@@ -41,6 +42,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Re-ID adaylarını takım rengine göre ele (--reid gerekir)")
     lv.add_argument("--number", action="store_true",
                     help="Re-ID adaylarını forma numarasına göre ele (--reid + numara modeli)")
+    lv.add_argument("--wait", type=float, default=0.0, metavar="SN",
+                    help="mpv IPC kanalı açılana kadar en çok SN saniye bekle (başlatıcı kullanır)")
     lv.add_argument("--stats", type=float, default=0.0, metavar="SN",
                     help="SN'de bir hız/gecikme yaz")
     of = sub.add_parser("offline", help="Videoyu işle → track.json (hedef verilirse görünüm de)")
@@ -183,6 +186,13 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
         return 2
     if args.fps:
         cfg.live_fps = args.fps
+    if args.wait > 0:
+        from .ipc import wait_for_ipc
+
+        print(f"mpv bekleniyor (en çok {args.wait:g} sn)...")
+        if not wait_for_ipc(cfg.ipc_path, args.wait):
+            print("HATA: mpv IPC kanalı açılmadı (mpv çalışıyor mu?)", file=sys.stderr)
+            return 1
     det = Detector(
         args.model or cfg.model_path,
         conf_thres=cfg.live_det_conf,
@@ -214,7 +224,8 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     listener.start()
     try:
         with MpvIpc(cfg.ipc_path, keep_events=False) as mpv:  # komut bağlantısı olay biriktirmez
-            run_live(mpv, events, pipeline, cfg, stats_every=args.stats, reid=reid)
+            run_live(mpv, events, pipeline, cfg, stats_every=args.stats, reid=reid,
+                     cfg_path=args.cfg_path)
     finally:
         listener.stop()
     return 0
@@ -291,7 +302,8 @@ def _utf8_console() -> None:
 def main(argv: list[str] | None = None) -> int:
     _utf8_console()
     args = build_parser().parse_args(argv)
-    cfg = Config.load(args.config) if args.config else Config()
+    cfg = Config.load(args.config) if args.config and Path(args.config).is_file() else Config()
+    args.cfg_path = args.config or "tracker_config.json"  # canlı `track-save` hedefi
     if args.cmd == "detect":  # mpv bağlantısı gerekmez
         try:
             return detect_image(cfg, args)

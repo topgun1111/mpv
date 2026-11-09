@@ -8,6 +8,10 @@ CLICK_MSG = "track-click"
 RESET_MSG = "track-reset"
 RELEASE_MSG = "track-release"
 TOGGLE_MSG = "track-toggle"
+SETTING_MSG = "track-setting"  # track-setting <fill|speed|lead|all> <+1|-1|0>
+SAVE_MSG = "track-save"
+STATUS_MSG = "track-status"
+HUD_MSG = "track-hud"  # Python → Lua (script-message-to track track-hud <metin>)
 
 
 @dataclass(frozen=True)

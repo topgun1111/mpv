@@ -1,26 +1,6 @@
 -- track.lua'yı sahte `mp` ile çalıştırır (texlua/lua 5.1+). Ortam: TRACK_LUA, VIDEO, DATA_LUA, TIMES.
-local reg = { bind = {}, obs = {}, ev = {}, props = {}, set = {}, osd = {}, cmds = {}, timers = {} }
-reg.props.path = os.getenv("VIDEO")
-local mp = {
-  add_key_binding = function(_, name, fn) reg.bind[name] = fn end,
-  add_forced_key_binding = function(_, name, fn) reg.bind[name] = fn end,
-  remove_key_binding = function(name) reg.bind[name] = nil end,
-  observe_property = function(name, _, fn) reg.obs[name] = fn end,
-  register_event = function(name, fn) reg.ev[name] = fn end,
-  get_property = function(n) return reg.props[n] end,
-  get_property_number = function(n, d) return reg.props[n] or d end,
-  get_property_native = function(n) return reg.props[n] end,
-  set_property_number = function(n, v) reg.set[n] = v end,
-  osd_message = function(m) reg.osd[#reg.osd + 1] = m end,
-  commandv = function(...) reg.cmds[#reg.cmds + 1] = table.concat({ ... }, " ") end,
-  add_timeout = function(_, fn) reg.timers[#reg.timers + 1] = fn end,
-  get_mouse_pos = function() return { x = 0, y = 0 } end,
-  msg = { info = function() end, warn = function() end, error = function() end },
-}
-package.preload["mp"] = function() return mp end
-package.preload["mp.utils"] = function()
-  return { parse_json = function() return dofile(os.getenv("DATA_LUA")) end }
-end
+local dir = (arg and arg[0] or ""):match("^(.*)[/\\]") or "."
+local reg = dofile(dir .. "/lua_mp_stub.lua")
 dofile(os.getenv("TRACK_LUA"))
 
 local function last_osd() return reg.osd[#reg.osd] or "" end

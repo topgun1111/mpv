@@ -4,7 +4,8 @@
   dist/TakipliOynat/
     mpv/portable_config/...   (mpv.conf, input.conf, scripts/track.lua)
     tracker/                  (Python paketi)
-    models/                   (YOLO ONNX buraya konur)
+    models/                   (YOLO ONNX buraya konur; MODELLER.txt)
+    Baslat.bat, Offline.bat   (başlatıcılar; python/ klasörünü build_embedded.py ekler)
     requirements.txt, README.md, VERSION
 """
 
@@ -32,6 +33,10 @@ def main() -> int:
     _copytree(ROOT / "mpv" / "portable_config", OUT / "mpv" / "portable_config")
     (OUT / "models").mkdir()
     (OUT / "models" / ".gitkeep").touch()
+    shutil.copy2(ROOT / "models" / "MODELLER.txt", OUT / "models" / "MODELLER.txt")
+    for bat in sorted((ROOT / "launcher").glob("*.bat")):  # CRLF: cmd.exe için
+        data = bat.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        (OUT / bat.name).write_bytes(data)
 
     for name in ("requirements.txt", "README.md", "VERSION"):
         shutil.copy2(ROOT / name, OUT / name)
