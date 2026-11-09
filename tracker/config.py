@@ -1,0 +1,41 @@
+"""Ayarlar (JSON ile yüklenip kaydedilebilir)."""
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import asdict, dataclass, fields
+from pathlib import Path
+
+
+def default_ipc_path() -> str:
+    return r"\\.\pipe\mpv" if os.name == "nt" else "/tmp/mpv.sock"
+
+
+@dataclass
+class Config:
+    ipc_path: str = ""
+    target_fill: float = 0.30
+    min_zoom: float = 0.0
+    max_zoom: float = 2.5
+    alpha_pos: float = 0.15
+    alpha_zoom: float = 0.08
+    dead_zone_pos: float = 0.01
+    dead_zone_zoom: float = 0.05
+    model_path: str = "models/yolov8n.onnx"
+    det_conf: float = 0.25
+    det_iou: float = 0.45
+    det_size: int = 640
+    device: str = "auto"  # auto | dml | cuda | cpu
+
+    def __post_init__(self) -> None:
+        if not self.ipc_path:
+            self.ipc_path = default_ipc_path()
+
+    @classmethod
+    def load(cls, path: str | Path) -> Config:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
+
+    def save(self, path: str | Path) -> None:
+        Path(path).write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")

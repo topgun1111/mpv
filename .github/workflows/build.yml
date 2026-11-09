@@ -1,0 +1,51 @@
+name: Build
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test
+        run: |
+          pip install -r requirements-dev.txt
+          ruff check .
+          pytest -q
+      - name: Paket klasörünü hazırla
+        run: python scripts/make_package.py
+      - name: mpv indir
+        shell: pwsh
+        run: ./scripts/fetch_deps.ps1 -Target dist/TakipliOynat/mpv
+      - name: Taşınabilir ZIP
+        shell: pwsh
+        run: Compress-Archive -Path dist/TakipliOynat -DestinationPath dist/TakipliOynat-portable.zip
+      - name: Installer derle (Inno Setup)
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION).Trim()
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=$v" installer.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TakipliOynat
+          path: |
+            dist/TakipliOynat-portable.zip
+            dist/installer/*.exe
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/TakipliOynat-portable.zip
+            dist/installer/*.exe
