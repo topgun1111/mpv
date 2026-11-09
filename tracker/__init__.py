@@ -1,3 +1,3 @@
 """Takipli Oynat: mpv için nesne takipli otomatik zoom/pan."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

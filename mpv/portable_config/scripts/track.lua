@@ -1,4 +1,4 @@
--- Takipli Oynat: tıklama ile hedef seçimi (Parça 2).
+-- Takipli Oynat: tıklama ile hedef seçimi (Parça 2), hedef bırakma (Parça 6).
 -- Tıklama -> video-normalize koordinat -> `script-message track-click` (Python IPC olarak alır).
 -- Offline oynatma Parça 10'da eklenecek.
 local mp = require 'mp'
@@ -62,6 +62,11 @@ mp.add_key_binding(nil, "reset", function()
   mp.set_property_number("video-pan-y", 0)
   mp.commandv("script-message", "track-reset")
   osd("sıfırlandı")
+end)
+
+-- Hedefi bırak (takip açık kalır; yeni tıklama yeni hedef seçer). Hedefe tekrar tıklamak da bırakır.
+mp.add_key_binding(nil, "release", function()
+  mp.commandv("script-message", "track-release")
 end)
 
 mp.msg.info("track.lua yüklendi")

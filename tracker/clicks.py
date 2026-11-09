@@ -6,6 +6,7 @@ from typing import Any
 
 CLICK_MSG = "track-click"
 RESET_MSG = "track-reset"
+RELEASE_MSG = "track-release"
 TOGGLE_MSG = "track-toggle"
 
 

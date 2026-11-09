@@ -11,7 +11,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from .clicks import RESET_MSG, TOGGLE_MSG, message_name, parse_click
+from .clicks import RELEASE_MSG, RESET_MSG, TOGGLE_MSG, message_name, parse_click
 from .config import Config
 from .frames import grab_frame
 from .geometry import View, compute_view
@@ -50,13 +50,35 @@ class Output:
     osd: str | None = None
 
 
-def pick_track(tracks, px: float, py: float):
-    """Tıklanan noktayı içeren izlerden merkezi en yakın olanı; yoksa None.
-    (Basit seçim; hedef değiştirme/bırakma Parça 6'da genişletilecek.)"""
+def _box_gap(t, px: float, py: float) -> float:
+    """Noktanın kutuya uzaklığı (px); içindeyse 0."""
+    b = t.bbox
+    dx = max(b.x1 - px, 0.0, px - b.x2)
+    dy = max(b.y1 - py, 0.0, py - b.y2)
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def pick_track(tracks, px: float, py: float, tol: float = 0.0):
+    """Tıklanan noktadaki izi seçer; yoksa None.
+
+    1) Nokta bir veya daha fazla kutunun içindeyse: kutu boyutuna göre normalize merkez
+       uzaklığı en küçük olan (iç içe/çakışan kutularda küçük kutuyu tıklamak mümkün kalır);
+       eşitlikte alanı küçük olan.
+    2) Hiçbirinin içinde değilse: kutu kenarına `tol` piksel içindeki en yakın iz (tol=0: yok).
+    """
     hits = [t for t in tracks if t.bbox.contains(px, py)]
-    if not hits:
+    if hits:
+        def score(t):
+            b = t.bbox
+            nx = (px - b.cx) / max(b.w, 1e-6)
+            ny = (py - b.cy) / max(b.h, 1e-6)
+            return (nx * nx + ny * ny, b.w * b.h)
+
+        return min(hits, key=score)
+    if tol <= 0:
         return None
-    return min(hits, key=lambda t: (t.bbox.cx - px) ** 2 + (t.bbox.cy - py) ** 2)
+    near = [(g, t) for t in tracks if (g := _box_gap(t, px, py)) <= tol]
+    return min(near, key=lambda gt: gt[0])[1] if near else None
 
 
 class LiveController:
@@ -80,6 +102,15 @@ class LiveController:
         self._last_t = None
         self._lost = 0
 
+    def _release(self) -> Output:
+        """Hedefi bırak: görünüm 1x'e döner; takip açık kalır, yeni tıklama hedef seçer."""
+        had = self.target_id is not None
+        self.target_id, self._lost = None, 0
+        self.smoother.reset()
+        if not had:
+            return Output(osd="Bırakılacak hedef yok")
+        return Output(view=View(), osd="Hedef bırakıldı")
+
     def handle_event(self, ev: dict) -> Output:
         click = parse_click(ev)
         if click:
@@ -97,6 +128,9 @@ class LiveController:
         if name == RESET_MSG:
             self._reset_tracking()
             return Output(view=View())
+        if name == RELEASE_MSG:
+            self._click = None
+            return self._release()
         return Output()
 
     def needs_frame(self, t: float) -> bool:
@@ -124,12 +158,17 @@ class LiveController:
         osd = None
         if self._click is not None:
             click, self._click = self._click, None
-            picked = pick_track(tracks, click.px * fw / click.vw, click.py * fh / click.vh)
+            tol = self.cfg.pick_tol * fh
+            picked = pick_track(tracks, click.px * fw / click.vw, click.py * fh / click.vh, tol)
             if picked is None:
-                osd = "Burada kişi yok"
+                osd = "Burada kişi yok"  # mevcut hedef (varsa) korunur
+            elif picked.id == self.target_id:  # hedefin üstüne tekrar tıklama: bırak
+                out = self._release()
+                return Output(view=out.view, osd=out.osd)
             else:
+                if self.target_id is None:
+                    self.smoother.reset()  # yeni hedefe geçişte yumuşatıcı korunur: kayarak gider
                 self.target_id, self._lost = picked.id, 0
-                self.smoother.reset()
                 osd = f"Hedef: ID {picked.id}"
         if self.target_id is None:
             return Output(osd=osd)

@@ -5,9 +5,9 @@ Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. exe: çalışmanın sayfasında Artifacts → TakipliOynat.
 
 ## Durum
-- Tamamlanan: **Parça 5/15**
-- Sıradaki: **Parça 6**
-- Sürüm: 0.5.0
+- Tamamlanan: **Parça 6/15**
+- Sıradaki: **Parça 7**
+- Sürüm: 0.6.0
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |
@@ -17,7 +17,7 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 | 3 | Detector: YOLO ONNX (onnxruntime-directml), ön/son işleme, NMS, person sınıfı | ✅ |
 | 4 | Tracker: ByteTrack (kalıcı ID), detector ile birleştirme | ✅ |
 | 5 | Canlı mod `main.py`: kare okuma (mpv screenshot-raw/ffmpeg), time-pos senkronu, IPC çıkışı | ✅ |
-| 6 | Hedef seçimi: tıklanan noktadaki bbox ID'si, hedef değiştirme/bırakma | ⬜ |
+| 6 | Hedef seçimi: tıklanan noktadaki bbox ID'si, hedef değiştirme/bırakma | ✅ |
 | 7 | Kalman + hız yönünde lookahead (smooth.py genişletme) | ⬜ |
 | 8 | Kayıp yönetimi: son konumda bekle → kademeli zoom-out | ⬜ |
 | 9 | Offline mod: `offline.py` → `track.json` şeması ve üretimi | ⬜ |
@@ -91,10 +91,19 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - Testler: 68 (yeni 23: decode_raw, pick_track, denetleyici akışları, `run_live` uçtan uca sahte mpv ile, 1280x720 kareyle gerçek Unix soketi turu).
 - Kasıtlı olarak yapılmayanlar: ffmpeg kare kaynağı (yalnız screenshot-raw), gecikme telafisi/lookahead (Parça 7), kayıp yönetimi (Parça 8), "her N karede bir tespit" (CPU modu; gerekirse Parça 7-8 ile).
 
-## Parça 6 için başlangıç
-- Hedef seçimi: şimdiki `pick_track` yalnız noktayı içeren kutuyu seçiyor. Eklenecekler: kutu dışına yakın tıklamada en yakın kutu (tolerans), hedef değiştirme (yeni tıklama), hedefi bırakma (hedefin üstüne tekrar tıklama veya tuş), çakışan kutularda seçim kuralı, Lua tarafında gerekirse ek mesaj. Mantık `LiveController.step` içindeki tıklama bloğunda.
+## Parça 6'da yapılanlar
+- `live.pick_track(tracks, px, py, tol=0)`: nokta kutu içindeyse kutu boyutuna göre normalize merkez uzaklığı en küçük olan (çakışan/iç içe kutuda küçük kutu seçilebilir; eşitlikte küçük alan); içinde değilse kenara `tol` px içindeki en yakın iz.
+- `Config.pick_tol` (0.03): tolerans, kare yüksekliği oranı (`LiveController.step` px'e çevirir).
+- Tıklama davranışı (`LiveController.step`): yeni kişi → hedef değişir (yumuşatıcı sıfırlanmaz: görünüm yeni hedefe kayar; ilk seçimde sıfırlanır); hedefin üstüne tekrar tıklama → bırak (OSD "Hedef bırakıldı", görünüm 1x, takip açık kalır); boş yere tıklama → mevcut hedef korunur, OSD "Burada kişi yok".
+- Tuş: `x` → `track/release` (Lua) → `script-message track-release` → `clicks.RELEASE_MSG`; hedef yoksa OSD "Bırakılacak hedef yok"; bekleyen tıklama düşürülür.
+- Testler: 76 (yeni 8). Sürüm 0.6.0.
+- Kasıtlı olarak yapılmayanlar: tıklama anındaki kareye geri dönük eşleme (`click.time_pos` ile; canlıda gecikme küçük), çoklu hedef.
 
-## Doğrulama durumu (Parça 5)
+## Parça 7 için başlangıç
+- `smooth.py` genişletme: Kalman (hedef merkez/ölçek) + hız yönünde lookahead (canlıda kare gecikmesini telafi). `ByteTracker`'daki `KalmanBox` yeniden kullanılabilir; `LiveController.step` içinde `compute_view` girdisi olan bbox'ı ileri öteleyip `ViewSmoother`'a ver. Lookahead miktarı `Config`'e (ör. `lookahead_s`) eklenmeli.
+
+## Doğrulama durumu (Parça 5; Parça 6 için de geçerli)
+- Parça 6: testler yerelde 76/76 (aynı uyumluluk katmanı); `track.lua`'daki `release` bağı ve `x` tuşu gerçek mpv'de denenmedi.
 - Testler yerelde 68/68 (pytest yüklenemediği için basit uyumluluk katmanıyla). `ruff` ve GitHub Actions yine **çalıştırılmadı** (satır ≤100 ve kullanılmayan import elle kontrol edildi). Yüklenen arşivde `.github/workflows/` (git'te kayıtlı) çalışma klasöründen silinmişti ve `pyproject.toml`'daki `pythonpath = ["."]` satırı eksikti (CI'da `import tracker` için gerekli); ikisi de git HEAD'den geri yüklendi.
 - **Gerçek mpv ile denenmedi**: `screenshot-raw`'ın JSON IPC'de base64 `data` döndürdüğü, 1080p karede IPC hızı (kare başı ~8 MB bayt → ~11 MB base64) ve `live_fps` 10'un tutup tutmadığı Windows'ta doğrulanmalı. Yavaşsa: ffmpeg kare kaynağı veya mpv'de küçültülmüş kare (ör. `vf` ile) düşün.
 - Windows'ta iki IPC bağlantısı (komut + olay) birlikte açılıyor; mpv'nin pipe sunucusunda çoklu istemci beklenen davranış ama denenmedi.

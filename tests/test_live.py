@@ -27,6 +27,10 @@ def _click(px, py, w=200, h=100):
             "args": ["track-click", str(px / w), str(py / h), str(w), str(h), "1.0"]}
 
 
+def _msg(name):
+    return {"event": "client-message", "args": [name]}
+
+
 def _toggle(on):
     return {"event": "client-message", "args": ["track-toggle", "on" if on else "off"]}
 
@@ -83,6 +87,21 @@ def test_pick_track():
     assert pick_track([a, b], 140, 50).id == 2
     assert pick_track([a, b], 100, 50).id == 2  # iki kutuda: merkezi yakın olan
     assert pick_track([a, b], 190, 50) is None
+
+
+def test_pick_track_overlap_prefers_small_box_under_cursor():
+    big, small = _tr(1, 0, 0, 100, 100), _tr(2, 60, 20, 80, 60)
+    assert pick_track([big, small], 70, 40).id == 2  # küçük kutunun merkezine tıklandı
+    assert pick_track([big, small], 20, 50).id == 1
+
+
+def test_pick_track_tolerance_nearest_box():
+    a, b = _tr(1, 0, 0, 40, 100), _tr(2, 100, 0, 140, 100)
+    assert pick_track([a, b], 46, 50) is None  # tol=0: kutu dışı geçersiz
+    assert pick_track([a, b], 46, 50, tol=10).id == 1
+    assert pick_track([a, b], 92, 50, tol=10).id == 2
+    assert pick_track([a, b], 70, 50, tol=10) is None  # iki kutuya da uzak
+    assert pick_track([a, b], 70, 50, tol=40).id in (1, 2)
 
 
 # --- denetleyici ---
@@ -153,6 +172,68 @@ def test_reset_and_toggle_off_restore_view():
 
 
 # --- döngü ---
+# --- Parça 6: hedef değiştirme / bırakma ---
+def _two_people():
+    return [_tr(3, 20, 30, 40, 70), _tr(4, 140, 30, 160, 70)]
+
+
+def test_click_near_miss_uses_tolerance():
+    c = LiveController(FakePipeline([[_tr(3, 85, 40, 95, 60)]]), _cfg())
+    c.handle_event(_click(98, 50))  # kutunun 3 px dışı; tol = 0.03 * 100 = 3 px
+    assert c.step(FRAME, 1.0).osd == "Hedef: ID 3"
+
+
+def test_click_other_person_switches_target_without_view_jump():
+    c = LiveController(FakePipeline([_two_people()]), _cfg())
+    c.handle_event(_click(30, 50))
+    first = c.step(FRAME, 1.0)
+    assert c.target_id == 3 and first.view is not None
+    c.handle_event(_click(150, 50))
+    out = c.step(FRAME, 1.04)
+    assert c.target_id == 4 and out.osd == "Hedef: ID 4"
+    # yumuşatıcı sıfırlanmadı: görünüm eski hedeften yeniye kayarak gider (anlık atlama yok)
+    assert out.view is None or out.view.pan_x - first.view.pan_x < 0.2
+
+
+def test_click_empty_keeps_current_target():
+    c = LiveController(FakePipeline([_two_people()]), _cfg())
+    c.handle_event(_click(30, 50))
+    c.step(FRAME, 1.0)
+    c.handle_event(_click(90, 5))
+    out = c.step(FRAME, 1.04)
+    assert c.target_id == 3 and out.osd == "Burada kişi yok"
+
+
+def test_click_on_target_releases_it():
+    c = LiveController(FakePipeline([_two_people()]), _cfg())
+    c.handle_event(_click(30, 50))
+    c.step(FRAME, 1.0)
+    c.handle_event(_click(30, 50))
+    out = c.step(FRAME, 1.04)
+    assert c.target_id is None and out.osd == "Hedef bırakıldı" and out.view == View()
+    assert c.enabled
+    c.handle_event(_click(150, 50))  # bıraktıktan sonra yeni hedef seçilebilir
+    assert c.step(FRAME, 1.08).osd == "Hedef: ID 4"
+
+
+def test_release_key_message():
+    c = LiveController(FakePipeline([_two_people()]), _cfg())
+    c.handle_event(_toggle(True))
+    assert c.handle_event(_msg("track-release")).osd == "Bırakılacak hedef yok"
+    c.handle_event(_click(30, 50))
+    c.step(FRAME, 1.0)
+    out = c.handle_event(_msg("track-release"))
+    assert c.target_id is None and out.view == View() and out.osd == "Hedef bırakıldı"
+    assert c.enabled and not c.needs_frame(1.0)  # takip açık, görünüm 1x
+
+
+def test_release_drops_pending_click():
+    c = LiveController(FakePipeline([_two_people()]), _cfg())
+    c.handle_event(_click(30, 50))
+    c.handle_event(_msg("track-release"))
+    assert c.step(FRAME, 1.0).osd is None and c.target_id is None
+
+
 class FakeMpv:
     def __init__(self, stop, frames):
         self.stop, self.frames, self.t, self.views, self.texts = stop, frames, 0.0, [], []
