@@ -65,9 +65,11 @@ class VideoSource:
             self._cap.release()
 
 
-def run_detection(frames, pipeline, progress=None, total: int | None = None, bank=None):
+def run_detection(frames, pipeline, progress=None, total: int | None = None, bank=None,
+                  team=None):
     """`frames`: (t, kare) üreteci → (örnekler, (w, h)). Kare boyutu ilk kareden alınır.
-    `bank` (reid.TrackletBank) verilirse izlerin ilk/son embedding'leri toplanır."""
+    `bank` (reid.TrackletBank) verilirse izlerin ilk/son embedding'leri toplanır;
+    `team` (team.TeamBank) verilirse izlerin takım rengi toplanır."""
     samples, size = [], None
     for n, (t, frame) in enumerate(frames, 1):
         h, w = frame.shape[:2]
@@ -76,6 +78,8 @@ def run_detection(frames, pipeline, progress=None, total: int | None = None, ban
         tracks = pipeline.step(frame)
         if bank is not None:
             bank.update(frame, tracks, n - 1)
+        if team is not None:
+            team.update(frame, tracks)
         for tr in tracks:
             b = tr.bbox
             d.append([tr.id, round(b.x1 / w, 4), round(b.y1 / h, 4),
@@ -87,13 +91,15 @@ def run_detection(frames, pipeline, progress=None, total: int | None = None, ban
 
 
 def make_doc(path: str, size, fps_src: float, duration: float, sample_fps: float,
-             samples: list, emb: dict | None = None) -> dict:
+             samples: list, emb: dict | None = None, team: dict | None = None) -> dict:
     doc = {"version": SCHEMA_VERSION,
             "video": {"path": path, "w": size[0], "h": size[1], "fps": round(fps_src, 3),
                       "duration": round(duration, 3)},
             "sample_fps": sample_fps, "samples": samples, "target": None, "views": []}
     if emb:
         doc["emb"] = emb  # {id: {"first": [int...], "last": [int...]}} (×100 tamsayı)
+    if team:
+        doc["team"] = team  # {"centers": [[int...]]×2, "labels": {id: 0|1}} (belirsiz iz yok)
     return doc
 
 

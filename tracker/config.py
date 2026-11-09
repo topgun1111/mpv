@@ -48,6 +48,14 @@ class Config:
     reid_min_age: int = 3  # aday iz en az bu kadar kare yaşamış olmalı (canlı)
     reid_min_samples: int = 3  # offline: zincire girecek izin en az örnek sayısı
     reid_link_gap_s: float = 20.0  # offline: iki iz arası en fazla boşluk (sn)
+    team_min_samples: int = 40  # takım kümeleme alt sınırı (canlı: özellik, offline: iz başına)
+    team_refit: int = 100  # canlı: bu kadar yeni özellikte bir yeniden kümele
+    team_margin: float = 0.15  # merkezlere uzaklık farkı oranı bundan azsa etiket belirsiz
+    team_min_px: int = 100  # üst gövdede çim dışı geçerli piksel alt sınırı
+    number_model: str = "models/jersey_number.onnx"  # isteğe bağlı numara sınıflandırıcı
+    number_conf: float = 0.6  # tek okuma için softmax güveni alt sınırı
+    number_min_votes: int = 3  # hedef numarası için en az bu kadar aynı okuma
+    number_share: float = 0.6  # ... ve oy ağırlığının en az bu payı
     lost_zoomout_s: float = 2.0  # sn; bekleme sonrası 1x'e kademeli zoom-out süresi (0: anında)
 
     def __post_init__(self) -> None:

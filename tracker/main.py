@@ -37,6 +37,10 @@ def build_parser() -> argparse.ArgumentParser:
     lv.add_argument("--reid", action="store_true",
                     help="Re-ID: hedef ID değişirse görünüme göre yeniden bağla (OSNet gerekir)")
     lv.add_argument("--reid-model", help="OSNet ONNX yolu (varsayılan: config.reid_model)")
+    lv.add_argument("--team", action="store_true",
+                    help="Re-ID adaylarını takım rengine göre ele (--reid gerekir)")
+    lv.add_argument("--number", action="store_true",
+                    help="Re-ID adaylarını forma numarasına göre ele (--reid + numara modeli)")
     lv.add_argument("--stats", type=float, default=0.0, metavar="SN",
                     help="SN'de bir hız/gecikme yaz")
     of = sub.add_parser("offline", help="Videoyu işle → track.json (hedef verilirse görünüm de)")
@@ -48,6 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     of.add_argument("--reid", action="store_true",
                     help="İzlerin embedding'ini de kaydet (ID değişimini zincirlemek için)")
     of.add_argument("--reid-model", help="OSNet ONNX yolu (varsayılan: config.reid_model)")
+    of.add_argument("--team", action="store_true",
+                    help="İzlerin takım rengini kaydet (ID zincirlemede farklı takım elenir)")
     _add_target_args(of)
     ov = sub.add_parser("offline-view", help="track.json'da hedefi seç/değiştir (tespit yok)")
     ov.add_argument("json")
@@ -138,10 +144,16 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
 
         emb = Embedder(args.reid_model or cfg.reid_model, device=args.device or cfg.device)
         bank = TrackletBank(emb, cfg)
+    tbank = None
+    if args.team:
+        from .team import TeamBank
+
+        tbank = TeamBank(cfg)
     pipe = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf))
-    samples, size = run_detection(src, pipe, progress, total, bank=bank)
+    samples, size = run_detection(src, pipe, progress, total, bank=bank, team=tbank)
     doc = make_doc(args.video, size, src.src_fps, src.duration, fps, samples,
-                   emb=bank.result() if bank else None)
+                   emb=bank.result() if bank else None,
+                   team=tbank.result() if tbank else None)
     _finish_doc(doc, cfg, args, args.out or f"{args.video}.track.json")
     return 0
 
@@ -166,6 +178,9 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     from .live import EventListener, run_live
     from .pipeline import Pipeline
 
+    if (args.team or args.number) and not args.reid:
+        print("--team/--number için --reid de gerekir")
+        return 2
     if args.fps:
         cfg.live_fps = args.fps
     det = Detector(
@@ -182,7 +197,17 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
         from .reid import Embedder, ReIdManager
 
         emb = Embedder(args.reid_model or cfg.reid_model, device=args.device or cfg.device)
-        reid = ReIdManager(emb, cfg)
+        team = numbers = None
+        if args.team:
+            from .team import TeamClassifier
+
+            team = TeamClassifier(cfg)
+        if args.number:
+            from .number import NumberReader
+
+            numbers = NumberReader(cfg.number_model, device=args.device or cfg.device,
+                                   conf=cfg.number_conf)
+        reid = ReIdManager(emb, cfg, team=team, numbers=numbers)
         print(f"Re-ID açık: provider={emb.session.get_providers()[0]}")
     events: queue.Queue = queue.Queue()
     listener = EventListener(cfg.ipc_path, events)

@@ -149,28 +149,79 @@ class Gallery:
 
 
 class ReIdManager:
-    def __init__(self, embedder, cfg: Config):
+    def __init__(self, embedder, cfg: Config, team=None, numbers=None):
+        """`team`: team.TeamClassifier | None; `numbers`: number.NumberReader | None (ikisi de
+        yalnızca aday *eler*: takım/numara bilinip hedeften farklıysa; belirsizse elemez)."""
         self.emb, self.cfg = embedder, cfg
+        self.team, self.numbers = team, numbers
         self.gallery = Gallery(cfg.reid_gallery)
         self._t_obs: float | None = None
         self._t_match: float | None = None
+        self._t_team: float | None = None
+        self._tfeat: np.ndarray | None = None  # hedefin takım rengi özelliği (EMA)
+        self._nvote = None
+        if numbers is not None:
+            from .number import NumberVoter  # döngüsel içe aktarmayı önler (number → reid)
+
+            self._nvote = NumberVoter()
 
     def reset(self) -> None:
         self.gallery.clear()
-        self._t_obs = self._t_match = None
+        self._t_obs = self._t_match = self._t_team = None
+        self._tfeat = None  # takım modeli sahnenin özelliği: korunur
+        if self._nvote:
+            self._nvote.reset()
 
     def _due(self, last: float | None, t: float) -> bool:
         return last is None or t < last or t - last >= self.cfg.reid_every_s
 
     def observe(self, frame, t: float, target, others) -> None:
         """Hedef görünürken (hız sınırlı) galeriyi besle."""
+        from .team import team_feature
+
+        fh, fw = frame.shape[:2]
+        if self.team is not None and self._due(self._t_team, t):
+            self._t_team = t
+            for tr in (target, *others):
+                if tr.bbox.h < self.cfg.reid_min_h * fh:
+                    continue
+                f = team_feature(frame, tr.bbox, self.cfg.team_min_px)
+                if f is None:
+                    continue
+                self.team.add(f)
+                if tr is target and crop_ok(tr, others, fw, fh, self.cfg.reid_min_h,
+                                            self.cfg.reid_max_iou):
+                    self._tfeat = f if self._tfeat is None else l2norm(0.8 * self._tfeat + 0.2 * f)
         if not self._due(self._t_obs, t):
             return
-        fh, fw = frame.shape[:2]
         if not crop_ok(target, others, fw, fh, self.cfg.reid_min_h, self.cfg.reid_max_iou):
             return
         self._t_obs = t
         self.gallery.add(self.emb.embed(frame, [target.bbox])[0])
+        if self.numbers is not None:
+            n, c = self.numbers.read(frame, [target.bbox])[0]
+            self._nvote.add(n, c)
+
+    def _team_filter(self, frame, cands):
+        tl = self.team.label(self._tfeat) if self.team is not None else None
+        if tl is None:
+            return cands
+        from .team import team_feature
+
+        keep = []
+        for c in cands:
+            cl = self.team.label(team_feature(frame, c.bbox, self.cfg.team_min_px))
+            if cl is None or cl == tl:  # belirsiz → elenmez
+                keep.append(c)
+        return keep
+
+    def _number_filter(self, frame, cands):
+        tn = (self._nvote.value(self.cfg.number_min_votes, self.cfg.number_share)
+              if self.numbers is not None else None)
+        if tn is None or not cands:
+            return cands
+        reads = self.numbers.read(frame, [c.bbox for c in cands])
+        return [c for c, (n, _) in zip(cands, reads, strict=True) if n is None or n == tn]
 
     def match(self, frame, t: float, candidates, all_tracks):
         """Aday izlerden galeriye en çok benzeyeni döndür (eşik + ikinciye marj); yoksa None."""
@@ -182,6 +233,9 @@ class ReIdManager:
         if not ok:
             return None
         self._t_match = t
+        ok = self._number_filter(frame, self._team_filter(frame, ok))
+        if not ok:
+            return None
         embs = self.emb.embed(frame, [c.bbox for c in ok])
         scores = sorted(((self.gallery.score(e), c) for e, c in zip(embs, ok, strict=True)),
                         key=lambda sc: -sc[0])
@@ -248,6 +302,7 @@ def link_ids(doc: dict, target_id: int, cfg: Config) -> list[int]:
     from .offline import list_tracks
 
     emb = doc.get("emb") or {}
+    lab = (doc.get("team") or {}).get("labels") or {}
     spans = {e["id"]: e for e in list_tracks(doc) if e["n"] >= cfg.reid_min_samples}
     vec = {int(k): (_unq(v["first"]), _unq(v["last"])) for k, v in emb.items()
            if int(k) in spans}
@@ -261,6 +316,9 @@ def link_ids(doc: dict, target_id: int, cfg: Config) -> list[int]:
         for j, sj in spans.items():
             if j in chain or j not in vec:
                 continue
+            tl, tj = lab.get(str(target_id)), lab.get(str(j))
+            if tl is not None and tj is not None and tl != tj:
+                continue  # farklı takım
             gap = (sj["first"] - c["last"]) if forward else (c["first"] - sj["last"])
             if not 0 <= gap <= cfg.reid_link_gap_s:
                 continue

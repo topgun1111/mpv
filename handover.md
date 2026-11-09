@@ -5,9 +5,9 @@ Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. exe: çalışmanın sayfasında Artifacts → TakipliOynat.
 
 ## Durum
-- Tamamlanan: **Parça 11/15**
-- Sıradaki: **Parça 12**
-- Sürüm: 0.11.0
+- Tamamlanan: **Parça 12/15**
+- Sıradaki: **Parça 13**
+- Sürüm: 0.12.0
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |
@@ -23,7 +23,7 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 | 9 | Offline mod: `offline.py` → `track.json` şeması ve üretimi | ✅ |
 | 10 | Lua offline oynatma: `time-pos` ile JSON'dan zoom/pan, interpolasyon | ✅ |
 | 11 | Re-ID (OSNet ONNX): embedding, ID kurtarma | ✅ |
-| 12 | Takım rengi histogramı + forma numarası OCR | ⬜ |
+| 12 | Takım rengi histogramı + forma numarası OCR | ✅ |
 | 13 | Ayarlar (config UI/tuşlar) ve OSD iyileştirmeleri | ⬜ |
 | 14 | Gömülü Python (embeddable) + bağımlılık paketleme + Inno Setup tam installer, DirectML varsayılanı | ⬜ |
 | 15 | Lisans denetimi (AGPL/Apache alternatif, THIRD_PARTY_NOTICES), son testler, dokümantasyon, release | ⬜ |
@@ -150,8 +150,15 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - Doğrulama: **gerçek OSNet modeliyle denenmedi** (ortamda model/ağ yok). Windows'ta: modeli `models/`'e koy, `live --reid --stats 2` ile gecikmeye bak; `reid_thres` OSNet x0.25 için tahminî (0.6) — gerçek maçta aynı formalı oyuncularla karışma/kaçırma oranına göre ayarla. Modelin çıktısı `[N, D]` olmalı (`[N, D, 1, 1]` gelirse `Embedder` reshape ile düzleştirir). Offline'da bağlı izlerin ardışık görünümü uzamsal makullük (hız/mesafe) denetlemez.
 - Kasıtlı olarak yapılmayanlar: uzamsal kapı (yeni ID, hedefin son konumuna/hızına makul uzaklıkta mı); aynı ID içinde ID-switch düzeltmesi (hedefin ID'si başka oyuncuya geçerse); embedding'i takım rengi/forma ile birleştirme (Parça 12); OSNet modeli dağıtımı/lisansı (torchreid MIT; ağırlıklar için Parça 15'te denetle).
 
-## Parça 12 için başlangıç
-- Takım rengi histogramı + forma numarası OCR. `tracker/team.py`: kırpıntının üst gövde bölgesinden HSV histogramı (saha yeşili/çim maskesi dışarıda), iki takım için k-means (k=2, hakem ayrı küme olabilir); hedefin takımı biliniyorsa Re-ID adaylarını takım uyumsuzsa ele (`ReIdManager.match` içinde ek süzgeç; `crop_ok` ve galeri yapısı hazır). Forma numarası OCR: ağır bağımlılık (PaddleOCR/EasyOCR/tesseract) eklemeden önce gerekliliği/boyutu tartış (installer ~200–300 MB hedefi); onnxruntime ile küçük bir rakam sınıflandırıcı ya da isteğe bağlı/eklenti olarak tasarla. Kullanıcı notu: ücretsiz hesap — token'ı idareli kullan.
+## Parça 12'de yapılanlar
+- `tracker/team.py`: `team_feature` (kutunun üst gövdesi: y %18–52, x %25–75; HSV; saha yeşili H35–85/S≥50 maskeli; 12 ton kutusu + siyah/gri/beyaz = 15 boyut; karekök + L2), `kmeans2` (deterministik, MIN_SEP=0.15 altında "tek takım" → None), `assign` (marj < `team_margin` → belirsiz None), `TeamClassifier` (canlı; `team_min_samples`'ta ilk kez, sonra `team_refit` özellikte bir yeniden kümeler), `TeamBank` (offline; iz başına ortalama özellik → `doc["team"] = {centers, labels:{id: 0|1}}`, belirsiz iz etiketsiz).
+- **Takım yalnızca eleme yapar**: hedef ve aday etiketi biliniyor ve farklıysa aday elenir; belirsiz/bilinmiyorsa elenmez. Hedefin takımı etiketle değil özelliğiyle (EMA) saklanır (yeniden kümelemede etiket 0/1 yer değiştirebilir). Takım modeli hedef değişince sıfırlanmaz (sahne özelliği); hedef özelliği ve numara oyları sıfırlanır.
+- Forma numarası: ağır OCR bağımlılığı **eklenmedi**. `tracker/number.py`: `NumberReader` (isteğe bağlı küçük ONNX sınıflandırıcı; sözleşme: girdi [N,C,H,W] C=1/3, 0–1; çıktı [N,101]: 0–99 numara, 100 = yok; `models/jersey_number.onnx`; model dağıtılmaz, yoksa açıklayıcı `FileNotFoundError`), `NumberVoter` (güven ağırlıklı oy; `number_min_votes`=3, `number_share`=0.6). Hedefin numarası oylamayla kesinleşirse farklı numaralı aday elenir; aday numarası okunamıyorsa elenmez.
+- Entegrasyon: `ReIdManager(embedder, cfg, team=None, numbers=None)`. `match` sırası: crop_ok → takım → numara → embedding/eşik+marj (marj artık elenmiş adaylar arasında ölçülür; yanlış takımdaki benzer oyuncu marjı bozmaz). Offline: `run_detection(..., team=TeamBank)`, `make_doc(..., team=)`, `link_ids` farklı takım etiketli adayı atlar.
+- CLI: `live --reid --team [--number]` (`--team/--number` tek başına → hata kodu 2), `offline --team` (Re-ID'siz de etiket yazar; zincirleme için `--reid` de gerekir). Config: `team_min_samples`, `team_refit`, `team_margin`, `team_min_px`, `number_model`, `number_conf`, `number_min_votes`, `number_share`.
+- Testler: 145 (yeni 12, `tests/test_team.py`; sahte `ConstEmbedder` Re-ID'yi kör eder, yalnız takım/numara ayırır). `ruff` temiz. pytest/ruff bu oturumda kuruldu ve gerçekten çalıştırıldı. Sürüm 0.12.0.
+- Doğrulama: **gerçek maç görüntüsünde ve gerçek numara modeliyle denenmedi.** Windows'ta bak: `team_margin` (0.15) ve üst gövde bölgesi gerçek kamera açılarında/uzak planlarda yeterli mi; aynı renk forma + kaleci/hakem durumu (k=2 hakemi bir takıma katabilir → yalnız belirsizse elenmez, yani zarar değil kayıp fırsat); `team_min_px` (100) uzak oyuncuda sık None veriyor mu (küçük kutu → özellik yok → elemez). Numara modeli için sözleşme `number.py` başında; ayrı eğitilmesi gerekir.
+- Kasıtlı olarak yapılmayanlar: hakem/kaleci için ayrı üçüncü küme; takım rengini embedding'e katmak (yalnız eleme); numara eşleşmesiyle `reid_thres`'i gevşetmek; `--list` çıktısında takım/numara gösterimi; ağır OCR bağımlılığı (installer boyutu; Parça 14'te model dağıtımı/lisansı ayrıca düşünülür).
 
 ## Doğrulama durumu (Parça 5; Parça 6-7 için de geçerli)
 - Parça 6: testler yerelde 76/76 (aynı uyumluluk katmanı); `track.lua`'daki `release` bağı ve `x` tuşu gerçek mpv'de denenmedi.

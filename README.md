@@ -76,7 +76,7 @@ TakipliOynat/
 - CPU-only makinelerde canlı mod düşük fps → offline mod
 
 ## Yol Haritası
-Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: Parça 1–11 (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID). Sıradaki: Parça 12 (takım rengi + forma numarası).
+Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: Parça 1–12 (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası). Sıradaki: Parça 13 (ayarlar + OSD).
 
 ## Offline mod (Parça 9)
 ```
@@ -103,3 +103,11 @@ python -m tracker offline-view video.mp4.track.json --target-id 7          # kay
 python -m tracker offline-view video.mp4.track.json --target-id 7 --no-link
 ```
 Ayarlar: `reid_thres` (0.6), `reid_margin` (0.05), `reid_link_gap_s` (20). Benzer formalı oyuncular karışabilir; belirsizse (marj yetmezse) bağlama yapılmaz.
+
+### Takım rengi ve forma numarası (Parça 12)
+```
+python -m tracker live --reid --team                 # farklı takım renkli adaylar Re-ID'de elenir
+python -m tracker live --reid --team --number        # + hedefle farklı numaralı adaylar elenir
+python -m tracker offline video.mp4 --reid --team    # izlerin takımı track.json'a yazılır, zincirleme takımı gözetir
+```
+Takım yalnızca eleme yapar; etiket belirsizse aday elenmez. `--number` için `models/jersey_number.onnx` gerekir (girdi [N,C,H,W], çıktı [N,101]: 0–99 numara, 100 = yok; ayrıntı `tracker/number.py`). Ayarlar: `team_margin` (0.15), `team_min_samples` (40), `number_min_votes` (3).
