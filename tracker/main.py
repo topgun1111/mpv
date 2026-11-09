@@ -129,7 +129,17 @@ def listen(mpv: MpvIpc, follow: bool, zoom: float) -> None:
             print("sıfırlandı")
 
 
+def _utf8_console() -> None:
+    """Windows'ta cp1252/cp857 konsolu ve yönlendirmede Türkçe çıktı hata vermesin."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_console()
     args = build_parser().parse_args(argv)
     cfg = Config.load(args.config) if args.config else Config()
     if args.cmd == "detect":  # mpv bağlantısı gerekmez

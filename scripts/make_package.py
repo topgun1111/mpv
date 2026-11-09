@@ -17,7 +17,7 @@ def main() -> None:
     (OUT / "models").mkdir(parents=True)
     for name in ("README.md", "VERSION", "requirements.txt"):
         shutil.copy2(ROOT / name, OUT / name)
-    print(f"Paket hazır: {OUT}")
+    print(f"Paket hazir: {OUT}")
 
 
 if __name__ == "__main__":

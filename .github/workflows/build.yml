@@ -16,6 +16,8 @@ permissions:
 jobs:
   windows-package:
     runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"  # Windows konsolu cp1252: Türkçe çıktı (ı, ş...) UnicodeEncodeError veriyordu
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
