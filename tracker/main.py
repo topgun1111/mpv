@@ -34,6 +34,9 @@ def build_parser() -> argparse.ArgumentParser:
     lv.add_argument("--model", help="ONNX model yolu (varsayılan: config.model_path)")
     lv.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"], help="Çalışma cihazı")
     lv.add_argument("--fps", type=float, help="En fazla işleme hızı (varsayılan: config.live_fps)")
+    lv.add_argument("--reid", action="store_true",
+                    help="Re-ID: hedef ID değişirse görünüme göre yeniden bağla (OSNet gerekir)")
+    lv.add_argument("--reid-model", help="OSNet ONNX yolu (varsayılan: config.reid_model)")
     lv.add_argument("--stats", type=float, default=0.0, metavar="SN",
                     help="SN'de bir hız/gecikme yaz")
     of = sub.add_parser("offline", help="Videoyu işle → track.json (hedef verilirse görünüm de)")
@@ -42,11 +45,16 @@ def build_parser() -> argparse.ArgumentParser:
     of.add_argument("--model", help="ONNX model yolu (varsayılan: config.model_path)")
     of.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"], help="Çalışma cihazı")
     of.add_argument("--fps", type=float, help="İşlenen kare/sn (varsayılan: config.offline_fps)")
+    of.add_argument("--reid", action="store_true",
+                    help="İzlerin embedding'ini de kaydet (ID değişimini zincirlemek için)")
+    of.add_argument("--reid-model", help="OSNet ONNX yolu (varsayılan: config.reid_model)")
     _add_target_args(of)
     ov = sub.add_parser("offline-view", help="track.json'da hedefi seç/değiştir (tespit yok)")
     ov.add_argument("json")
     ov.add_argument("--out", help="Çıktı (varsayılan: girdinin üzerine yazar)")
     ov.add_argument("--list", action="store_true", help="İzleri (en uzun görünenden) listele")
+    ov.add_argument("--no-link", action="store_true",
+                    help="Kayıtlı Re-ID embedding'leri varsa bile ID zincirleme yapma")
     _add_target_args(ov)
     return p
 
@@ -85,8 +93,10 @@ def _finish_doc(doc: dict, cfg: Config, args: argparse.Namespace, out: str) -> N
 
     tid = _resolve_target(doc, cfg, args)
     if tid is not None:
-        apply_target(doc, tid, cfg)
-        print(f"hedef ID {tid}: {len(doc['views'])} görünüm anahtar karesi")
+        apply_target(doc, tid, cfg, link=not getattr(args, "no_link", False))
+        linked = doc["target"].get("linked", [])
+        print(f"hedef ID {tid}" + (f" (+ Re-ID ile bağlanan: {linked})" if linked else "")
+              + f": {len(doc['views'])} görünüm anahtar karesi")
     elif not doc.get("target"):
         _print_tracks(doc)
     save_doc(doc, out)
@@ -122,9 +132,16 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
             pct = f"%{100 * n / tot:.0f}" if tot else ""
             print(f"  {n} örnek {pct} ({n / (last[0] - t0):.1f}/sn)")
 
+    bank = None
+    if args.reid:
+        from .reid import Embedder, TrackletBank
+
+        emb = Embedder(args.reid_model or cfg.reid_model, device=args.device or cfg.device)
+        bank = TrackletBank(emb, cfg)
     pipe = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf))
-    samples, size = run_detection(src, pipe, progress, total)
-    doc = make_doc(args.video, size, src.src_fps, src.duration, fps, samples)
+    samples, size = run_detection(src, pipe, progress, total, bank=bank)
+    doc = make_doc(args.video, size, src.src_fps, src.duration, fps, samples,
+                   emb=bank.result() if bank else None)
     _finish_doc(doc, cfg, args, args.out or f"{args.video}.track.json")
     return 0
 
@@ -160,12 +177,19 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     )
     print(f"detector: provider={det.providers[0]}, girdi={det.size}")
     pipeline = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf))
+    reid = None
+    if args.reid:
+        from .reid import Embedder, ReIdManager
+
+        emb = Embedder(args.reid_model or cfg.reid_model, device=args.device or cfg.device)
+        reid = ReIdManager(emb, cfg)
+        print(f"Re-ID açık: provider={emb.session.get_providers()[0]}")
     events: queue.Queue = queue.Queue()
     listener = EventListener(cfg.ipc_path, events)
     listener.start()
     try:
         with MpvIpc(cfg.ipc_path, keep_events=False) as mpv:  # komut bağlantısı olay biriktirmez
-            run_live(mpv, events, pipeline, cfg, stats_every=args.stats)
+            run_live(mpv, events, pipeline, cfg, stats_every=args.stats, reid=reid)
     finally:
         listener.stop()
     return 0

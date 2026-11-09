@@ -5,9 +5,9 @@ Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. exe: çalışmanın sayfasında Artifacts → TakipliOynat.
 
 ## Durum
-- Tamamlanan: **Parça 10/15**
-- Sıradaki: **Parça 11**
-- Sürüm: 0.10.0
+- Tamamlanan: **Parça 11/15**
+- Sıradaki: **Parça 12**
+- Sürüm: 0.11.0
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |
@@ -22,7 +22,7 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 | 8 | Kayıp yönetimi: son konumda bekle → kademeli zoom-out | ✅ |
 | 9 | Offline mod: `offline.py` → `track.json` şeması ve üretimi | ✅ |
 | 10 | Lua offline oynatma: `time-pos` ile JSON'dan zoom/pan, interpolasyon | ✅ |
-| 11 | Re-ID (OSNet ONNX): embedding, ID kurtarma | ⬜ |
+| 11 | Re-ID (OSNet ONNX): embedding, ID kurtarma | ✅ |
 | 12 | Takım rengi histogramı + forma numarası OCR | ⬜ |
 | 13 | Ayarlar (config UI/tuşlar) ve OSD iyileştirmeleri | ⬜ |
 | 14 | Gömülü Python (embeddable) + bağımlılık paketleme + Inno Setup tam installer, DirectML varsayılanı | ⬜ |
@@ -141,8 +141,17 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - Doğrulama: **gerçek mpv'de denenmedi**: `utils.parse_json`'ın büyük `.track.json`'da hızı/bellek tüketimi, `time-pos` gözlemcisinin oynatma sırasında gerçekten kare başı gelip gelmediği ve `video-pan` ayarının akıcılığı Windows'ta bakılmalı. Akıcı değilse: gözlemci yerine `mp.add_periodic_timer(1/60)` ya da anahtar kare yoğunluğunu artır (şu an `offline_fps`=10 örnek/sn; mpv iki anahtar kare arasında doğrusal ilerler).
 - Kasıtlı olarak yapılmayanlar: Lua'da hedef seçimi/`--click` (hedef Python'da seçilir); birden çok hedef/profil dosyası; `.views.json`'u otomatik açma (yalnız ipucu); anahtar kareler arası easing (doğrusal yeterli: kareler zaten yumuşatılmış).
 
-## Parça 11 için başlangıç
-- Re-ID (OSNet ONNX): kişi kırpıntısından embedding; `tracker/reid.py` (`Embedder`: ön işleme 256x128, ONNX Runtime oturumu `Detector`'a benzer provider seçimi, L2-normalize, kosinüs benzerliği). Canlıda hedef ID'si kaybolup ByteTrack yeni ID verirse hedefin galeri embedding'iyle (EMA'lı) yeni izleri karşılaştırıp hedefi yeni ID'ye bağla (`LiveController._on_lost` içinde, `lost_hold_s` süresince). Offline'da `samples`'a seyrek embedding eklemek yerine `build_views` öncesi aynı ID birleştirme (ID remap) düşünülebilir. Model dosyası/lisans (OSNet MIT/Apache) için `models/` ve Parça 15 notu.
+## Parça 11'de yapılanlar
+- `tracker/reid.py`: `Embedder` (OSNet ONNX; 256x128, ImageNet ortalama/std, RGB; dinamik batch ya da sabit batch=1 → tek tek; sabit batch>1 → `ValueError`; model yoksa açıklayıcı `FileNotFoundError`; `session=` enjekte edilebilir; kırpılamayan kutu → sıfır satırı; çıktı L2-normalize), `crop_ok` (boyut ≥ `reid_min_h`, kare kenarında kesik değil, başka kutuyla IoU < `reid_max_iou`: kirli embedding'i engeller), `Gallery` (≤8 görünüm; ≥0.95 benzer olan EMA ile birleşir), `ReIdManager` (canlı), `TrackletBank` + `link_ids` (offline).
+- **Canlı** (`live --reid`): hedef görünürken `observe` galeriyi besler (video zamanıyla `reid_every_s`=0.3 sn). Hedef ID'si yokken `_try_reid`: aday = hedef son görüldüğündeki en büyük ID'den (`_id_mark`; ByteTrack ID'leri artar) **büyük** ID'li, `age ≥ reid_min_age` izler → galeriye kosinüs ≥ `reid_thres` (0.6) ve ikinciye marj ≥ `reid_margin` (0.05) ise `target_id` yeni ID'ye taşınır, `BoxFilter` sıfırlanır, OSD "Hedef yeniden bulundu: ID n". Mevcut Parça 8 akışı devralır (zoom-out'tayken bulunursa yumuşatıcı seed'lenir → sıçrama yok). Yeni hedef seçimi/bırakma/sıfırlama/atlama galeriyi sıfırlar. Eski ID'li izler (ID switch değil, başka oyuncu) kasıtlı olarak aday değildir.
+- **Offline** (`offline --reid`): `TrackletBank` her izin ilk 3 ve son 3 (uygun) görünümünün ortalama embedding'ini `doc["emb"]`'e yazar (`{id: {first,last}}`, ×100 tamsayı; kompakt). `offline-view` kayıtlı `emb` varsa `link_ids` ile hedef izi zincirler: sonraki iz hedef iz bittikten sonra doğmalı (≤ `reid_link_gap_s`=20 sn), son↔ilk kosinüs ≥ eşik + marj; geriye ve ileriye uzar. `doc["target"] = {"id", "linked": [...]}`; `build_views` artık ID kümesi alır (aynı örnekte birden çok kimlik → en yüksek skor). `--no-link` ile kapanır.
+- Config: `reid_model` ("models/osnet_x0_25.onnx"), `reid_thres`, `reid_margin`, `reid_every_s`, `reid_gallery`, `reid_min_h`, `reid_max_iou`, `reid_min_age`, `reid_min_samples`, `reid_link_gap_s`.
+- Testler: 133 (yeni 19, `tests/test_reid.py`): ön işleme, kırpma sınırları, Embedder (batch/sabit batch/normalizasyon/hata), Gallery, crop_ok, yönetici eşik/marj/hız sınırı/sıfırlama, canlı yeniden bağlama (Re-ID yok → bağlama yok; farklı görünüm → yok; eski ID → aday değil; zoom-out'ta sıçramasız), offline kompakt çıktı, zincirleme (ileri/geri/boşluk/belirsiz), `apply_target` + `build_views`, CLI `--no-link`. Sahte embedder ortalama renk kullanır. `ruff` temiz. Sürüm 0.11.0.
+- Doğrulama: **gerçek OSNet modeliyle denenmedi** (ortamda model/ağ yok). Windows'ta: modeli `models/`'e koy, `live --reid --stats 2` ile gecikmeye bak; `reid_thres` OSNet x0.25 için tahminî (0.6) — gerçek maçta aynı formalı oyuncularla karışma/kaçırma oranına göre ayarla. Modelin çıktısı `[N, D]` olmalı (`[N, D, 1, 1]` gelirse `Embedder` reshape ile düzleştirir). Offline'da bağlı izlerin ardışık görünümü uzamsal makullük (hız/mesafe) denetlemez.
+- Kasıtlı olarak yapılmayanlar: uzamsal kapı (yeni ID, hedefin son konumuna/hızına makul uzaklıkta mı); aynı ID içinde ID-switch düzeltmesi (hedefin ID'si başka oyuncuya geçerse); embedding'i takım rengi/forma ile birleştirme (Parça 12); OSNet modeli dağıtımı/lisansı (torchreid MIT; ağırlıklar için Parça 15'te denetle).
+
+## Parça 12 için başlangıç
+- Takım rengi histogramı + forma numarası OCR. `tracker/team.py`: kırpıntının üst gövde bölgesinden HSV histogramı (saha yeşili/çim maskesi dışarıda), iki takım için k-means (k=2, hakem ayrı küme olabilir); hedefin takımı biliniyorsa Re-ID adaylarını takım uyumsuzsa ele (`ReIdManager.match` içinde ek süzgeç; `crop_ok` ve galeri yapısı hazır). Forma numarası OCR: ağır bağımlılık (PaddleOCR/EasyOCR/tesseract) eklemeden önce gerekliliği/boyutu tartış (installer ~200–300 MB hedefi); onnxruntime ile küçük bir rakam sınıflandırıcı ya da isteğe bağlı/eklenti olarak tasarla. Kullanıcı notu: ücretsiz hesap — token'ı idareli kullan.
 
 ## Doğrulama durumu (Parça 5; Parça 6-7 için de geçerli)
 - Parça 6: testler yerelde 76/76 (aynı uyumluluk katmanı); `track.lua`'daki `release` bağı ve `x` tuşu gerçek mpv'de denenmedi.

@@ -88,8 +88,10 @@ class LiveController:
         cfg: Config,
         smoother: ViewSmoother | None = None,
         box_filter: BoxFilter | None = None,
+        reid=None,
     ):
-        self.pipeline, self.cfg = pipeline, cfg
+        self.pipeline, self.cfg, self.reid = pipeline, cfg, reid  # reid: ReIdManager | None
+        self._id_mark = 0  # hedef son görüldüğünde izlerin en büyük ID'si (ID'ler artan)
         self.flt = box_filter or BoxFilter(cfg.kf_accel, cfg.kf_meas)
         self.smoother = smoother or ViewSmoother(
             cfg.alpha_pos, cfg.alpha_zoom, cfg.dead_zone_pos, cfg.dead_zone_zoom
@@ -117,6 +119,9 @@ class LiveController:
         self._last_t = None
         self._clear_lost()
         self._view = View()
+        self._id_mark = 0
+        if self.reid:
+            self.reid.reset()
 
     def _release(self) -> Output:
         """Hedefi bırak: görünüm 1x'e döner; takip açık kalır, yeni tıklama hedef seçer."""
@@ -126,6 +131,8 @@ class LiveController:
         self.smoother.reset()
         self.flt.reset()
         self._view = View()
+        if self.reid:
+            self.reid.reset()
         if not had:
             return Output(osd="Bırakılacak hedef yok")
         return Output(view=View(), osd="Hedef bırakıldı")
@@ -192,12 +199,19 @@ class LiveController:
                 self.target_id = picked.id
                 self._clear_lost()
                 self.flt.reset()  # süzgeç eski hedefin hızını taşımasın
+                if self.reid:
+                    self.reid.reset()  # galeri eski kişiye aitti
                 osd = f"Hedef: ID {picked.id}"
         if self.target_id is None:
             return Output(osd=osd)
         tr = next((x for x in tracks if x.id == self.target_id), None)
+        if tr is None and self.reid is not None:
+            tr, osd = self._try_reid(frame, t, tracks, osd)
         if tr is None:
             return self._on_lost(t, osd)
+        self._id_mark = max([self._id_mark, *(x.id for x in tracks)])
+        if self.reid is not None:
+            self.reid.observe(frame, t, tr, [x for x in tracks if x is not tr])
         if self._zooming_out:  # zoom-out sırasında bulundu: bulunduğumuz görünümden devam
             self.smoother.seed(self._view)
         self._clear_lost()
@@ -207,6 +221,18 @@ class LiveController:
                            self.cfg.max_zoom)
         self._view = self.smoother.update(raw)
         return Output(view=self._view, osd=osd)
+
+    def _try_reid(self, frame, t: float, tracks, osd: str | None):
+        """Hedef ID'si yok: kayıp sırasında doğan yeni izler arasında galeriye uyan varsa hedefi
+        ona bağla (ByteTrack ID değiştirmişse)."""
+        cands = [x for x in tracks
+                 if x.id > self._id_mark and x.age >= self.cfg.reid_min_age]
+        cand = self.reid.match(frame, t, cands, tracks)
+        if cand is None:
+            return None, osd
+        self.target_id = cand.id
+        self.flt.reset()  # konum sıçradı: eski hız/konum geçersiz
+        return cand, f"Hedef yeniden bulundu: ID {cand.id}"
 
     def _on_lost(self, t: float, osd: str | None) -> Output:
         """Hedef bu karede yok: `lost_hold_s` son görünümde bekle, sonra `lost_zoomout_s` içinde
@@ -238,8 +264,9 @@ def run_live(
     clock=time.monotonic,
     sleep=time.sleep,
     stats_every: float = 0.0,
+    reid=None,
 ) -> None:
-    ctl = LiveController(pipeline, cfg)
+    ctl = LiveController(pipeline, cfg, reid=reid)
     min_dt = 1.0 / max(cfg.live_fps, 1.0)
     last_view: View | None = None
     n, lag_sum, t_stat = 0, 0.0, clock()

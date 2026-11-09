@@ -65,14 +65,18 @@ class VideoSource:
             self._cap.release()
 
 
-def run_detection(frames, pipeline, progress=None, total: int | None = None):
-    """`frames`: (t, kare) üreteci → (örnekler, (w, h)). Kare boyutu ilk kareden alınır."""
+def run_detection(frames, pipeline, progress=None, total: int | None = None, bank=None):
+    """`frames`: (t, kare) üreteci → (örnekler, (w, h)). Kare boyutu ilk kareden alınır.
+    `bank` (reid.TrackletBank) verilirse izlerin ilk/son embedding'leri toplanır."""
     samples, size = [], None
     for n, (t, frame) in enumerate(frames, 1):
         h, w = frame.shape[:2]
         size = size or (w, h)
         d = []
-        for tr in pipeline.step(frame):
+        tracks = pipeline.step(frame)
+        if bank is not None:
+            bank.update(frame, tracks, n - 1)
+        for tr in tracks:
             b = tr.bbox
             d.append([tr.id, round(b.x1 / w, 4), round(b.y1 / h, 4),
                       round(b.x2 / w, 4), round(b.y2 / h, 4), round(tr.score, 3)])
@@ -83,11 +87,14 @@ def run_detection(frames, pipeline, progress=None, total: int | None = None):
 
 
 def make_doc(path: str, size, fps_src: float, duration: float, sample_fps: float,
-             samples: list) -> dict:
-    return {"version": SCHEMA_VERSION,
+             samples: list, emb: dict | None = None) -> dict:
+    doc = {"version": SCHEMA_VERSION,
             "video": {"path": path, "w": size[0], "h": size[1], "fps": round(fps_src, 3),
                       "duration": round(duration, 3)},
             "sample_fps": sample_fps, "samples": samples, "target": None, "views": []}
+    if emb:
+        doc["emb"] = emb  # {id: {"first": [int...], "last": [int...]}} (×100 tamsayı)
+    return doc
 
 
 def save_doc(doc: dict, path: str | Path) -> None:
@@ -179,19 +186,21 @@ def _runs(idx: list[int]) -> list[list[int]]:
     return out
 
 
-def build_views(doc: dict, target_id: int, cfg: Config) -> list[list[float]]:
+def build_views(doc: dict, target_id: int | set[int], cfg: Config) -> list[list[float]]:
     """Hedefin izinden [t, zoom, pan_x, pan_y] anahtar kareleri (sabit duranlar seyreltilir)."""
     samples = doc["samples"]
     n = len(samples)
     ts = [s["t"] for s in samples]
     if n == 0:
         return []
+    ids = {target_id} if isinstance(target_id, int) else set(target_id)
     boxes: dict[int, list[float]] = {}  # örnek → [cx, cy, w, h] (normalize)
+    best: dict[int, float] = {}
     for i, s in enumerate(samples):
         for d in s["d"]:
-            if d[0] == target_id:
+            if d[0] in ids and d[5] >= best.get(i, -1.0):  # birden çok kimlik: en yüksek skor
                 b = BBox(d[1], d[2], d[3], d[4])
-                boxes[i] = [b.cx, b.cy, b.w, b.h]
+                boxes[i], best[i] = [b.cx, b.cy, b.w, b.h], d[5]
     vis = sorted(boxes)
     # 1) kısa kayıpları doğrusal doldur (ileri-geri bilgi: non-causal)
     for a, b in zip(vis, vis[1:], strict=False):
@@ -246,7 +255,13 @@ def build_views(doc: dict, target_id: int, cfg: Config) -> list[list[float]]:
     return out
 
 
-def apply_target(doc: dict, target_id: int, cfg: Config) -> dict:
-    doc["target"] = {"id": target_id}
-    doc["views"] = build_views(doc, target_id, cfg)
+def apply_target(doc: dict, target_id: int, cfg: Config, link: bool = True) -> dict:
+    """Hedefi ayarla. `doc['emb']` varsa ve `link` ise Re-ID ile ID değişimlerini zincirler."""
+    linked: list[int] = []
+    if link and doc.get("emb"):
+        from .reid import link_ids
+
+        linked = link_ids(doc, target_id, cfg)
+    doc["target"] = {"id": target_id, **({"linked": linked} if linked else {})}
+    doc["views"] = build_views(doc, {target_id, *linked}, cfg)
     return doc

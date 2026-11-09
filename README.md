@@ -76,7 +76,7 @@ TakipliOynat/
 - CPU-only makinelerde canlı mod düşük fps → offline mod
 
 ## Yol Haritası
-Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: Parça 1–10 (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma). Sıradaki: Parça 11 (Re-ID).
+Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: Parça 1–11 (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID). Sıradaki: Parça 12 (takım rengi + forma numarası).
 
 ## Offline mod (Parça 9)
 ```
@@ -93,3 +93,13 @@ python -m tracker offline-view video.mp4.track.json --target-id 3   # tespit YOK
 videonun yanında dururken mpv'de **`o`** tuşu görünümü Python olmadan, `time-pos`'a göre sürer
 (seek/duraklatmada da çalışır). `t` (canlı) açılınca offline kapanır ve tersi; `r` ikisini de sıfırlar.
 `--out` ile farklı yola yazdıysan `*.views.json` dosyasını `<video dosya adı>.views.json` yap.
+
+### Re-ID (Parça 11)
+OSNet ONNX modelini `models/osnet_x0_25.onnx` olarak koy (torchreid ile dışa aktarılır; girdi 1x3x256x128 veya dinamik batch).
+```
+python -m tracker live --reid                      # hedef kaybolup ByteTrack yeni ID verirse görünüme göre geri bağlar
+python -m tracker offline video.mp4 --reid         # izlerin ilk/son embedding'ini track.json'a yazar
+python -m tracker offline-view video.mp4.track.json --target-id 7          # kayıtlı embedding varsa ID değişimlerini zincirler
+python -m tracker offline-view video.mp4.track.json --target-id 7 --no-link
+```
+Ayarlar: `reid_thres` (0.6), `reid_margin` (0.05), `reid_link_gap_s` (20). Benzer formalı oyuncular karışabilir; belirsizse (marj yetmezse) bağlama yapılmaz.

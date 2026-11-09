@@ -38,6 +38,16 @@ class Config:
     offline_fps: float = 10.0  # offline: saniyede işlenen kare (video bundan hızlıysa atlanır)
     offline_interp_s: float = 0.6  # offline: bu süreden kısa hedef kayıpları doğrusal doldurulur
     offline_alpha: float = 0.4  # offline: sıfır-faz EMA katsayısı (konum; boyut bunun 0.4'ü)
+    reid_model: str = "models/osnet_x0_25.onnx"  # OSNet ONNX (girdi 256x128)
+    reid_thres: float = 0.6  # kosinüs benzerliği alt sınırı (hedefi yeni ID'ye bağlamak için)
+    reid_margin: float = 0.05  # en iyi aday ikinciden en az bu kadar iyi olmalı
+    reid_every_s: float = 0.3  # video sn; galeri besleme/eşleştirme en sık bu aralıkla
+    reid_gallery: int = 8  # galerideki en çok görünüm sayısı
+    reid_min_h: float = 0.08  # embedding için kutu yüksekliği alt sınırı (kare yüksekliği oranı)
+    reid_max_iou: float = 0.2  # başka kutuyla bu IoU'dan fazla örtüşen kırpıntı kullanılmaz
+    reid_min_age: int = 3  # aday iz en az bu kadar kare yaşamış olmalı (canlı)
+    reid_min_samples: int = 3  # offline: zincire girecek izin en az örnek sayısı
+    reid_link_gap_s: float = 20.0  # offline: iki iz arası en fazla boşluk (sn)
     lost_zoomout_s: float = 2.0  # sn; bekleme sonrası 1x'e kademeli zoom-out süresi (0: anında)
 
     def __post_init__(self) -> None:
