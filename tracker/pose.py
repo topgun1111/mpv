@@ -147,8 +147,9 @@ class KeypointTracker:
     visible = True
 
     def __init__(self, estimator: PoseEstimator, pose: Pose, kp: int, box_frac: float = 0.10,
-                 min_conf: float = 0.35) -> None:
+                 min_conf: float = 0.35, hold: int = 0) -> None:
         self.est, self.kp, self.box_frac, self.min_conf = estimator, kp, box_frac, min_conf
+        self.hold, self._misses = hold, 0  # hold: tolere edilen ardışık ıska
         self.label = KEYPOINT_NAMES[kp]
         self._person = pose.bbox
         self._pos = (float(pose.kpts[kp][0]), float(pose.kpts[kp][1]))
@@ -168,8 +169,20 @@ class KeypointTracker:
             s = _iou(prev, p.bbox) + max(0.0, 1.0 - d)  # yakın + örtüşen
             if (_iou(prev, p.bbox) > 0.1 or d < 0.6) and s > best_s:
                 best, best_s = p, s
-        if best is None or best.kpts[self.kp][2] < self.min_conf:
-            return None
+        if best is None:  # kişi bu karede bulunamadı: kısa süre son konumda tut
+            return self._held()
+        if best.kpts[self.kp][2] < self.min_conf:
+            # Eklem görünmüyor ama kişi var: eklemi kişinin kayması kadar taşı (tek karelik
+            # güven düşüşü hedefi düşürmesin; artı işareti de sönmesin)
+            dx, dy = best.bbox.cx - prev.cx, best.bbox.cy - prev.cy
+            self._person = best.bbox
+            self._pos = (self._pos[0] + dx, self._pos[1] + dy)
+            return self._held()
+        self._misses = 0
         self._person = best.bbox
         self._pos = (float(best.kpts[self.kp][0]), float(best.kpts[self.kp][1]))
         return self.bbox
+
+    def _held(self) -> BBox | None:
+        self._misses += 1
+        return self.bbox if self._misses <= self.hold else None

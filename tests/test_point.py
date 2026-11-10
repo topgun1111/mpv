@@ -2,6 +2,7 @@
 import numpy as np
 import pytest
 
+from tracker.clicks import ClickEvent
 from tracker.config import Config
 from tracker.geometry import BBox
 from tracker.live import LiveController
@@ -298,3 +299,25 @@ def test_lua_red_dot_overlay(tmp_path):
     assert d["WARN"] == "true"
     assert "\\1c&HFFFFFF&" in d["CONFIRMED"] and "\\pos(491,241)" in d["CONFIRMED"]
     assert d["OUT"] == "" and d["HIDE"] == ""
+
+
+def test_dot_is_drawn_ahead_of_moving_target_by_dot_lead_and_off_when_zero():
+    """Kare işlenene kadar nesne ilerler: artı hız * dot_lead_s kadar önde çizilir (≤ %3)."""
+    bg, tex = _scene()
+
+    def run(lead):
+        cfg = Config(ipc_path="x", dot_lead_s=lead)
+        c = LiveController(NullPipeline(), cfg)
+        c.enabled = True
+        f, (cx, cy) = _frame(bg, tex, 0)
+        c._click = ClickEvent(cx / W, cy / H, W, H, 0.0, kind="point")
+        c.step(f, 0.0)
+        for i in range(1, 40):
+            f, (cx, cy) = _frame(bg, tex, i)
+            c.step(f, i / 30)
+        d = c.dot()
+        return d[0] * W - cx
+
+    assert abs(run(0.0)) < 3.0  # kapalı: tam nesnenin üstünde
+    ahead = run(0.08)  # nesne ~180 px/sn sağa gider → ~14 px önde, sınırlı
+    assert 5.0 < ahead < 0.03 * W

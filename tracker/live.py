@@ -346,8 +346,15 @@ class LiveController:
             self.smoother.seed(self._view)
         self._clear_lost()
         vis = getattr(self.point, "visible", True) if self.point is not None else True
-        self._dot = (bbox.cx / fw, bbox.cy / fh) if vis else None  # kare dışında nokta çizilmez
         self.flt.update(bbox.scaled(1 / fw, 1 / fh), t)  # kare boyutuna göre normalize
+        # Artı işareti: kare alınıp işlenene kadar nesne ilerledi → hız * gecikme kadar ileri çiz
+        # (yoksa hızlı nesnede işaret hep geride kalır). Sınırlı: kare başına en çok %3.
+        vx, vy = self.flt.velocity
+        lead = max(self.cfg.dot_lead_s, 0.0)
+        dx = max(-0.03, min(0.03, vx * lead))
+        dy = max(-0.03, min(0.03, vy * lead))
+        # kare dışında nokta çizilmez
+        self._dot = (bbox.cx / fw + dx, bbox.cy / fh + dy) if vis else None
         lead = self.flt.lookahead(self.cfg.lookahead_s, self.cfg.max_lead).scaled(fw, fh)
         raw = compute_view(lead, fw, fh, self.cfg.target_fill, self.cfg.min_zoom,
                            self.cfg.max_zoom)
@@ -412,7 +419,8 @@ class LiveController:
         if hit is None:
             return None
         i, k = hit
-        return KeypointTracker(self.pose, poses[i], k, self.cfg.kp_box, self.cfg.kp_min_conf)
+        return KeypointTracker(self.pose, poses[i], k, self.cfg.kp_box, self.cfg.kp_min_conf,
+                               hold=self.cfg.kp_hold)
 
     def _step_point(self, frame, t: float, osd: str | None) -> Output:
         fh, fw = frame.shape[:2]
@@ -478,15 +486,20 @@ def run_live(
     n, lag_sum, t_stat = 0, 0.0, clock()
 
     last_dot: tuple[str, str] = ("", "")
+    dot_on: bool | None = None
 
     def sync_dot() -> None:
         # Beyaz takip noktası (Lua `track-dot`); yalnız konum değişince gönderilir
-        nonlocal last_dot
+        nonlocal last_dot, dot_on
         d = ctl.dot()
         msg = ("off", "") if d is None else (f"{d[0]:.4f}", f"{d[1]:.4f}")
         if msg == last_dot:
             return
         last_dot = msg
+        if (d is not None) != dot_on:  # yalnız göster/gizle geçişleri (konum değişimi değil)
+            dot_on = d is not None
+            log("artı işareti gösteriliyor" if dot_on else
+                f"artı işareti gizlendi (hedef {'kayıp' if ctl.has_target else 'yok'})")
         try:
             mpv.command("script-message-to", "track", DOT_MSG, *(m for m in msg if m))
         except MpvCommandError as e:

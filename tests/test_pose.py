@@ -134,3 +134,19 @@ def test_right_click_near_joint_tracks_joint_else_falls_back_to_object():
     c3, fb3 = _ctl(None)  # pose modeli yok: eski davranış
     c3.handle_event(_click(101, 94))
     assert c3.step(FRAME, 1.0).osd == "Hedef: nesne" and fb3
+
+
+def test_keypoint_tracker_hold_survives_brief_confidence_drop_then_loses():
+    est = FakeEst([[_pose(104, 96, box=(84, 21, 124, 101))],
+                   [_pose(110, 97, conf=0.1, box=(90, 22, 130, 102))],  # eklem güveni düştü
+                   [],  # kişi de kayıp
+                   [_pose(112, 98, box=(92, 23, 132, 103))],  # geri geldi
+                   [], [], []])
+    kt = KeypointTracker(est, _pose(100, 95), ANKLE, hold=2)
+    assert kt.update(FRAME) is not None
+    b = kt.update(FRAME)  # güven düşük ama kişi var: eklem kişiyle birlikte kayar
+    assert b is not None and b.cx > 104
+    assert kt.update(FRAME) is not None  # kişi yok: hâlâ tolerans içinde
+    assert kt.update(FRAME).contains(112, 98)  # geri geldi: sayaç sıfırlanır
+    assert kt.update(FRAME) is not None and kt.update(FRAME) is not None
+    assert kt.update(FRAME) is None  # tolerans (2) aşıldı → kayıp

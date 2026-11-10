@@ -68,6 +68,8 @@ class Config:
     kp_tol: float = 0.12  # sağ tık eklemin bu kadar (boy oranı) yakınındaysa
     kp_min_conf: float = 0.35  # eklem güveni alt sınırı (altı = eklem kayıp)
     kp_box: float = 0.10  # eklem etrafındaki takip kutusu (kişi boyu oranı)
+    dot_lead_s: float = 0.08  # sn; artı hız yönünde bu kadar ileri çizilir (0=kapalı)
+    kp_hold: int = 6  # eklem/kişi görünmeyince bu kadar adım son konumda tut (0: hemen kayıp)
     point_max_side: int = 640  # nesne izleyici kareyi en uzun kenarı bu olacak şekilde küçültür
 
     def __post_init__(self) -> None:

@@ -184,11 +184,13 @@ def run_offline_view_cmd(cfg: Config, args: argparse.Namespace) -> int:
 def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     """Ağır bağımlılıklar yalnızca bu komutta içe aktarılır."""
     import queue
+    import threading
 
     from .bytetrack import ByteTracker
     from .detector import Detector
     from .live import EventListener, model_line, run_live
     from .pipeline import NullPipeline, Pipeline
+    from .single import SingleInstance
 
     if (args.team or args.number) and not args.reid:
         print("--team/--number için --reid de gerekir")
@@ -257,14 +259,23 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     except Exception as e:  # eklem takibi isteğe bağlı: yoksa/bozuksa eski davranış
         print(f"UYARI: pose modeli yüklenemedi ({e}); eklem takibi kapalı.", file=sys.stderr)
     events: queue.Queue = queue.Queue()
+    # Aynı mpv'yi birden çok takip programı sürmesin (her mpv açılışı yeni süreç başlatır)
+    inst = SingleInstance(Path(args.cfg_path).resolve().parent / "tracker.lock")
+    stop = threading.Event()
+    if inst.claim():
+        inst.watch(stop)
+    # Konsolsuz (pythonw) çalışırken log'a 5 sn'de bir hız/gecikme/hedef satırı yaz
+    stats = args.stats or (5.0 if getattr(args, "headless", False) else 0.0)
     listener = EventListener(cfg.ipc_path, events)
     listener.start()
     try:
         with MpvIpc(cfg.ipc_path, keep_events=False) as mpv:  # komut bağlantısı olay biriktirmez
-            run_live(mpv, events, pipeline, cfg, stats_every=args.stats, reid=reid,
-                     cfg_path=args.cfg_path, pose=pose, info=info)
+            run_live(mpv, events, pipeline, cfg, stats_every=stats, reid=reid,
+                     cfg_path=args.cfg_path, pose=pose, info=info, stop=stop)
     finally:
+        stop.set()
         listener.stop()
+        inst.release()
     return 0
 
 
@@ -404,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"HATA: {e}", file=sys.stderr)
             return 1
     if args.cmd == "live":
-        _log_if_headless(args.cfg_path)
+        args.headless = _log_if_headless(args.cfg_path) is not None
         try:
             return run_live_cmd(cfg, args)
         except KeyboardInterrupt:
