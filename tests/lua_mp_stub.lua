@@ -1,4 +1,5 @@
 -- Ortak sahte `mp` (lua_harness*.lua kullanır). `reg` döndürür.
+TRACK_SHOW_MENU = false -- menü çubuğu kendi harness'inde (lua_harness_menu.lua) denenir
 local reg = { bind = {}, obs = {}, ev = {}, props = {}, set = {}, osd = {}, cmds = {}, timers = {},
   msgs = {}, hud = {}, ov = {} } -- hud: tüm overlay güncellemeleri; ov[z]: katmanın son verisi
 reg.props.path = os.getenv("VIDEO")
@@ -30,6 +31,7 @@ local mp = {
   get_mouse_pos = function() return { x = 0, y = 0 } end,
   msg = { info = function() end, warn = function() end, error = function() end },
 }
+package.path = (os.getenv("TRACK_MODULES") or "") .. "/?.lua;" .. package.path
 package.preload["mp"] = function() return mp end
 package.preload["mp.utils"] = function()
   return { parse_json = function() return dofile(os.getenv("DATA_LUA")) end }

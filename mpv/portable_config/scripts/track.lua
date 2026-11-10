@@ -18,6 +18,9 @@ local set_offline -- ileri bildirim: canlı mod açılınca offline kapatılır
 local off -- ileri bildirim (offline durumu; HUD okur)
 local sync_click_binding -- ileri bildirim: sol tık bağı (ekran üstü panel + hedef seçimi)
 local refresh_panel -- ileri bildirim: ekran üstü panel yeniden çizimi
+-- Üst menü çubuğu (M1): motor script-modules/trackmenu.lua (saf mantık); çizim/bağlama aşağıda.
+-- TRACK_SHOW_MENU=false ile kapanır (testler); modül yoksa menü yok, geri kalan çalışır.
+local menu, menu_hot, render_menu = nil, false, nil
 -- Zoom çapası: son seçilen dikdörtgenin/noktanın merkezi (video-normalize). Takip kilitli değilken
 -- (+/- zoom) görüntü video merkezi yerine bu noktaya yakınlaşır.
 local anchor = nil
@@ -516,7 +519,7 @@ local zoom_buttons = { function() zoom_step(1) end, function() zoom_step(-1) end
 -- Sağ tık: takip noktası. Takip kapalıysa açılır; tıklanan noktadaki nesne (ne olursa olsun) hedef
 -- olur (hedefin üstüne tekrar sağ tık hedefi bırakır). Sağ tuşla sürükleme dikdörtgen seçer (aşağıda).
 local function pick_target()
-  if panel.hover or zoomc.hover then return end
+  if panel.hover or zoomc.hover or menu_hot then return end
   if not enabled then set_enabled(true) end
   on_click("track-point")
 end
@@ -593,7 +596,7 @@ mp.add_key_binding(nil, "pick", function(ev)
   if e == "press" then
     pick_target()
   elseif e == "down" then
-    if not (panel.hover or zoomc.hover) and pos then
+    if not (panel.hover or zoomc.hover or menu_hot) and pos then
       drag.x0, drag.y0, drag.btn = pos.x, pos.y, "right"
     end
   elseif e == "up" and drag.x0 and drag.btn == "right" then
@@ -604,12 +607,17 @@ end, { complex = true })
 -- Sol tuş: YALNIZ imleç ekran üstü bir düğmenin (zoom +/−, panel) üstündeyken yakalanır; başka her
 -- yerde bağ kaldırılır, böylece mpv'nin kendi sol tık davranışı (OSC vb.) bozulmaz.
 sync_click_binding = function()
-  local want = (panel.hover ~= nil) or (zoomc.hover ~= nil)
+  local want = (panel.hover ~= nil) or (zoomc.hover ~= nil) or menu_hot
   if want and not panel.bound then
     mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", function(ev)
       ev = ev or { event = "press" }
       if ev.event ~= "press" and ev.event ~= "down" then return end
-      if panel.hover then
+      local mp_ = mouse_xy()
+      if menu_hot and mp_ and menu then
+        menu:click(mp_.x, mp_.y)
+        menu_hot = menu:over(mp_.x, mp_.y) or menu:is_open()
+        render_menu()
+      elseif panel.hover then
         buttons[panel.hover].act()
         render_panel()
       elseif zoomc.hover then
@@ -624,12 +632,51 @@ sync_click_binding = function()
   end
 end
 
+-- ---- Üst menü çubuğu bağlama (M1) -----------------------------------------------------------
+local menu_ov, menu_keys_on = nil, false
+local MENU_KEYS = { LEFT = "left", RIGHT = "right", UP = "up", DOWN = "down", ENTER = "enter",
+  KP_ENTER = "enter", ESC = "esc" }
+local MENU_Z = 4
+local function menu_prepare()
+  local d = mp.get_property_native("osd-dimensions")
+  if menu and d and d.w and d.w > 0 and d.h and d.h > 0 then menu:resize(d.w, d.h) end
+  return d
+end
+local function sync_menu_keys()
+  local want = menu ~= nil and menu:is_open()
+  if want == menu_keys_on then return end
+  menu_keys_on = want
+  for k, name in pairs(MENU_KEYS) do
+    if want then
+      mp.add_forced_key_binding(k, "trackmenu-" .. k, function()
+        menu:key(name)
+        menu_hot = menu:is_open() or menu_hot
+        render_menu()
+      end, { repeatable = (name == "up" or name == "down") })
+    else
+      mp.remove_key_binding("trackmenu-" .. k)
+    end
+  end
+end
+render_menu = function()
+  if not menu then return end
+  if not menu_ov then menu_ov = mp.create_osd_overlay("ass-events"); menu_ov.z = MENU_Z end
+  local d = menu_prepare()
+  if d and d.w and d.w > 0 then menu_ov.res_x, menu_ov.res_y = d.w, d.h end
+  if menu:is_open() then menu:relayout() end
+  menu_ov.data = menu:render()
+  menu_ov:update()
+  sync_menu_keys()
+  sync_click_binding()
+end
+
 refresh_panel = function()
   if panel.visible then render_panel() end
   render_zoom()
 end
 
 local function hide_panel()
+  if menu and not menu:is_open() then menu:hide(); menu_hot = false; render_menu() end
   if panel.pinned then return end
   if panel.hover or zoomc.hover then panel.timer:resume() return end
   panel.visible, panel.hover = false, nil
@@ -641,6 +688,11 @@ end
 mp.observe_property("mouse-pos", "native", function(_, pos)
   if drag.x0 and pos and pos.x then render_drag(pos.x, pos.y) end -- sürükleme çerçevesi
   if not pos or pos.hover == false then return end
+  if menu then
+    menu_prepare()
+    if menu:mouse(pos.x or -1, pos.y or -1) then render_menu() end
+    menu_hot = menu:over(pos.x or -1, pos.y or -1) or menu:is_open()
+  end
   local was_visible, was_hover = panel.visible, panel.hover
   panel.visible = true
   if not panel.rects[1] then render_panel() end -- ilk çizimde yerleşim lazım
@@ -666,10 +718,55 @@ mp.add_key_binding(nil, "panel", function() -- panelin sabitlenmesini aç/kapa
   osd(panel.pinned and "panel sabit" or "panel otomatik gizlenir", 1)
 end)
 
+-- Menü eylemleri (mevcut düğme/tuş işlevleri) ve durumları. Tabloda olmayan cmd gri kalır.
+if TRACK_SHOW_MENU ~= false then
+  local okm, TM = pcall(require, "trackmenu")
+  if okm and type(TM) == "table" then
+    local ACT = {
+      quit = function() mp.commandv("quit") end,
+      zoom_in = function() zoom_step(1) end, zoom_out = function() zoom_step(-1) end,
+      reset = do_reset,
+      hud = function() hud.visible = not hud.visible; render_hud() end,
+      panel = function() panel.pinned = not panel.pinned; panel.visible = true; render_panel() end,
+      toggle = function() set_enabled(not enabled) end, release = do_release,
+      offline = function() set_offline(not off.on) end,
+      speed_up = setting("speed", 1), speed_down = setting("speed", -1),
+      lead_up = setting("lead", 1), lead_down = setting("lead", -1),
+      fill_up = setting("fill", 1), fill_down = setting("fill", -1),
+      save = function() mp.commandv("script-message", "track-save") end,
+      defaults = setting("all", 0),
+      status = function() mp.commandv("script-message", "track-status") end,
+    }
+    local LIVE = { release = true, speed_up = true, speed_down = true, lead_up = true,
+      lead_down = true, fill_up = true, fill_down = true }
+    local CHECK = { toggle = function() return enabled end, offline = function() return off.on end,
+      hud = function() return hud.visible end, panel = function() return panel.pinned end }
+    menu = TM.new({
+      run = function(cmd)
+        local f = ACT[cmd]
+        if f then local ok, err = pcall(f); if not ok then mp.msg.warn("menü: " .. tostring(err)) end end
+      end,
+      state = function(cmd)
+        if not ACT[cmd] then return { enabled = false } end
+        local s = { enabled = true, checked = CHECK[cmd] and CHECK[cmd]() or false }
+        if LIVE[cmd] and not enabled then s.enabled = false end
+        if cmd == "panel" and not TRACK_SHOW_PANEL then s.enabled = false end
+        return s
+      end,
+    })
+    mp.add_key_binding(nil, "menu", function() -- F10: menüyü klavyeyle aç/kapat
+      menu_prepare()
+      menu:key("f10")
+      menu_hot = menu:is_open()
+      render_menu()
+    end)
+  end
+end
+
 mp.msg.info("track.lua yüklendi")
 
 -- Test kancası: imleç bir düğmenin üstünde mi?
-function track_over() return panel.hover ~= nil or zoomc.hover ~= nil end
+function track_over() return panel.hover ~= nil or zoomc.hover ~= nil or menu_hot end
 
 -- Otomatik başlatma: mpv açılınca Python takip programı da (gizli, ayrı süreç) başlar; mpv kapanınca
 -- kendiliğinden biter. Kurulumdan sonra bat dosyası gerekmez: yalnız mpv.exe açılır.

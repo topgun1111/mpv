@@ -51,6 +51,7 @@ Source: "dist\TakipliOynat\*"; DestDir: "{app}"; Flags: recursesubdirs createall
 Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\tracker"
 Type: filesandordirs; Name: "{app}\mpv\portable_config\scripts"
+Type: filesandordirs; Name: "{app}\mpv\portable_config\script-modules"
 
 [Dirs]
 ; Modeller kullanıcı tarafından eklenir; kaldırmada silinmesin

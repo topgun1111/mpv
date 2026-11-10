@@ -32,8 +32,9 @@ TakipliOynat/
 ├─ mpv/                          # portable mpv (mpv.exe + portable_config/)
 │  └─ portable_config/
 │     ├─ mpv.conf                # input-ipc-server=\\.\pipe\mpv
-│     ├─ input.conf              # t: aç/kapa, r: sıfırla, x: hedefi bırak
-│     └─ scripts/track.lua       # tıklama seçimi, OSD, tuşlar
+│     ├─ input.conf              # t: aç/kapa, r: sıfırla, x: hedefi bırak, F10: menü
+│     ├─ script-modules/trackmenu.lua  # üst menü çubuğu motoru (M1; saf mantık)
+│     └─ scripts/track.lua       # tıklama seçimi, OSD, tuşlar, menü bağlama
 ├─ tracker/                      # Python paketi (python -m tracker ...)
 │  ├─ main.py                    # CLI: ping, view, listen, detect, live
 │  ├─ ipc.py, clicks.py, frames.py, geometry.py, smooth.py, config.py
@@ -45,7 +46,8 @@ TakipliOynat/
 ├─ scripts/                      # make_package.py, fetch_deps.ps1
 ├─ installer.iss                 # Inno Setup
 ├─ THIRD_PARTY_NOTICES.md        # üçüncü taraf lisanslar + GPL kaynak teklifi
-└─ handover.md                   # parça parça ilerleme notu (15 parçalık plan)
+├─ project.md                    # yol haritası (P23…O3; her parça = 1 oturum)
+└─ handover.md                   # parça parça ilerleme notu
 ```
 (Parça 14: `launcher/`, `scripts/build_embedded.py` da pakete dahildir.)
 
@@ -82,7 +84,7 @@ Ayrıntılı denetim: **`THIRD_PARTY_NOTICES.md`** (pakete ve Başlat menüsüne
 - CPU-only makinelerde canlı mod düşük fps → offline mod
 
 ## Yol Haritası
-Ayrıntılı 15 parçalık plan ve durum `handover.md` içindedir. Tamamlanan: **Parça 1–15 (1.0.0)** (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası, canlı ayar tuşları + durum etiketi,  Python + tam installer, lisans denetimi + YOLOX alternatifi + release).
+Ayrıntılı plan ve durum `handover.md`, sonraki parçalar (M2…O3) `project.md` içindedir. Tamamlanan: **Parça 1–15 (1.0.0)** (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası, canlı ayar tuşları + durum etiketi,  Python + tam installer, lisans denetimi + YOLOX alternatifi + release).
 
 ### Sağ tık: herhangi bir nesneyi takip (Parça 18)
 `tracker/point.py`: sağ tıklanan nokta için kutu çıkarılır (aynı renkteki bitişik bölge; olmazsa karenin %6'sı kadar kare), sonra her karede Lucas-Kanade optik akışı kutuyu taşır, şablon benzerliği (NCC) yanlış şeye kaymayı yakalar, tutmazsa son konum çevresinde şablon aranır; bulunamazsa "hedef kayıp" (bekle → kademeli zoom-out) ve nesne geri gelirse takip sürer. Detector çalışmaz (CPU'da daha hızlı); `models\` boşsa bile sağ tık çalışır. Ayarlar (`config.json`): `point_box` (0.06), `point_refine` (true), `point_min_score` (0.55; yükselirse kayıp daha erken ilan edilir), `point_max_side` (640). Zoom miktarı `+`/`−` (doluluk) ile ayarlanır. Takip edilen noktanın üstünde **beyaz nokta** gösterilir (Python her karede merkezi `track-dot` ile yollar, Lua mpv'nin anlık zoom/pan'ına göre çizer); hedef kayıpsa ya da bırakılınca nokta kaybolur — çalışıp çalışmadığını buradan görürsün.
@@ -124,6 +126,9 @@ Takım yalnızca eleme yapar; etiket belirsizse aday elenmez. `--number` için `
 
 ### Canlı ayarlar ve durum etiketi (Parça 13)
 Canlı mod çalışırken mpv'de: `Ctrl+↑/↓` doluluk, `Ctrl+→/←` tepki hızı, `Ctrl+PgUp/PgDn` öngörü, `Ctrl+0` varsayılanlar, `Ctrl+S` ayarları kaydet (`--config` ya da `tracker_config.json`), `h` durum özeti, `Ctrl+H` sağ üst etiketi gizle/göster. Kayıtlı ayarla başlamak için: `python -m tracker --config tracker_config.json live ...`.
+
+### Üst menü çubuğu (M1)
+Fareyi pencerenin üst kenarına götürünce ya da **F10** ile menü çubuğu açılır: **Dosya · Görünüm · Takip · Araçlar · Ayarlar · Yardım**. Çalışan işlevler (takip, bırak, sıfırla, offline, zoom, HUD, tepki/öngörü/doluluk, kaydet, durum, çıkış) menüden de kullanılır; kısayolları yanında yazar, açık olanlar • ile işaretlidir. Henüz yazılmamış öğeler (Video aç, Dışa aktar, Tarama…) gri görünür ve sonraki parçalarda (`project.md`) açılır. Açıkken ←/→/↑/↓, Enter, Esc ile gezilir; dışarı tıklamak kapatır.
 
 ### Ekran üstü düğmeler (Parça 16)
 mpv penceresinde fareyi/parmağı oynatınca sol üstte düğme paneli çıkar (3 sn sonra gizlenir; **Sabit** düğmesi ya da `Ctrl+B` ile sabitlenir): **Takip AÇIK/KAPALI**, **Bırak**, **Sıfırla**, **Offline**, **Zoom -/+**, **Tepki -/+**, **Öngörü -/+**, **Kaydet**, **Durum**. Zoom düğmeleri artık ayrı bir **ekran üstü zoom kontrolüne** taşındı (aşağıda). Takip açıkken düğmelerin dışında bir oyuncuya sol tıklamak da hedef seçer. Klavye kısayolları aynen çalışır.

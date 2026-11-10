@@ -58,6 +58,14 @@ def build_parser() -> argparse.ArgumentParser:
     of.add_argument("--team", action="store_true",
                     help="İzlerin takım rengini kaydet (ID zincirlemede farklı takım elenir)")
     _add_target_args(of)
+    bn = sub.add_parser("bench", help="Kıyasla: izleme/görünüm kalitesi + hız")
+    bn.add_argument("video", help="Video ya da .track.json (json: tespit yapılmaz)")
+    bn.add_argument("--model")
+    bn.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"])
+    bn.add_argument("--fps", type=float, help="İşlenen kare/sn (varsayılan: config.offline_fps)")
+    bn.add_argument("--max-seconds", type=float, default=0.0, help="Yalnız ilk N sn (0: hepsi)")
+    bn.add_argument("--target-id", type=int, help="Hedef iz (varsayılan: en uzun iz)")
+    bn.add_argument("--out", help="JSON rapor yolu")
     ov = sub.add_parser("offline-view", help="track.json'da hedefi seç/değiştir (tespit yok)")
     ov.add_argument("json")
     ov.add_argument("--out", help="Çıktı (varsayılan: girdinin üzerine yazar)")
@@ -335,6 +343,21 @@ def main(argv: list[str] | None = None) -> int:
         except (FileNotFoundError, ValueError, ImportError) as e:
             print(f"HATA: {e}", file=sys.stderr)
             return 1
+    if args.cmd == "bench":
+        from .bench import format_report, run_bench, save_report
+
+        try:
+            rep = run_bench(args, cfg)
+        except KeyboardInterrupt:
+            return 130
+        except (FileNotFoundError, ValueError, ImportError, OSError) as e:
+            print(f"HATA: {e}", file=sys.stderr)
+            return 1
+        print(format_report(rep))
+        if args.out:
+            save_report(rep, args.out)
+            print(f"kaydedildi: {args.out}")
+        return 0
     if args.cmd in ("offline", "offline-view"):
         try:
             fn = run_offline_cmd if args.cmd == "offline" else run_offline_view_cmd
