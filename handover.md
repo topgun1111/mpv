@@ -2,7 +2,7 @@
 
 Her parça sonunda güncellenir. Yeni oturumda önce bu dosyayı oku, sonra sıradaki parçayı yap.
 Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le (`takipli-oynat-partNN.zip`; değişen dosyalar değil, tüm dosyalar). (2) Ücretsiz Claude hesabı: token'ı idareli ve akıllı kullan, israf yok.
-Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. exe: çalışmanın sayfasında Artifacts → TakipliOynat.
+Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. Çıktılar ayrı: çalışmanın sayfasında Artifacts → **TakipliOynat-Setup** (`TakipliOynat-Setup-<sürüm>.exe`) ve **TakipliOynat-Portable** (`TakipliOynat-Portable-<sürüm>.zip`; artifact kendisi de bir zip olduğundan indirince içinde zip çıkar). Release'e de bu iki dosya ayrı eklenir.
 
 ## Durum
 - Tamamlanan: **Parça 15/15 — PLAN BİTTİ** (+ Parça 16: ekran üstü düğme paneli, Parça 17: sağ tık + zoom kontrolü + modelli/otomatik güncellenen installer)

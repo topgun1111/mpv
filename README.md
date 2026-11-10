@@ -150,7 +150,7 @@ Installer (`TakipliOynat-Setup-x.y.z.exe`, Windows 10 1903+) gömülü Python, m
 Paket derleme (CI): `python scripts/make_package.py` → `python scripts/build_embedded.py` → `scripts/fetch_deps.ps1` → `iscc installer.iss`.
 
 ### Release (Parça 15)
-1. `main`'e push → CI (`ci.yml`) ve `build.yml` (artifact: portable ZIP + `TakipliOynat-Setup-x.y.z.exe`).
+1. `main`'e push → CI (`ci.yml`) ve `build.yml` (ayrı artifact: **TakipliOynat-Setup** = `TakipliOynat-Setup-x.y.z.exe`, **TakipliOynat-Portable** = `TakipliOynat-Portable-x.y.z.zip`).
 2. Derleme günlüğündeki `SHA256 python-...` ve `SHA256 mpv-...` satırlarını doğrulayıp `scripts/build_embedded.py` (`PY_SHA256`) içine yaz; mpv için `fetch_deps.ps1 -Tag <sürüm>` ile sürümü sabitle.
 3. Temiz Windows'ta kur (model pakette gelir) → `Baslat.bat` ile dene. Üzerine yeni sürüm kurup ayarların/kısayolların korunduğunu da dene.
 4. `git tag v1.0.0 && git push origin v1.0.0` → GitHub Release otomatik oluşur (`generate_release_notes`).

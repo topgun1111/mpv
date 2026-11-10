@@ -72,17 +72,30 @@ jobs:
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
           & $iscc "/DAppVersion=$v" installer.iss
+      # İki ayrı çıktı: kurulum (Setup) ve taşınabilir sürüm (Portable) ayrı artifact/zip olarak iner
+      - name: Dosyaları adlandır
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION).Trim()
+          $exe = Get-ChildItem dist/installer/*.exe | Select-Object -First 1
+          if (-not $exe) { throw "installer .exe üretilmedi" }
+          Move-Item $exe.FullName "dist/TakipliOynat-Setup-$v.exe" -Force
+          Move-Item dist/TakipliOynat-portable.zip "dist/TakipliOynat-Portable-$v.zip" -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: TakipliOynat
-          path: |
-            dist/TakipliOynat-portable.zip
-            dist/installer/*.exe
+          name: TakipliOynat-Setup
+          path: dist/TakipliOynat-Setup-*.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TakipliOynat-Portable
+          path: dist/TakipliOynat-Portable-*.zip
+          if-no-files-found: error
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            dist/TakipliOynat-portable.zip
-            dist/installer/*.exe
+            dist/TakipliOynat-Setup-*.exe
+            dist/TakipliOynat-Portable-*.zip
