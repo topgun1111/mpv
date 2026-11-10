@@ -238,3 +238,7 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - **Doğrulama (yapılmadı)**: gerçek maç videosu/mpv ile denenmedi; yalnız sentetik sahne. Windows'ta bak: kalabalıkta kamera kestirimi (oyuncular dışlayıcı sayılır), uzun süre kare dışında kalınca dünya konumu kayması (hız sönümü `vel_decay` 0.9), `complex` bağın `mouse-pos` ile sürükleme çerçevesi.
 - Otomatik başlatma: track.lua mpv açılınca pythonw ile `tracker live --wait 30` başlatır (bat gerekmez); Başlat menüsü/masaüstü kısayolları doğrudan mpv.exe. Baslat.bat yalnız mpv açar. Reid/takım/numara bayrakları artık otomatik verilmiyor (config ile).
 - Düğme paneli varsayılan kapalı (TRACK_SHOW_PANEL); yalnız sol sürükleme + ekrandaki +/- zoom.
+
+## Parça 20 (ek): sağ tuşla dikdörtgen + seçime zoom
+- `track.lua`: `pick` artık karmaşık bağ: kısa sağ tık = nesne, sağ tuşla sürükleme (≥6 px) = dikdörtgen (`track-rect`). Sürükleme çerçevesi dolgulu şeritlerle (+ hafif dolgu) çizilir. Seçimin merkezi `anchor`; takip kilitli değilken (+/−) `video-pan` ile seçili alan ortada tutulur (pan = 0.5 − merkez, kıstırılmış); Python çalışıyorsa canlı `dot` çapadır. Sıfırla/bırak çapayı siler.
+- Doğrulama: gerçek mpv'de denenmedi (Lua testleri ortamda lua yok).

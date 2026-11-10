@@ -18,6 +18,10 @@ local set_offline -- ileri bildirim: canlı mod açılınca offline kapatılır
 local off -- ileri bildirim (offline durumu; HUD okur)
 local sync_click_binding -- ileri bildirim: sol tık bağı (ekran üstü panel + hedef seçimi)
 local refresh_panel -- ileri bildirim: ekran üstü panel yeniden çizimi
+-- Zoom çapası: son seçilen dikdörtgenin/noktanın merkezi (video-normalize). Takip kilitli değilken
+-- (+/- zoom) görüntü video merkezi yerine bu noktaya yakınlaşır.
+local anchor = nil
+local dot = { nx = nil, ny = nil, ov = nil } -- Python'un yolladığı canlı takip noktası (aşağıda çizilir)
 
 -- Köşe durum etiketi (Parça 13): Python `script-message-to track track-hud <metin>` gönderir.
 -- Offline açıkken "Takip: offline ID n" gösterilir. `track/hud` tuşu etiketi gizler/gösterir.
@@ -83,6 +87,7 @@ local function on_click(msg)
     return
   end
   local t = mp.get_property_number("time-pos", 0)
+  anchor = { nx, ny }
   mp.commandv("script-message", msg or "track-click",
     string.format("%.6f", nx), string.format("%.6f", ny),
     string.format("%d", math.floor(params.w)), string.format("%d", math.floor(params.h)),
@@ -114,14 +119,14 @@ local function do_reset()
   mp.set_property_number("video-pan-x", 0)
   mp.set_property_number("video-pan-y", 0)
   mp.commandv("script-message", "track-reset")
-  zoomc.z, locked = 0, false
+  zoomc.z, locked, anchor = 0, false, nil
   render_zoom()
   osd("sıfırlandı")
 end
 mp.add_key_binding(nil, "reset", do_reset)
 
 -- Hedefi bırak (takip açık kalır; yeni tıklama yeni hedef seçer; hedefe tekrar tıklamak da bırakır).
-local function do_release() mp.commandv("script-message", "track-release") end
+local function do_release() anchor = nil; mp.commandv("script-message", "track-release") end
 mp.add_key_binding(nil, "release", do_release)
 
 -- ---------------------------------------------------------------------------------------------
@@ -290,6 +295,16 @@ local function zoom_step(dir)
     local z = (mp.get_property_number("video-zoom", 0) or 0) + dir * ZOOM_STEP
     if z < 0 then z = 0 elseif z > ZOOM_MAX then z = ZOOM_MAX end
     mp.set_property_number("video-zoom", z)
+    -- Seçili alan/nokta varsa onu ortada tut (pan = 0.5 - merkez; kenar boşluğu çıkmasın diye kıstır)
+    local a = (enabled and dot.nx) and { dot.nx, dot.ny } or anchor
+    local px, py = 0, 0
+    if a and z > 0 then
+      local lo = 0.5 / (2 ^ z)
+      px = 0.5 - math.min(math.max(a[1], lo), 1 - lo)
+      py = 0.5 - math.min(math.max(a[2], lo), 1 - lo)
+    end
+    mp.set_property_number("video-pan-x", px)
+    mp.set_property_number("video-pan-y", py)
     zoomc.z = z
     render_zoom()
     osd(string.format("zoom x%.2f", 2 ^ z), 1)
@@ -448,7 +463,6 @@ end
 -- Kırmızı nokta, mpv'nin şu anki zoom/pan'ına göre ekrana çevrilir (osd-dimensions kenar boşlukları
 -- zoom/pan dahildir) → takip çalışıyorsa nesnenin üstünde durur.
 local DOT_Z = 3
-local dot = { nx = nil, ny = nil, ov = nil }
 
 local function render_dot()
   if not dot.ov then
@@ -500,17 +514,16 @@ end)
 local zoom_buttons = { function() zoom_step(1) end, function() zoom_step(-1) end }
 
 -- Sağ tık: takip noktası. Takip kapalıysa açılır; tıklanan noktadaki nesne (ne olursa olsun) hedef
--- olur (hedefin üstüne tekrar sağ tık hedefi bırakır). Panel/zoom düğmelerinin üstünde işlem yapmaz.
+-- olur (hedefin üstüne tekrar sağ tık hedefi bırakır). Sağ tuşla sürükleme dikdörtgen seçer (aşağıda).
 local function pick_target()
   if panel.hover or zoomc.hover then return end
   if not enabled then set_enabled(true) end
   on_click("track-point")
 end
-mp.add_key_binding(nil, "pick", pick_target)
 
 -- Sol tuş: tıkla (oyuncu seç) ya da basılı tutup sürükle (dikdörtgen = takip noktası; kamera
 -- hareketi telafi edilir, hedef kare dışına çıksa da konumu tahmin edilir). Sürüklerken çerçeve çizilir.
-local drag = { x0 = nil, y0 = nil, ov = nil }
+local drag = { x0 = nil, y0 = nil, ov = nil, btn = "left" }
 local DRAG_MIN = 6 -- px: bundan kısa sürükleme tıklama sayılır
 
 local function render_drag(x1, y1)
@@ -525,12 +538,23 @@ local function render_drag(x1, y1)
   end
   local d = mp.get_property_native("osd-dimensions")
   if not (d and d.w and d.w > 0) then return end
-  local x0, y0 = drag.x0, drag.y0
+  local x0, y0 = math.floor(math.min(drag.x0, x1)), math.floor(math.min(drag.y0, y1))
+  local x2, y2 = math.floor(math.max(drag.x0, x1)), math.floor(math.max(drag.y0, y1))
+  local th = math.max(2, math.floor(d.h * 0.004)) -- çerçeve kalınlığı
   drag.ov.res_x, drag.ov.res_y = d.w, d.h
-  drag.ov.data = string.format(
-    "{\\an7\\pos(0,0)\\bord2\\shad0\\1a&HFF&\\3c&H0000FF&\\p1}m %d %d l %d %d %d %d %d %d{\\p0}",
-    math.floor(x0), math.floor(y0), math.floor(x1), math.floor(y0), math.floor(x1), math.floor(y1),
-    math.floor(x0), math.floor(y1))
+  -- Dolgulu şeritlerle çiz (kontur/şeffaf dolgu libass'ta güvenilir görünmüyordu) + hafif dolgu
+  local function box(xa, ya, xb, yb, alpha)
+    return string.format(
+      "{\\an7\\pos(0,0)\\bord0\\shad0\\1c&H0000FF&\\1a&H%s&\\p1}m %d %d l %d %d l %d %d l %d %d{\\p0}",
+      alpha, xa, ya, xb, ya, xb, yb, xa, yb)
+  end
+  drag.ov.data = table.concat({
+    box(x0, y0, x2, y2, "C0"),
+    box(x0, y0, x2, y0 + th, "00"),
+    box(x0, y2 - th, x2, y2, "00"),
+    box(x0, y0, x0 + th, y2, "00"),
+    box(x2 - th, y0, x2, y2, "00"),
+  }, "\n")
   drag.ov:update()
 end
 
@@ -540,7 +564,7 @@ local function finish_drag(pos)
   render_drag(nil)
   if not pos then return end
   if math.abs(pos.x - x0) < DRAG_MIN and math.abs(pos.y - y0) < DRAG_MIN then
-    if enabled then on_click() end
+    if drag.btn == "right" then pick_target() elseif enabled then on_click() end
     return
   end
   local d = mp.get_property_native("osd-dimensions")
@@ -552,6 +576,7 @@ local function finish_drag(pos)
   local ax, ay = clampn((x0 - d.ml) / vw), clampn((y0 - d.mt) / vh)
   local bx, by = clampn((pos.x - d.ml) / vw), clampn((pos.y - d.mt) / vh)
   if not enabled then set_enabled(true) end
+  anchor = { (ax + bx) / 2, (ay + by) / 2 }
   mp.commandv("script-message", "track-rect",
     string.format("%.6f", ax), string.format("%.6f", ay),
     string.format("%.6f", bx), string.format("%.6f", by),
@@ -559,6 +584,22 @@ local function finish_drag(pos)
     string.format("%.3f", mp.get_property_number("time-pos", 0)))
   osd("alan seçildi - takip ediliyor", 1)
 end
+
+-- Sağ tuş (input.conf: track/pick bağı): kısa tık = nesne, basılı tutup sürükle =
+-- dikdörtgen. ev yoksa/"press" ise (eski tek-olay çağrısı) doğrudan nesne seçer.
+mp.add_key_binding(nil, "pick", function(ev)
+  local pos = mouse_xy()
+  local e = ev and ev.event or "press"
+  if e == "press" then
+    pick_target()
+  elseif e == "down" then
+    if not (panel.hover or zoomc.hover) and pos then
+      drag.x0, drag.y0, drag.btn = pos.x, pos.y, "right"
+    end
+  elseif e == "up" and drag.x0 and drag.btn == "right" then
+    finish_drag(pos)
+  end
+end, { complex = true })
 
 sync_click_binding = function()
   local want = true -- sol sürükleme her zaman çalışsın (takip kapalıysa ilk sürükleme açar)
@@ -584,7 +625,7 @@ sync_click_binding = function()
           zoom_buttons[zoomc.hover]()
           render_zoom()
         elseif pos then
-          drag.x0, drag.y0 = pos.x, pos.y
+          drag.x0, drag.y0, drag.btn = pos.x, pos.y, "left"
         end
       elseif ev.event == "up" and drag.x0 then
         finish_drag(pos)
