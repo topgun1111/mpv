@@ -295,7 +295,8 @@ def test_lua_red_dot_overlay(tmp_path):
         assert "\\1c&HFFFFFF&" in d[k] and "\\p1" in d[k], d[k]  # beyaz, çizim modu
         assert "\\pos(491,241)" in d[k], d[k]
         assert d[k].count("m ") == 4 and " b " not in d[k], d[k]  # 4 kollu artı, daire (bezier) yok
-    assert "\\1c&H00E0FF&" in d["PROV"] and "\\pos(241,91)" in d["PROV"], d["PROV"]  # sarı, (250,100)
+    # sarı, (250,100)
+    assert "\\1c&H00E0FF&" in d["PROV"] and "\\pos(241,91)" in d["PROV"], d["PROV"]
     assert d["WARN"] == "true"
     assert "\\1c&HFFFFFF&" in d["CONFIRMED"] and "\\pos(491,241)" in d["CONFIRMED"]
     assert d["OUT"] == "" and d["HIDE"] == ""

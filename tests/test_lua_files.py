@@ -1,4 +1,4 @@
-"""M2: Dosya menüsü (script-modules/trackfiles.lua + track.lua bağlama), sahte `mp` ve sahte PowerShell ile."""
+"""M2: Dosya menüsü (trackfiles.lua + track.lua bağlama), sahte `mp` ve sahte PowerShell ile."""
 import shutil
 import subprocess
 from pathlib import Path
@@ -19,22 +19,27 @@ def test_file_menu_flow(tmp_path):
     (state / "TakipliOynat").mkdir(parents=True)
     video = tmp_path / "klip.mp4"
     video.write_bytes(b"x")
-    env = {"TRACK_LUA": str(PC / "scripts" / "track.lua"), "TRACK_MODULES": str(PC / "script-modules"),
+    env = {"TRACK_LUA": str(PC / "scripts" / "track.lua"),
+           "TRACK_MODULES": str(PC / "script-modules"),
            "VIDEO": str(video), "DATA_LUA": str(data), "TRACK_STATE_DIR": str(state)}
     r = subprocess.run([LUA, str(HARNESS)], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
     d = {ln.split("\t")[0]: ln.split("\t")[1:] for ln in r.stdout.splitlines()}
 
-    assert d["OPEN_ARGS"] == ["powershell.exe", "true", "false", "true"]  # asenkron, stdout yakalanır
-    assert d["OPEN_LOAD"] == ["loadfile C:\\Videolar\\maç ğüşi.mp4 replace", "true"]  # Türkçe yol, CRLF atıldı, 2. çağrı yok
-    assert d["OPEN_STATE"] == ["C:\\Videolar", "C:\\Videolar\\maç ğüşi.mp4"]  # son klasör + son açılan kalıcı
+    # asenkron, stdout yakalanır
+    assert d["OPEN_ARGS"] == ["powershell.exe", "true", "false", "true"]
+    # Türkçe yol, CRLF atıldı, 2. çağrı yok
+    assert d["OPEN_LOAD"] == ["loadfile C:\\Videolar\\maç ğüşi.mp4 replace", "true"]
+    # son klasör + son açılan kalıcı
+    assert d["OPEN_STATE"] == ["C:\\Videolar", "C:\\Videolar\\maç ğüşi.mp4"]
     assert d["CANCEL"] == ["true", "true"]
     assert d["FAIL"][0] == "true" and "PowerShell" in d["FAIL"][1]
     assert d["RECENT"] == ["true", "true"]
     assert d["RECENT_PICK"] == ["loadfile C:\\Videolar\\maç ğüşi.mp4 replace"]
     assert d["FOLDER"] == ["true"] and d["FOLDER_LOAD"] == ["loadfile E:\\Maclar replace"]
     assert d["FOLDER_DIR"] == ["E:\\Maclar"]
-    assert d["URL_BAD"] == ["true"] and d["URL_OK"] == ["loadfile https://example.com/v.mp4 replace"]
+    assert d["URL_BAD"] == ["true"]
+    assert d["URL_OK"] == ["loadfile https://example.com/v.mp4 replace"]
     assert d["SAVE_VIEW"] == ["1.5", "0.25", "-0.5", "90"]
     assert d["LOAD_VIEW"] == ["1.5", "0.25", "-0.5", "90"]
     assert d["LOAD_BAD"][0] == "true" and "okunamadı" in d["LOAD_BAD"][1]

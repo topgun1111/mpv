@@ -26,8 +26,9 @@ def test_no_merge_conflict_markers():
 @pytest.mark.skipif(LUA is None, reason="lua/texlua yok")
 def test_lua_files_parse(tmp_path):
     chk = tmp_path / "chk.lua"
-    chk.write_text("local f, e = loadfile(arg[1]); if not f then io.stderr:write(e); os.exit(1) end",
-                   encoding="utf-8")
+    chk.write_text(
+        "local f, e = loadfile(arg[1]); if not f then io.stderr:write(e); os.exit(1) end",
+        encoding="utf-8")
     for p in (ROOT / "mpv" / "portable_config").rglob("*.lua"):
         r = subprocess.run([LUA, str(chk), str(p)], capture_output=True, text=True)
         assert r.returncode == 0, f"{p.name}: {r.stderr}"
