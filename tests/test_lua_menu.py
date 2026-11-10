@@ -25,8 +25,8 @@ def test_menu_bar_flow(tmp_path):
     d = {ln.split("\t")[0]: ln.split("\t")[1:] for ln in r.stdout.splitlines()}
 
     assert d["HIDDEN"] == ["true", "false"]  # fare hareketi yok: çubuk yok
-    assert d["CENTER"] == ["true", "false"]  # pencere ortası: çubuk açılmaz
-    assert d["SHOWN"] == ["true", "true", "true"]  # üst kenar: görünür, tık yakalanır, todo gri
+    assert d["CENTER"] == ["false", "false"]  # fare hareketinde çubuk görünür; tık yakalanmaz
+    assert d["SHOWN"] == ["true", "true", "true"]  # çubuk üstünde: tık yakalanır, todo gri
     assert d["TITLES"] == [",".join(["true"] * 6)]  # 6 başlık
     assert d["OPEN"] == ["true", "true"]  # liste açıldı, klavye bağları kuruldu
     assert d["GREY"] == ["-", "true"]  # gri öğe: komut yok, menü açık
@@ -38,6 +38,7 @@ def test_menu_bar_flow(tmp_path):
     assert d["ENTER"] == ["true", "0.25"]  # ↓ Enter: "Yakınlaştır" → video-zoom 0.25
     assert d["OUTSIDE"] == ["true"]
     assert d["AUTOHIDE"] == ["true", "false"]
+    assert d["ROTATE"] == ["90,180,270,0"]
 
 
 def test_menu_table_is_declarative_and_consistent():
@@ -56,3 +57,5 @@ def test_menu_table_is_declarative_and_consistent():
     assert {"open", "export", "scan"} <= todo  # sonraki parçalar (M2, E1, A1) gri
     inp = (PC / "input.conf").read_text(encoding="utf-8")
     assert "F10 script-binding track/menu" in inp
+    assert "k script-binding track/rotate" in inp
+    assert "MBTN_LEFT_DBL script-binding track/dblclick" in inp

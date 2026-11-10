@@ -187,7 +187,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
 
     from .bytetrack import ByteTracker
     from .detector import Detector
-    from .live import EventListener, run_live
+    from .live import EventListener, model_line, run_live
     from .pipeline import NullPipeline, Pipeline
 
     if (args.team or args.number) and not args.reid:
@@ -219,8 +219,11 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
             print("--reid için person modeli gerekir", file=sys.stderr)
             return 2
         pipeline = NullPipeline()
+        info = ["Model: yok (yalnız nesne takibi)"]
     else:
         print(f"detector: provider={det.providers[0]}, girdi={det.size}")
+        info = [model_line("Model", args.model or cfg.model_path, det.session,
+                           f"{det.model_type}, {det.size[1]}x{det.size[0]}")]
         pipeline = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf))
     reid = None
     if args.reid:
@@ -239,6 +242,8 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
                                    conf=cfg.number_conf)
         reid = ReIdManager(emb, cfg, team=team, numbers=numbers)
         print(f"Re-ID açık: provider={emb.session.get_providers()[0]}")
+        extra = ", ".join(n for n, on in (("takım", args.team), ("numara", args.number)) if on)
+        info.append(model_line("Re-ID", args.reid_model or cfg.reid_model, emb.session, extra))
     pose = None
     try:
         from .detector import resolve_model_path
@@ -248,6 +253,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
             pose = PoseEstimator(cfg.pose_model, conf_thres=cfg.pose_conf,
                                  device=args.device or cfg.device)
             print(f"Vücut parçası takibi açık: provider={pose.session.get_providers()[0]}")
+            info.append(model_line("Poz", cfg.pose_model, pose.session))
     except Exception as e:  # eklem takibi isteğe bağlı: yoksa/bozuksa eski davranış
         print(f"UYARI: pose modeli yüklenemedi ({e}); eklem takibi kapalı.", file=sys.stderr)
     events: queue.Queue = queue.Queue()
@@ -256,7 +262,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     try:
         with MpvIpc(cfg.ipc_path, keep_events=False) as mpv:  # komut bağlantısı olay biriktirmez
             run_live(mpv, events, pipeline, cfg, stats_every=args.stats, reid=reid,
-                     cfg_path=args.cfg_path, pose=pose)
+                     cfg_path=args.cfg_path, pose=pose, info=info)
     finally:
         listener.stop()
     return 0

@@ -31,3 +31,19 @@ out("TOGGLE_OFF", last_hud())
 -- offline açıkken etiket offline ID gösterir
 reg.bind.offline()
 out("OFFLINE", last_hud())
+
+-- Sol üst bilgi bloğu: 3. argüman çok satırlı bilgi; zoom satırı Lua'dan eklenir
+reg.bind.toggle() -- takibi tekrar aç (OFFLINE öncesi toggle kapattı)
+reg.bind.offline() -- offline'ı kapat
+reg.msgs["track-hud"]("Takip: ID 5", "1", "Model: yolox_s.onnx · DirectML\nHız: 9.8 kare/sn")
+out("INFO", last_hud())
+reg.props["video-zoom"] = 1
+reg.obs["video-zoom"]("video-zoom", 1)
+out("INFOZOOM", last_hud())
+reg.bind.hud()
+out("INFOHIDDEN", last_hud())
+reg.bind.hud()
+-- Çift sol tık: düğme üstünde değilse oynat/duraklat
+reg.cmds = {}
+reg.bind.dblclick()
+out("DBL", reg.cmds[1] or "-")

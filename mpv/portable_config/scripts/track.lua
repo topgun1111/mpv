@@ -24,29 +24,51 @@ local menu, menu_hot, render_menu = nil, false, nil
 -- Zoom çapası: son seçilen dikdörtgenin/noktanın merkezi (video-normalize). Takip kilitli değilken
 -- (+/- zoom) görüntü video merkezi yerine bu noktaya yakınlaşır.
 local anchor = nil
-local dot = { nx = nil, ny = nil, ov = nil } -- Python'un yolladığı canlı takip noktası (aşağıda çizilir)
+local show_provisional -- ileri bildirim: tıklanır tıklanmaz geçici işaret (aşağıda)
+local dot = { nx = nil, ny = nil, ov = nil, prov = false } -- Python'un yolladığı canlı takip noktası (aşağıda çizilir)
 
--- Köşe durum etiketi (Parça 13): Python `script-message-to track track-hud <metin>` gönderir.
--- Offline açıkken "Takip: offline ID n" gösterilir. `track/hud` tuşu etiketi gizler/gösterir.
-local hud = { text = "", visible = true, ov = nil }
+-- Sol üst durum/bilgi bloğu (Parça 13, genişletildi): Python `script-message-to track track-hud
+-- <durum> <kilitli> [<bilgi>]` gönderir. <bilgi> çok satırlıdır (model, cihaz, kare hızı, hedef...);
+-- Lua kendi bildiği zoom/döndürme satırını ekler. Küçük harfle çizilir. `track/hud` (Ctrl+H) gizler/gösterir.
+-- Offline açıkken "Takip: offline ID n" gösterilir.
+local hud = { text = "", info = "", visible = true, ov = nil, shown = nil }
+local HUD_FS = 14 -- yazı boyutu (overlay varsayılan 720 yükseklikli koordinat: pencereyle ölçeklenir)
+
+local function hud_clean(line) return (line:gsub("[{}\\\r]", " ")) end -- ASS kaçışlarını etkisiz kıl
 
 local function render_hud()
   if not hud.ov then hud.ov = mp.create_osd_overlay("ass-events") end
-  local text = hud.text
+  local head = hud.text
   if off and off.on then
-    text = "Takip: offline ID " .. tostring(off.target and off.target.id or "?")
+    head = "Takip: offline ID " .. tostring(off.target and off.target.id or "?")
   end
-  text = text:gsub("[{}\\\n]", " ") -- ASS kaçışlarını ve satır sonunu etkisiz kıl
-  if hud.visible and text ~= "" then
-    hud.ov.data = "{\\an9\\fs20\\bord2\\shad0\\1c&HFFFFFF&\\3c&H000000&}" .. text
-  else
-    hud.ov.data = ""
+  local lines = {}
+  if head ~= "" then lines[#lines + 1] = (head:gsub("\n", " ")) end
+  if hud.info ~= "" then
+    for l in (hud.info .. "\n"):gmatch("(.-)\n") do
+      if l ~= "" then lines[#lines + 1] = l end
+    end
+    local z = mp.get_property_number("video-zoom", 0) or 0
+    local zl = string.format("Zoom: x%.2f", 2 ^ z)
+    local r = mp.get_property_number("video-rotate", 0) or 0
+    if r ~= 0 then zl = zl .. string.format("  Döndürme: %d°", r) end
+    lines[#lines + 1] = zl
   end
+  local data = ""
+  if hud.visible and #lines > 0 then
+    for i = 1, #lines do lines[i] = hud_clean(lines[i]) end
+    data = string.format("{\\an7\\pos(10,6)\\fs%d\\bord1.5\\shad0\\1c&HFFFFFF&\\3c&H000000&}%s",
+      HUD_FS, table.concat(lines, "\\N"))
+  end
+  if data == hud.shown then return end -- değişmediyse yeniden çizme (zoom sürekli güncellenir)
+  hud.shown = data
+  hud.ov.data = data
   hud.ov:update()
 end
 
-mp.register_script_message("track-hud", function(text, lock)
+mp.register_script_message("track-hud", function(text, lock, info)
   hud.text = text or ""
+  hud.info = info or ""
   locked = (lock == "1")
   render_hud()
   render_zoom() -- + / - davranışı değişmiş olabilir; değer etiketi aynı kalır
@@ -91,6 +113,7 @@ local function on_click(msg)
   end
   local t = mp.get_property_number("time-pos", 0)
   anchor = { nx, ny }
+  show_provisional(nx, ny)
   mp.commandv("script-message", msg or "track-click",
     string.format("%.6f", nx), string.format("%.6f", ny),
     string.format("%d", math.floor(params.w)), string.format("%d", math.floor(params.h)),
@@ -485,24 +508,43 @@ local function render_dot()
     dot.ov:update()
     return
   end
-  local r = math.max(math.floor(d.h * 0.012), 5)
-  local k = math.floor(r * 0.5523)
+  -- Küçük artı (nişangâh): ortası boş, 4 kol; beyaz, siyah kenarlı. Python henüz doğrulamadıysa
+  -- (dot.prov) sarı: tıklama alındı ama takip programından yanıt yok.
+  local L = math.max(math.floor(d.h * 0.018), 9) -- kol uzunluğu (merkezden)
+  local g = math.max(math.floor(L * 0.35), 3)    -- ortadaki boşluk
+  local ht = math.max(math.floor(d.h * 0.0015), 1) -- yarım çizgi kalınlığı
+  local function rect(x0, y0, x1, y1) return string.format("m %d %d l %d %d l %d %d l %d %d", x0, y0, x1, y0, x1, y1, x0, y1) end
+  local path = table.concat({
+    rect(0, L - ht, L - g, L + ht), rect(L + g, L - ht, 2 * L, L + ht), -- sol, sağ
+    rect(L - ht, 0, L + ht, L - g), rect(L - ht, L + g, L + ht, 2 * L), -- üst, alt
+  }, " ")
   dot.ov.res_x, dot.ov.res_y = d.w, d.h
   dot.ov.data = string.format(
-    "{\\an7\\pos(%d,%d)\\bord2\\shad0\\1c&HFFFFFF&\\3c&H000000&\\p1}"
-      .. "m %d 0 b %d 0 %d %d %d %d b %d %d %d %d %d %d b %d %d %d %d %d %d b %d %d %d %d %d %d{\\p0}",
-    math.floor(x) - r, math.floor(y) - r,
-    r, r + k, 2 * r, r - k, 2 * r, r,
-    2 * r, r + k, r + k, 2 * r, r, 2 * r,
-    r - k, 2 * r, 0, r + k, 0, r,
-    0, r - k, r - k, 0, r, 0)
+    "{\\an7\\pos(%d,%d)\\bord1\\shad0\\1c&H%s&\\3c&H000000&\\p1}%s{\\p0}",
+    math.floor(x) - L, math.floor(y) - L, dot.prov and "00E0FF" or "FFFFFF", path)
   dot.ov:update()
 end
 
 mp.register_script_message("track-dot", function(nx, ny)
+  dot.prov = false -- takip programı yanıt verdi
   dot.nx, dot.ny = tonumber(nx), tonumber(ny) -- "off" → nil
   render_dot()
 end)
+
+-- Tıklanır tıklanmaz geçici (sarı) işaret: Python yanıt vermese de tıklamanın alındığı görünür.
+-- 2 sn içinde `track-dot` gelmezse takip programının çalışmadığı OSD'de söylenir.
+local prov_seq = 0
+show_provisional = function(nx, ny)
+  dot.nx, dot.ny, dot.prov = nx, ny, true
+  render_dot()
+  prov_seq = prov_seq + 1
+  local my = prov_seq
+  mp.add_timeout(2, function()
+    if dot.prov and my == prov_seq then
+      osd("takip programı yanıt vermiyor (Python çalışıyor mu? mpv'yi yeniden aç)", 4)
+    end
+  end)
+end
 mp.observe_property("video-pan-x", "number", function() render_dot() end)
 mp.observe_property("video-pan-y", "number", function() render_dot() end)
 mp.observe_property("osd-dimensions", "native", function() render_dot() end)
@@ -512,7 +554,9 @@ mp.observe_property("video-zoom", "number", function(_, z)
   zoomc.z = z or 0
   render_zoom()
   render_dot()
+  if hud.info ~= "" then render_hud() end -- bilgi bloğundaki zoom satırı
 end)
+mp.observe_property("video-rotate", "number", function() if hud.info ~= "" then render_hud() end end)
 
 local zoom_buttons = { function() zoom_step(1) end, function() zoom_step(-1) end }
 
@@ -580,6 +624,7 @@ local function finish_drag(pos)
   local bx, by = clampn((pos.x - d.ml) / vw), clampn((pos.y - d.mt) / vh)
   if not enabled then set_enabled(true) end
   anchor = { (ax + bx) / 2, (ay + by) / 2 }
+  show_provisional(anchor[1], anchor[2])
   mp.commandv("script-message", "track-rect",
     string.format("%.6f", ax), string.format("%.6f", ay),
     string.format("%.6f", bx), string.format("%.6f", by),
@@ -606,24 +651,30 @@ end, { complex = true })
 
 -- Sol tuş: YALNIZ imleç ekran üstü bir düğmenin (zoom +/−, panel) üstündeyken yakalanır; başka her
 -- yerde bağ kaldırılır, böylece mpv'nin kendi sol tık davranışı (OSC vb.) bozulmaz.
+-- Ekran üstü düğme/menü üstündeki sol tık eylemi (tek tık ve çift tıkın 2. tıkı aynı işi görür:
+-- hızlı arka arkaya zoom +/- tıklaması çift tık sayılıp kaybolmasın).
+local function left_press()
+  local mp_ = mouse_xy()
+  if menu_hot and mp_ and menu then
+    menu:click(mp_.x, mp_.y)
+    menu_hot = menu:over(mp_.x, mp_.y) or menu:is_open()
+    render_menu()
+  elseif panel.hover then
+    buttons[panel.hover].act()
+    render_panel()
+  elseif zoomc.hover then
+    zoom_buttons[zoomc.hover]()
+    render_zoom()
+  end
+end
+
 sync_click_binding = function()
   local want = (panel.hover ~= nil) or (zoomc.hover ~= nil) or menu_hot
   if want and not panel.bound then
     mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", function(ev)
       ev = ev or { event = "press" }
       if ev.event ~= "press" and ev.event ~= "down" then return end
-      local mp_ = mouse_xy()
-      if menu_hot and mp_ and menu then
-        menu:click(mp_.x, mp_.y)
-        menu_hot = menu:over(mp_.x, mp_.y) or menu:is_open()
-        render_menu()
-      elseif panel.hover then
-        buttons[panel.hover].act()
-        render_panel()
-      elseif zoomc.hover then
-        zoom_buttons[zoomc.hover]()
-        render_zoom()
-      end
+      left_press()
     end, { complex = true })
     panel.bound = true
   elseif not want and panel.bound then
@@ -631,6 +682,13 @@ sync_click_binding = function()
     panel.bound = false
   end
 end
+
+-- Çift sol tık (input.conf: MBTN_LEFT_DBL → track/dblclick): videoyu oynat/duraklat.
+-- İmleç ekran üstü düğme/menü üstündeyse pause yapmaz, o öğeye tıklanmış sayılır.
+mp.add_key_binding(nil, "dblclick", function()
+  if panel.hover or zoomc.hover or menu_hot then left_press(); return end
+  mp.commandv("cycle", "pause")
+end)
 
 -- ---- Üst menü çubuğu bağlama (M1) -----------------------------------------------------------
 local menu_ov, menu_keys_on = nil, false
@@ -687,6 +745,9 @@ end
 
 mp.observe_property("mouse-pos", "native", function(_, pos)
   if drag.x0 and pos and pos.x then render_drag(pos.x, pos.y) end -- sürükleme çerçevesi
+  if pos and pos.hover == false and menu and not menu:is_open() then
+    menu:hide(); menu_hot = false; render_menu() -- fare pencereden çıktı
+  end
   if not pos or pos.hover == false then return end
   if menu then
     menu_prepare()
@@ -719,13 +780,31 @@ mp.add_key_binding(nil, "panel", function() -- panelin sabitlenmesini aç/kapa
 end)
 
 -- Menü eylemleri (mevcut düğme/tuş işlevleri) ve durumları. Tabloda olmayan cmd gri kalır.
+-- K: videoyu 90° döndürür (0 → 90 → 180 → 270 → 0). Not: canlı takip döndürülmüş videoda
+-- desteklenmez (tıklama koordinatı döndürmeyi bilmez); takip için önce 0°'ye döndür.
+local function rotate_video()
+  local r = ((mp.get_property_number("video-rotate", 0) or 0) + 90) % 360
+  mp.set_property_number("video-rotate", r)
+  osd(string.format("döndürme %d°", r), 1)
+end
+mp.add_key_binding(nil, "rotate", rotate_video)
+
 if TRACK_SHOW_MENU ~= false then
   local okm, TM = pcall(require, "trackmenu")
+  if not okm then -- script-modules yolu mpv'de tanımlı değilse doğrudan dosyadan yükle
+    local p = mp.command_native and mp.command_native({ "expand-path", "~~/script-modules/trackmenu.lua" })
+    local f = type(p) == "string" and loadfile(p)
+    if f then okm, TM = pcall(f) end
+  end
+  if not (okm and type(TM) == "table") then
+    mp.msg.warn("trackmenu.lua yüklenemedi: " .. tostring(TM))
+    osd("menü çubuğu yüklenemedi (mpv/portable_config/script-modules/trackmenu.lua yok mu?)", 6)
+  end
   if okm and type(TM) == "table" then
     local ACT = {
       quit = function() mp.commandv("quit") end,
       zoom_in = function() zoom_step(1) end, zoom_out = function() zoom_step(-1) end,
-      reset = do_reset,
+      reset = do_reset, rotate = rotate_video,
       hud = function() hud.visible = not hud.visible; render_hud() end,
       panel = function() panel.pinned = not panel.pinned; panel.visible = true; render_panel() end,
       toggle = function() set_enabled(not enabled) end, release = do_release,

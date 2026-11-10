@@ -27,10 +27,25 @@ from .config import Config
 from .frames import grab_frame
 from .geometry import View, compute_view
 from .ipc import MpvCommandError, MpvIpc, MpvIpcError
-from .settings import adjust, status_text
+from .settings import SETTINGS, adjust, status_text
 from .smooth import BoxFilter, ViewSmoother, ease_view
 
 CLOSED = {"event": "__closed__"}
+
+_PROVIDER_SHORT = {"DmlExecutionProvider": "DirectML", "CUDAExecutionProvider": "CUDA",
+                   "CPUExecutionProvider": "CPU", "TensorrtExecutionProvider": "TensorRT"}
+
+
+def model_line(label: str, model_path, session=None, extra: str = "") -> str:
+    """Sol üst bilgi bloğu için tek satır: `Etiket: model.onnx (ek) · DirectML`."""
+    from pathlib import Path
+
+    line = f"{label}: {Path(str(model_path)).name}" + (f" ({extra})" if extra else "")
+    try:
+        prov = session.get_providers()[0] if session is not None else ""
+    except Exception:  # sahte/bozuk oturum bilgi satırını düşürmesin
+        prov = ""
+    return line + (f" · {_PROVIDER_SHORT.get(prov, prov)}" if prov else "")
 
 
 class EventListener(threading.Thread):
@@ -236,6 +251,30 @@ class LiveController:
             return "Takip: " + getattr(self.point, "label", "nesne")
         return f"Takip: ID {self.target_id}"
 
+    def info_text(self, static: list[str], perf: tuple[float, float] | None = None) -> str:
+        """Sol üst bilgi bloğu (çok satırlı; boş = gizle). Python → Lua `track-hud` 3. argüman.
+        static: açılışta bilinenler (model/cihaz/Re-ID...); perf: (kare/sn, gecikme ms)."""
+        if not self.enabled or not self.cfg.hud:
+            return ""
+        lines = list(static)
+        if perf is not None:
+            lines.append(f"Hız: {perf[0]:.1f} kare/sn · gecikme {perf[1]:.0f} ms")
+        if self.point is not None:
+            tgt = "nesne: " + getattr(self.point, "label", "nesne")
+        elif self.target_id is not None:
+            tgt = f"ID {self.target_id}"
+        else:
+            tgt = "yok"
+        if self.has_target and self._lost_t0 is not None:
+            tgt += " (kayıp)"
+        lines.append(f"Hedef: {tgt}")
+        if getattr(self.pipeline, "detector", None) is not None:
+            lines.append(f"Kişi sayısı: {len(self.last_tracks)}")
+        lines.append(" · ".join(
+            f"{s.label.split(' (')[0]} {s.fmt(getattr(self.cfg, s.attrs[0]))}"
+            for s in SETTINGS.values()))
+        return "\n".join(lines)
+
     def needs_frame(self, t: float) -> bool:
         """Duraklatılmış (time-pos değişmiyor) ve bekleyen tıklama yoksa kare işlemeye gerek yok."""
         if not self.enabled:
@@ -427,9 +466,13 @@ def run_live(
     reid=None,
     cfg_path: str | None = None,
     pose=None,
+    info: list[str] | None = None,
 ) -> None:
+    """info: sol üst bilgi bloğundaki sabit satırlar (model/cihaz...). None = blok gönderilmez."""
     ctl = LiveController(pipeline, cfg, reid=reid, cfg_path=cfg_path, pose=pose)
-    last_hud: tuple[str, bool] = ("", False)
+    last_hud: tuple[str, bool, str] = ("", False, "")
+    perf: tuple[float, float] | None = None  # (kare/sn, gecikme ms): ~1 sn'lik pencere
+    pf_n, pf_lag, pf_t = 0, 0.0, clock()
     min_dt = 1.0 / max(cfg.live_fps, 1.0)
     last_view: View | None = None
     n, lag_sum, t_stat = 0, 0.0, clock()
@@ -453,12 +496,16 @@ def run_live(
         # Lua'ya (etiket metni, hedef kilitli mi) gider; yalnız ikisinden biri değişince.
         # "Kilitli" ekran üstü zoom +/- düğmesinin ne yapacağını belirler (doluluk / video zoom).
         nonlocal last_hud
-        state = (ctl.hud_text(), ctl.has_target and ctl.enabled)
+        state = (ctl.hud_text(), ctl.has_target and ctl.enabled,
+                 "" if info is None else ctl.info_text(info, perf))
         if state == last_hud:
             return
         last_hud = state
+        args = [state[0], "1" if state[1] else "0"]
+        if info is not None:
+            args.append(state[2])
         try:
-            mpv.command("script-message-to", "track", HUD_MSG, state[0], "1" if state[1] else "0")
+            mpv.command("script-message-to", "track", HUD_MSG, *args)
         except MpvCommandError as e:
             log(f"HUD gönderilemedi: {e}")
 
@@ -509,6 +556,11 @@ def run_live(
             emit(ctl.step(frame, float(t)))
             n += 1
             lag_sum += clock() - t0
+            pf_n, pf_lag = pf_n + 1, pf_lag + (clock() - t0)
+            if clock() - pf_t >= 1.0:  # bilgi bloğu: ~1 sn'de bir güncellenen hız/gecikme
+                perf = (pf_n / (clock() - pf_t), pf_lag / pf_n * 1000)
+                pf_n, pf_lag, pf_t = 0, 0.0, clock()
+                sync_hud()
             if stats_every and clock() - t_stat >= stats_every:
                 dt = clock() - t_stat
                 log(f"{n / dt:.1f} kare/sn, gecikme {lag_sum / n * 1000:.0f} ms, "

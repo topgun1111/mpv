@@ -17,6 +17,7 @@ M.MENUS = {
     { cmd = "zoom_in", label = "Yakınlaştır", key = "+" },
     { cmd = "zoom_out", label = "Uzaklaştır", key = "-" },
     { cmd = "reset", label = "Görünümü sıfırla", key = "R" },
+    { cmd = "rotate", label = "Videoyu döndür (90°)", key = "K" },
     { sep = true },
     { cmd = "hud", label = "Durum etiketi", key = "Ctrl+H" },
     { cmd = "panel", label = "Düğme paneli sabit", key = "Ctrl+B" },
@@ -159,7 +160,7 @@ function M.new(ctx)
   -- Fare hareketi. Döner: çizim değişti mi.
   function e:mouse(x, y)
     local ov, oh, os_ = self.visible, self.hover, self.sel
-    if y >= 0 and y < self.bh * 1.0 then self.visible = true end -- üst kenar bölgesi çubuğu açar
+    self.visible = true -- her fare/dokunma hareketinde çubuk görünür (OSC gibi); zamanlayıcı gizler
     if not self.visible then return false end
     local hh
     for i, r in ipairs(self.hrects) do if inside(r, x, y) then hh = i end end

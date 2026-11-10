@@ -19,7 +19,7 @@ local bar, bh, fs = TM.bar_layout(W, H, TM.MENUS)
 local function hx(i) return bar[i].x + math.floor(bar[i].w / 2) end
 
 out("HIDDEN", tostring(M() == ""), tostring(track_over()))
-move(W / 2, H / 2) -- ortada: çubuk açılmaz
+move(W / 2, H / 2) -- her fare hareketinde çubuk görünür; ortadaki imleç çubuğun üstünde değil
 out("CENTER", tostring(M() == ""), tostring(track_over()))
 move(hx(1), 5) -- üst kenar: çubuk görünür, tıklama yakalanır
 out("SHOWN", tostring(M():find("Dosya", 1, true) ~= nil), tostring(track_over()), tostring(M():find("Video aç", 1, true) == nil))
@@ -56,3 +56,7 @@ out("OUTSIDE", tostring(M():find("Video aç", 1, true) == nil))
 -- Otomatik gizleme (zamanlayıcı)
 move(hx(2), 5); reg.timers[#reg.timers]()
 out("AUTOHIDE", tostring(M() == ""), tostring(track_over()))
+-- K: döndürme 90 → 180 → 270 → 0
+local rots = {}
+for _ = 1, 4 do reg.bind.rotate(); rots[#rots + 1] = tostring(reg.set["video-rotate"]) end
+out("ROTATE", table.concat(rots, ","))

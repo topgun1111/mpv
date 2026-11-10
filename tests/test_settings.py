@@ -181,7 +181,7 @@ def test_lua_hud_and_setting_keys(tmp_path):
     assert r.returncode == 0, r.stderr
     rows = [ln.split("\t") for ln in r.stdout.splitlines()]
     by = {x[0]: x for x in rows if x[0] != "KEY"}
-    assert by["HUD"][1].endswith("Takip: ID 5") and by["HUD"][1].startswith("{\\an9")
+    assert by["HUD"][1].endswith("Takip: ID 5") and by["HUD"][1].startswith("{\\an7")
     assert by["ESC"][1].endswith("a b  c")  # ASS kaçışları ({ } \) temizlenir
     assert by["EMPTY"][1] == "" and by["HIDDEN"][1] == ""  # gizleme tuşu
     assert by["SHOWN"][1].endswith("Takip: ID 5")
@@ -192,3 +192,72 @@ def test_lua_hud_and_setting_keys(tmp_path):
     assert keys["settings-save"] == "script-message track-save"
     assert by["TOGGLE_OFF"][1] == ""  # canlı kapanınca etiket silinir
     assert by["OFFLINE"][1].endswith("Takip: offline ID 3")
+    # sol üst bilgi bloğu: model satırı + Lua'nın zoom satırı, Ctrl+H ile gizlenir
+    assert "\\fs14" in by["INFO"][1] and "Model: yolox_s.onnx · DirectML" in by["INFO"][1]
+    assert by["INFO"][1].endswith("Zoom: x1.00") and by["INFOZOOM"][1].endswith("Zoom: x2.00")
+    assert by["INFOHIDDEN"][1] == ""
+    assert by["DBL"][1] == "cycle pause"  # çift tık: duraklat/oynat
+
+
+def test_info_text_lines_and_hidden_states():
+    c = _ctl()
+    static = ["Model: yolox_s.onnx (yolox, 640x640) · DirectML"]
+    assert c.info_text(static) == ""  # takip kapalı
+    c.handle_event(_toggle(True))
+    assert "Kişi sayısı" not in c.info_text(static)  # person modeli yok (NullPipeline benzeri)
+    c.pipeline.detector = object()
+    t = c.info_text(static, (9.84, 41.6))
+    assert t.splitlines()[0] == static[0]
+    assert "Hız: 9.8 kare/sn · gecikme 42 ms" in t and "Hedef: yok" in t
+    assert "Kişi sayısı: 0" in t and "Tepki hızı" in t and "Öngörü" in t and "Doluluk" in t
+    c.handle_event(_click(90, 50))
+    c.step(FRAME, 0.1)
+    assert "Hedef: ID 3" in c.info_text(static)
+    c.cfg.hud = False
+    assert c.info_text(static) == ""
+
+
+def test_run_live_sends_info_as_third_arg_only_when_given():
+    def run(info):
+        stop, sent = threading.Event(), []
+
+        class Mpv(FakeMpv):
+            def command(self, *a):
+                if a[0] == "script-message-to" and a[2] == "track-hud":
+                    sent.append(a)
+                super().command(*a)
+
+        mpv = Mpv(stop, 4)
+
+        def grab(m):
+            m.grabs += 1
+            if m.grabs >= 4:
+                stop.set()
+            return FRAME
+
+        ev = queue.Queue()
+        ev.put(_toggle(True))
+        ev.put(_click(90, 50))
+        cfg = _cfg()
+        cfg.live_fps = 1000.0
+        run_live(mpv, ev, FakePipeline([[_tr(3, 85, 40, 95, 60)]]), cfg, grab=grab, stop=stop,
+                 log=lambda *_: None, sleep=lambda _s: None, info=info)
+        return sent
+
+    assert all(len(a) == 5 for a in run(None))  # eski davranış: 2 argüman
+    sent = run(["Model: m.onnx · CPU"])
+    assert all(len(a) == 6 for a in sent)
+    assert sent[-1][5].startswith("Model: m.onnx · CPU") and "Hedef: ID 3" in sent[-1][5]
+
+
+def test_model_line_short_provider_and_failures():
+    from tracker.live import model_line
+
+    class S:
+        def get_providers(self):
+            return ["DmlExecutionProvider", "CPUExecutionProvider"]
+
+    assert model_line("Model", "models/yolox_s.onnx", S(), "yolox, 640x640") == \
+        "Model: yolox_s.onnx (yolox, 640x640) · DirectML"
+    assert model_line("Poz", "a/b.onnx") == "Poz: b.onnx"
+    assert model_line("Poz", "b.onnx", object()) == "Poz: b.onnx"  # get_providers yok → sessiz
