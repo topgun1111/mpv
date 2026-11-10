@@ -6,8 +6,14 @@ local M = {}
 -- Bildirimsel menü tablosu. cmd: track.lua'daki eylem adı; key: yalnız kısayol ipucu (metin).
 M.MENUS = {
   { id = "file", label = "Dosya", items = {
-    { cmd = "open", label = "Video aç…", key = "Ctrl+O", todo = true },
-    { cmd = "recent", label = "Son açılanlar", todo = true },
+    { cmd = "open", label = "Video aç…", key = "Ctrl+O" },
+    { cmd = "recent", label = "Son açılanlar…" },
+    { cmd = "open_folder", label = "Klasör aç…" },
+    { cmd = "open_url", label = "Adres (URL) aç…" },
+    { sep = true },
+    { cmd = "save_view", label = "Görünümü kaydet" },
+    { cmd = "load_view", label = "Görünümü yükle" },
+    { cmd = "close", label = "Videoyu kapat" },
     { sep = true },
     { cmd = "export", label = "Takip kamerası dışa aktar…", todo = true },
     { sep = true },

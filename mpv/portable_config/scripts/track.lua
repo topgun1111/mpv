@@ -801,6 +801,82 @@ if TRACK_SHOW_MENU ~= false then
     osd("menü çubuğu yüklenemedi (mpv/portable_config/script-modules/trackmenu.lua yok mu?)", 6)
   end
   if okm and type(TM) == "table" then
+    -- Dosya menüsü (M2): diyaloglar PowerShell ile (asenkron, mpv donmaz); son açılanlar/son klasör
+    -- %APPDATA%\\TakipliOynat\\recent.json'da tutulur (klasör yoksa yalnız bellekte).
+    local okf, TF = pcall(require, "trackfiles")
+    if not okf then
+      local p = mp.command_native and mp.command_native({ "expand-path", "~~/script-modules/trackfiles.lua" })
+      local f = type(p) == "string" and loadfile(p)
+      if f then okf, TF = pcall(f) end
+    end
+    local FILES = {}
+    if okf and type(TF) == "table" then
+      local WIN = TRACK_FORCE_WIN or package.config:sub(1, 1) == "\\"
+      local sdir = os.getenv("TRACK_STATE_DIR") or os.getenv("APPDATA")
+      local spath = sdir and (sdir .. "/TakipliOynat/recent.json") or nil
+      local fstate = TF.sanitize(nil)
+      local text = spath and read_file(spath)
+      if text then fstate = TF.sanitize(utils.parse_json(text)) end
+      local function save_fstate()
+        local f = spath and io.open(spath, "wb")
+        if f then f:write(utils.format_json({ dir = fstate.dir, recent = fstate.recent })); f:close() end
+      end
+      local busy = false
+      local function dialog(script, cb)
+        if not WIN then osd("dosya diyaloğu yalnız Windows'ta var", 3); return end
+        if busy then return end
+        busy = true
+        mp.command_native_async({ name = "subprocess", playback_only = false, capture_stdout = true,
+          args = TF.ps_args(script) }, function(ok, res)
+          busy = false
+          if not (ok and res and res.status == 0) then osd("diyalog açılamadı (PowerShell?)", 4); return end
+          local out = TF.clean(res.stdout)
+          if out then cb(out) end -- iptal = boş çıktı
+        end)
+      end
+      local function open_target(p, is_dir)
+        mp.commandv("loadfile", p, "replace")
+        fstate = TF.add_recent(fstate, p, is_dir)
+        save_fstate()
+      end
+      FILES.open = function() dialog(TF.open_script(fstate.dir), function(p) open_target(p, false) end) end
+      FILES.recent = function()
+        if #fstate.recent == 0 then osd("son açılan video yok", 2); return end
+        dialog(TF.recent_script(fstate.recent), function(p) open_target(p, false) end)
+      end
+      FILES.open_folder = function() dialog(TF.folder_script(fstate.dir), function(p) open_target(p, true) end) end
+      FILES.open_url = function()
+        dialog(TF.url_script(), function(u)
+          if TF.is_url(u) then open_target(u, false) else osd("geçersiz adres: " .. u, 4) end
+        end)
+      end
+      FILES.close = function() mp.commandv("stop") end
+      FILES.save_view = function()
+        local vp = video_path()
+        if not vp then osd("kaydetmek için yerel video aç", 3); return end
+        local snap = TF.snapshot(mp.get_property_number("video-zoom", 0), mp.get_property_number("video-pan-x", 0),
+          mp.get_property_number("video-pan-y", 0), mp.get_property_number("video-rotate", 0))
+        local f = io.open(vp .. ".view.json", "wb")
+        if not f then osd("yazılamadı: " .. vp .. ".view.json", 4); return end
+        f:write(utils.format_json(snap)); f:close()
+        osd("görünüm kaydedildi (.view.json)")
+      end
+      FILES.load_view = function()
+        if enabled or off.on then osd("görünümü yüklemek için önce takibi/offline'ı kapat", 3); return end
+        local vp = video_path()
+        local txt = vp and read_file(vp .. ".view.json")
+        if not txt then osd("kayıtlı görünüm yok", 3); return end
+        local z, px, py, r = TF.parse_snapshot(utils.parse_json(txt))
+        if not z then osd("görünüm okunamadı: " .. tostring(px), 4); return end
+        mp.set_property_number("video-zoom", z)
+        mp.set_property_number("video-pan-x", px)
+        mp.set_property_number("video-pan-y", py)
+        mp.set_property_number("video-rotate", r)
+        osd("görünüm yüklendi")
+      end
+    else
+      mp.msg.warn("trackfiles.lua yüklenemedi: " .. tostring(TF))
+    end
     local ACT = {
       quit = function() mp.commandv("quit") end,
       zoom_in = function() zoom_step(1) end, zoom_out = function() zoom_step(-1) end,
@@ -816,6 +892,8 @@ if TRACK_SHOW_MENU ~= false then
       defaults = setting("all", 0),
       status = function() mp.commandv("script-message", "track-status") end,
     }
+    for k, f in pairs(FILES) do ACT[k] = f end
+    local NEED_VIDEO = { close = true, save_view = true, load_view = true } -- video yokken gri
     local LIVE = { release = true, speed_up = true, speed_down = true, lead_up = true,
       lead_down = true, fill_up = true, fill_down = true }
     local CHECK = { toggle = function() return enabled end, offline = function() return off.on end,
@@ -830,9 +908,13 @@ if TRACK_SHOW_MENU ~= false then
         local s = { enabled = true, checked = CHECK[cmd] and CHECK[cmd]() or false }
         if LIVE[cmd] and not enabled then s.enabled = false end
         if cmd == "panel" and not TRACK_SHOW_PANEL then s.enabled = false end
+        if NEED_VIDEO[cmd] and not mp.get_property("path") then s.enabled = false end
         return s
       end,
     })
+    mp.add_key_binding(nil, "open", function() -- Ctrl+O: video aç
+      if ACT.open then ACT.open() else osd("dosya menüsü yüklenemedi", 3) end
+    end)
     mp.add_key_binding(nil, "menu", function() -- F10: menüyü klavyeyle aç/kapat
       menu_prepare()
       menu:key("f10")

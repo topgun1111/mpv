@@ -37,19 +37,19 @@ Baseline (see handover.md): ByteTrack + YOLOX/YOLOv8 person detector, Kalman + l
 
 ## Design decisions
 - **Menu bar**: drawn in `track.lua` with mpv ASS overlay (reuse Part 16 panel hit-testing/rect code); no new dependency, works inside the portable mpv. Auto-hides; appears on mouse at top edge or `Alt`/`F10`; large touch-friendly targets option. Menu model is a data table (`menu.lua`) so items/shortcuts/state are declarative. Fallback if too painful: bundle `uosc` (MIT) and register our items through its menu API.
-- **Open dialog**: mpv has no native file dialog → spawn a small helper (`pythonw -m tracker pick-file` using tkinter `filedialog`, embedded Python already ships) and send the path back via `loadfile`. Same helper for "Open recent", "Save view…", "Export…".
+- **Open dialog**: mpv has no native file dialog → `track.lua` runs `powershell.exe -STA` (WinForms OpenFileDialog/FolderBrowserDialog/ListBox, VB InputBox for URL) via async `subprocess`, stdout = chosen path → `loadfile`. (tkinter is NOT in the embeddable Python.) Reuse the same approach for "Save view…", "Export…" (SaveFileDialog).
 - **Hybrid tracking** (open with point): start live tracking immediately; in parallel a background offline scan (`offline.py`) runs; when scan covers current time and live quality is worse, switch to precomputed views seamlessly.
 - **Quality score** (live vs. offline): lost-frame %, view jitter, ID switches, live lag; sampled over a sliding window.
 
 ## Parts
-Status: P23, M1 done → next M2.
+Status: P23, M1, M2 done → next M3.
 
 ### Foundation
 - **P23 — Bench harness** ✅ (`tracker/bench.py`; real-clip runs pending on Windows): `python -m tracker bench video.mp4` → ID switches, lost %, jitter px/s, fps, latency, JSON report. Run on 2–3 real clips; fix first real-world breakages (pose `[1,56,N]` layout, DirectML fp16, `complex` mouse bindings). Output feeds A2's quality score.
 
 ### Menu bar (M)
 - **M1 — Menu engine + bar shell** ✅ (`script-modules/trackmenu.lua`; real mpv run pending): declarative menu table, top bar (File · View · Tracking · Tools · Settings · Help), hover/click/dropdown, auto-hide, keyboard nav (F10, arrows, Esc), enabled/checked state, shortcut hints. Wire existing actions only (toggle, reset, release, offline, HUD, panel). Python test for menu table/state; Lua harness test for hit-testing.
-- **M2 — File menu**: Open video (tkinter helper), Open recent, Open URL/folder, Close, Save/Load views (`.views.json`), Export follow-cam (disabled until E1), Exit. Remembers last dir.
+- **M2 — File menu** ✅ (`script-modules/trackfiles.lua`; real Windows run pending): Open video, Open recent, Open folder/URL, Close, Save/Load view snapshot (`<video>.view.json`, static zoom/pan/rotate — NOT the per-frame `.views.json`), Export (greyed until E1), Exit. Remembers last dir. Dialogs = PowerShell+WinForms, not tkinter (embeddable Python ships no tkinter).
 - **M3 — View + Tracking menus**: View: zoom presets, fill %, fit/fill/original, fullscreen, always-on-top, HUD on/off, overlay toggles (box, dot, IDs, trails — greyed until built). Tracking: mode submenu (Off · Click object · Rectangle · Player ID · Body part · Auto-scan), target actions (release, switch, lock), lookahead/smoothing sliders as stepper items.
 - **M4 — Tools + Settings + Help**: Tools: run offline scan now, cancel scan, bench, open models folder, check models. Settings dialog (stepper list for `Config` keys, Save/Reset → `settings.json`), device (auto/dml/cuda/cpu), live fps, model selection. Help: shortcuts list, about, version, licences. Status bar line (mode · fps · device · scan progress).
 

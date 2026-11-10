@@ -34,6 +34,7 @@ TakipliOynat/
 │     ├─ mpv.conf                # input-ipc-server=\\.\pipe\mpv
 │     ├─ input.conf              # t: aç/kapa, r: sıfırla, x: hedefi bırak, F10: menü
 │     ├─ script-modules/trackmenu.lua  # üst menü çubuğu motoru (M1; saf mantık)
+│     ├─ script-modules/trackfiles.lua # Dosya menüsü yardımcıları (M2; saf mantık, PowerShell diyalogları)
 │     └─ scripts/track.lua       # tıklama seçimi, OSD, tuşlar, menü bağlama
 ├─ tracker/                      # Python paketi (python -m tracker ...)
 │  ├─ main.py                    # CLI: ping, view, listen, detect, live
@@ -134,6 +135,9 @@ Takip açıkken sol üstte küçük harflerle tüm takip bilgisi görünür: dur
 
 ### Üst menü çubuğu (M1)
 Fareyi/parmağı oynatınca üstte menü çubuğu görünür (3 sn sonra gizlenir); **F10** de açar. **K** videoyu 90° döndürür (takip için önce 0°'ye getir): **Dosya · Görünüm · Takip · Araçlar · Ayarlar · Yardım**. Çalışan işlevler (takip, bırak, sıfırla, offline, zoom, HUD, tepki/öngörü/doluluk, kaydet, durum, çıkış) menüden de kullanılır; kısayolları yanında yazar, açık olanlar • ile işaretlidir. Henüz yazılmamış öğeler (Video aç, Dışa aktar, Tarama…) gri görünür ve sonraki parçalarda (`project.md`) açılır. Açıkken ←/→/↑/↓, Enter, Esc ile gezilir; dışarı tıklamak kapatır.
+
+### Dosya menüsü (M2)
+**Dosya** menüsü ya da **Ctrl+O**: **Video aç…** (Windows dosya diyaloğu, son klasörde açılır), **Son açılanlar…** (son 10, listeden çift tık/Enter), **Klasör aç…** (klasör oynatma listesi olur), **Adres (URL) aç…**, **Görünümü kaydet / yükle** (videonun yanına `<video>.view.json`: o anki zoom/pan/döndürme; takip/offline kapalıyken yüklenir), **Videoyu kapat**, **Çıkış**. Dışa aktarma (E1) gridir. Son açılanlar ve son klasör `%APPDATA%\\TakipliOynat\\recent.json`'da tutulur. Diyaloglar PowerShell+WinForms ile açılır (mpv donmaz; gömülü Python'da tkinter yoktur). Yalnız Windows.
 
 ### Ekran üstü düğmeler (Parça 16)
 mpv penceresinde fareyi/parmağı oynatınca sol üstte düğme paneli çıkar (3 sn sonra gizlenir; **Sabit** düğmesi ya da `Ctrl+B` ile sabitlenir): **Takip AÇIK/KAPALI**, **Bırak**, **Sıfırla**, **Offline**, **Zoom -/+**, **Tepki -/+**, **Öngörü -/+**, **Kaydet**, **Durum**. Zoom düğmeleri artık ayrı bir **ekran üstü zoom kontrolüne** taşındı (aşağıda). Takip açıkken düğmelerin dışında bir oyuncuya sol tıklamak da hedef seçer. Klavye kısayolları aynen çalışır.
