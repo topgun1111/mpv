@@ -338,6 +338,36 @@ def _utf8_console() -> None:
             pass
 
 
+def _log_dir(cfg_path: str) -> Path:
+    """Log klasörü: kullanıcının masaüstü (OneDrive'a taşınmış olabilir); yoksa config klasörü."""
+    home = Path.home()
+    for d in (home / "Desktop", home / "OneDrive" / "Desktop", home / "Masaüstü"):
+        if d.is_dir():
+            return d
+    return Path(cfg_path).resolve().parent
+
+
+def _log_if_headless(cfg_path: str) -> Path | None:
+    """`pythonw.exe` (mpv'nin otomatik başlattığı gizli süreç) konsolsuzdur: sys.stdout/stderr None
+    olur ve her hata sessizce kaybolur. Bu durumda çıktıyı masaüstündeki
+    `takipli-oynat-log.txt`'ye yaz (her başlangıçta sıfırlanır): takip çalışmıyorsa neden orada."""
+    if sys.stdout is not None and sys.stderr is not None:
+        return None
+    try:
+        path = _log_dir(cfg_path) / "takipli-oynat-log.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        f = open(path, "w", encoding="utf-8", buffering=1)  # noqa: SIM115 (süreç boyunca açık)
+    except OSError:
+        return None
+    sys.stdout = sys.stderr = f
+    import platform
+    import time
+
+    print(f"Takipli Oynat takip programı başladı {time.strftime('%Y-%m-%d %H:%M:%S')} | "
+          f"Python {platform.python_version()} | config: {cfg_path}")
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     _utf8_console()
     args = build_parser().parse_args(argv)
@@ -374,6 +404,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"HATA: {e}", file=sys.stderr)
             return 1
     if args.cmd == "live":
+        _log_if_headless(args.cfg_path)
         try:
             return run_live_cmd(cfg, args)
         except KeyboardInterrupt:

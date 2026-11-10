@@ -20,3 +20,14 @@ reg.msgs["track-dot"]("0.9", "0.5")
 out("OUT", dot()) -- x=1300: ekran dışı → gizli
 reg.msgs["track-dot"]("off")
 out("HIDE", dot())
+-- Geçici (sarı) işaret: tıklama anında görünür, `track-dot` gelince beyaza döner
+reg.props["osd-dimensions"] = { w = 1000, h = 500, ml = 0, mr = 0, mt = 0, mb = 0 }
+reg.obs["osd-dimensions"]()
+reg.props["video-params"] = { w = 1920, h = 1080 }
+reg.props["mouse-pos"] = { x = 250, y = 100, hover = true }
+reg.bind.pick() -- sağ tık (takip açık)
+out("PROV", dot())
+reg.timers[#reg.timers]() -- 2 sn: yanıt gelmedi → OSD uyarısı
+out("WARN", tostring(reg.osd[#reg.osd]:find("yanıt vermiyor", 1, true) ~= nil))
+reg.msgs["track-dot"]("0.5", "0.5")
+out("CONFIRMED", dot())

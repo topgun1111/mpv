@@ -261,3 +261,25 @@ def test_model_line_short_provider_and_failures():
         "Model: yolox_s.onnx (yolox, 640x640) · DirectML"
     assert model_line("Poz", "a/b.onnx") == "Poz: b.onnx"
     assert model_line("Poz", "b.onnx", object()) == "Poz: b.onnx"  # get_providers yok → sessiz
+
+
+def test_headless_live_logs_to_desktop(tmp_path, monkeypatch):
+    import sys
+
+    from tracker.main import _log_if_headless
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    (tmp_path / "Desktop").mkdir()
+    cfg = str(tmp_path / "AppData" / "TakipliOynat" / "config.json")
+    assert _log_if_headless(cfg) is None  # konsol var: dokunma
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    log = _log_if_headless(cfg)  # pythonw: stdout yok → masaüstündeki dosyaya
+    try:
+        print("deneme çıktısı")
+        sys.stdout.flush()
+        assert log == tmp_path / "Desktop" / "takipli-oynat-log.txt"
+        txt = log.read_text(encoding="utf-8")
+        assert "başladı" in txt and "deneme çıktısı" in txt
+    finally:
+        sys.stdout.close()
