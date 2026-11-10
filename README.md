@@ -47,7 +47,6 @@ TakipliOynat/
 ├─ scripts/                      # make_package.py, fetch_deps.ps1
 ├─ installer.iss                 # Inno Setup
 ├─ THIRD_PARTY_NOTICES.md        # üçüncü taraf lisanslar + GPL kaynak teklifi
-├─ project.md                    # yol haritası (P23…O3; her parça = 1 oturum)
 └─ handover.md                   # parça parça ilerleme notu
 ```
 (Parça 14: `launcher/`, `scripts/build_embedded.py` da pakete dahildir.)
@@ -85,7 +84,7 @@ Ayrıntılı denetim: **`THIRD_PARTY_NOTICES.md`** (pakete ve Başlat menüsüne
 - CPU-only makinelerde canlı mod düşük fps → offline mod
 
 ## Yol Haritası
-Ayrıntılı plan ve durum `handover.md`, sonraki parçalar (M2…O3) `project.md` içindedir. Tamamlanan: **Parça 1–15 (1.0.0)** (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası, canlı ayar tuşları + durum etiketi,  Python + tam installer, lisans denetimi + YOLOX alternatifi + release).
+Ayrıntılı plan, durum ve sonraki parçalar (M3…O3; P23, M1, M2 yapıldı) "Yol haritası" bölümündedir (`handover.md`). Tamamlanan: **Parça 1–15 (1.0.0)** (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası, canlı ayar tuşları + durum etiketi,  Python + tam installer, lisans denetimi + YOLOX alternatifi + release).
 
 ### Sağ tık: herhangi bir nesneyi takip (Parça 18)
 `tracker/point.py`: sağ tıklanan nokta için kutu çıkarılır (aynı renkteki bitişik bölge; olmazsa karenin %6'sı kadar kare), sonra her karede Lucas-Kanade optik akışı kutuyu taşır, şablon benzerliği (NCC) yanlış şeye kaymayı yakalar, tutmazsa son konum çevresinde şablon aranır; bulunamazsa "hedef kayıp" (bekle → kademeli zoom-out) ve nesne geri gelirse takip sürer. Detector çalışmaz (CPU'da daha hızlı); `models\` boşsa bile sağ tık çalışır. Ayarlar (`config.json`): `point_box` (0.06), `point_refine` (true), `point_min_score` (0.55; yükselirse kayıp daha erken ilan edilir), `point_max_side` (640). Zoom miktarı `+`/`−` (doluluk) ile ayarlanır. Takip edilen noktanın üstünde küçük bir **artı (nişangâh)** gösterilir: tıklar tıklamaz sarı (tıklama alındı), takip programı doğrulayınca beyaz; 2 sn içinde doğrulanmazsa ekranda uyarı çıkar (Python her karede merkezi `track-dot` ile yollar, Lua mpv'nin anlık zoom/pan'ına göre çizer); hedef kayıpsa ya da bırakılınca artı kaybolur — çalışıp çalışmadığını buradan görürsün.
@@ -134,7 +133,7 @@ Canlı mod çalışırken mpv'de: `Ctrl+↑/↓` doluluk, `Ctrl+→/←` tepki h
 Takip açıkken sol üstte küçük harflerle tüm takip bilgisi görünür: durum (`Takip: ID 5`), **model** (`yolox_s.onnx (yolox, 640x640) · DirectML`), Re-ID/takım/numara ve poz modelleri (açıksa), kare hızı ve gecikme, hedef, kişi sayısı, tepki/öngörü/doluluk ayarları, zoom ve döndürme. `Ctrl+H` gizler/gösterir (`hud: false` config ile kalıcı kapatır). **Videoya çift sol tık** oynat/duraklat yapar (mpv'nin varsayılan çift tık = tam ekran yerine; tam ekran `F`).
 
 ### Üst menü çubuğu (M1)
-Fareyi/parmağı oynatınca üstte menü çubuğu görünür (3 sn sonra gizlenir); **F10** de açar. **K** videoyu 90° döndürür (takip için önce 0°'ye getir): **Dosya · Görünüm · Takip · Araçlar · Ayarlar · Yardım**. Çalışan işlevler (takip, bırak, sıfırla, offline, zoom, HUD, tepki/öngörü/doluluk, kaydet, durum, çıkış) menüden de kullanılır; kısayolları yanında yazar, açık olanlar • ile işaretlidir. Henüz yazılmamış öğeler (Video aç, Dışa aktar, Tarama…) gri görünür ve sonraki parçalarda (`project.md`) açılır. Açıkken ←/→/↑/↓, Enter, Esc ile gezilir; dışarı tıklamak kapatır.
+Fareyi/parmağı oynatınca üstte menü çubuğu görünür (3 sn sonra gizlenir); **F10** de açar. **K** videoyu 90° döndürür (takip için önce 0°'ye getir): **Dosya · Görünüm · Takip · Araçlar · Ayarlar · Yardım**. Çalışan işlevler (takip, bırak, sıfırla, offline, zoom, HUD, tepki/öngörü/doluluk, kaydet, durum, çıkış) menüden de kullanılır; kısayolları yanında yazar, açık olanlar • ile işaretlidir. Henüz yazılmamış öğeler (Video aç, Dışa aktar, Tarama…) gri görünür ve sonraki parçalarda (`yol haritası (handover.md)`) açılır. Açıkken ←/→/↑/↓, Enter, Esc ile gezilir; dışarı tıklamak kapatır.
 
 ### Dosya menüsü (M2)
 **Dosya** menüsü ya da **Ctrl+O**: **Video aç…** (Windows dosya diyaloğu, son klasörde açılır), **Son açılanlar…** (son 10, listeden çift tık/Enter), **Klasör aç…** (klasör oynatma listesi olur), **Adres (URL) aç…**, **Görünümü kaydet / yükle** (videonun yanına `<video>.view.json`: o anki zoom/pan/döndürme; takip/offline kapalıyken yüklenir), **Videoyu kapat**, **Çıkış**. Dışa aktarma (E1) gridir. Son açılanlar ve son klasör `%APPDATA%\\TakipliOynat\\recent.json`'da tutulur. Diyaloglar PowerShell+WinForms ile açılır (mpv donmaz; gömülü Python'da tkinter yoktur). Yalnız Windows.
