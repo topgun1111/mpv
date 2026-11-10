@@ -46,7 +46,7 @@ move(btns[11][1], btns[11][2]); reg.bind["track-click-bind"]() -- sabitlemeyi ka
 move(W - 5, H - 5)
 out("ENABLED_BOUND", tostring(over())) -- hedef seçimi için bağ açık
 reg.cmds = {}
-reg.bind["track-click-bind"]() -- panel dışı tıklama = hedef seçimi (video-params yok: komut yok)
+if reg.bind["track-click-bind"] then reg.bind["track-click-bind"]() end -- panel dışında sol bağ yok
 out("TARGET_CLICK", reg.cmds[1] or "-")
 reg.timers[#reg.timers]() -- otomatik gizleme
 out("HIDDEN", tostring(P() == ""))

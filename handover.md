@@ -242,3 +242,12 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 ## Parça 20 (ek): sağ tuşla dikdörtgen + seçime zoom
 - `track.lua`: `pick` artık karmaşık bağ: kısa sağ tık = nesne, sağ tuşla sürükleme (≥6 px) = dikdörtgen (`track-rect`). Sürükleme çerçevesi dolgulu şeritlerle (+ hafif dolgu) çizilir. Seçimin merkezi `anchor`; takip kilitli değilken (+/−) `video-pan` ile seçili alan ortada tutulur (pan = 0.5 − merkez, kıstırılmış); Python çalışıyorsa canlı `dot` çapadır. Sıfırla/bırak çapayı siler.
 - Doğrulama: gerçek mpv'de denenmedi (Lua testleri ortamda lua yok).
+
+## Parça 21 (ek): sol tuş işlevleri kaldırıldı, beyaz nokta
+- Sol tuşla seçim/sürükleme YOK (oyuncu seçimi dahil). `MBTN_LEFT` bağı yalnız imleç ekrandaki +/− (ya da panel) düğmesinin üstündeyken aktif, başka yerde kaldırılır (mpv OSC tıklamaları çalışır). Seçim yalnız sağ tuşla: tık = nesne, sürükle = dikdörtgen.
+- Takip noktası beyaz (siyah kenarlı).
+
+## Parça 22 (ek): eklem (vücut parçası) takibi
+- `tracker/pose.py`: YOLOv8-pose ONNX (`[1,56,N]`) çözücü, `nearest_keypoint`, `PoseEstimator`, `KeypointTracker` (point.py arayüzü: `update/bbox/visible/label`). `live.py`: sağ tık bir eklemin `kp_tol` (kişi boyu 0.12) yakınındaysa eklem izlenir ("Hedef: sol ayak bileği", HUD etiketi), değilse eski nesne takibi; dikdörtgen çizimi hep nesne takibi. `main.py live`: `models/yolov8s-pose.onnx` varsa yüklenir, yoksa sessizce kapalı.
+- Paket: `scripts/export_pose.py` (CI'da ultralytics ile ONNX'e çevirir), `build.yml` adımı + duman testinde dosya kontrolü. Kişisel kullanım: installer artık `yolov8*.onnx`'i dışlamaz; NOTICES/README güncellendi.
+- Doğrulama: yalnız sentetik pozlarla (209 test). **Gerçek modelle/videoyla denenmedi**; özellikle `[1,56,8400]` çıktı düzeni ve ONNX dışa aktarımı (opset 12) CI'da ilk koşuda doğrulanmalı. Re-ID (OSNet) ve forma numarası modelleri hâlâ eklenmedi (kamuya açık hazır ONNX yok).

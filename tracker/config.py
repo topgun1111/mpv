@@ -63,6 +63,11 @@ class Config:
     point_box: float = 0.06  # sağ tık nesne takibi: başlangıç kutusu (kare yüksekliği oranı)
     point_refine: bool = True  # tıklanan rengin bitişik bölgesinden kutuyu tahmin et
     point_min_score: float = 0.55  # şablon benzerliği (NCC) alt sınırı; altı = nesne kayıp
+    pose_model: str = "models/yolov8s-pose.onnx"  # eklem takibi (isteğe bağlı)
+    pose_conf: float = 0.3  # kişi (poz) tespit eşiği
+    kp_tol: float = 0.12  # sağ tık eklemin bu kadar (boy oranı) yakınındaysa
+    kp_min_conf: float = 0.35  # eklem güveni alt sınırı (altı = eklem kayıp)
+    kp_box: float = 0.10  # eklem etrafındaki takip kutusu (kişi boyu oranı)
     point_max_side: int = 640  # nesne izleyici kareyi en uzun kenarı bu olacak şekilde küçültür
 
     def __post_init__(self) -> None:

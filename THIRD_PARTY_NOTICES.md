@@ -23,9 +23,10 @@ Python paketlerinin tam lisans listesi için paketlenmiş ortamda:
 
 ## 2. Diğer modeller (pakette DAĞITILMAZ; kullanıcı isterse kendisi ekler)
 
-Pakette yalnız YOLOX-S (Apache-2.0) bulunur. Aşağıdakiler kurulum paketine **konmaz**
-(`installer.iss` → `models\yolov8*.onnx` hariç; Re-ID/numara modelleri depoda yoktur); lisans sorumluluğu
-modeli edinen/dağıtana aittir.
+**Bu yapı kişisel kullanım içindir.** Pakette YOLOX-S (Apache-2.0) ve eklem takibi için
+`yolov8s-pose.onnx` (Ultralytics, **AGPL-3.0**; CI'da `scripts/export_pose.py` ile üretilir) bulunur.
+Paketi başkalarına dağıtırsan AGPL şartları geçerli olur (pose modelini çıkar ya da kaynağı aç).
+Re-ID/numara modelleri depoda yoktur; lisans sorumluluğu modeli edinen/dağıtana aittir.
 
 | Model | Lisans | Not |
 |---|---|---|

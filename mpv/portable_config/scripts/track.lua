@@ -460,7 +460,7 @@ render_zoom = function()
 end
 
 -- Takip noktası: Python `track-dot <nx> <ny>` (video-normalize merkez) yollar, "off" gizler.
--- Kırmızı nokta, mpv'nin şu anki zoom/pan'ına göre ekrana çevrilir (osd-dimensions kenar boşlukları
+-- Beyaz nokta, mpv'nin şu anki zoom/pan'ına göre ekrana çevrilir (osd-dimensions kenar boşlukları
 -- zoom/pan dahildir) → takip çalışıyorsa nesnenin üstünde durur.
 local DOT_Z = 3
 
@@ -486,7 +486,7 @@ local function render_dot()
   local k = math.floor(r * 0.5523)
   dot.ov.res_x, dot.ov.res_y = d.w, d.h
   dot.ov.data = string.format(
-    "{\\an7\\pos(%d,%d)\\bord2\\shad0\\1c&H0000FF&\\3c&HFFFFFF&\\p1}"
+    "{\\an7\\pos(%d,%d)\\bord2\\shad0\\1c&HFFFFFF&\\3c&H000000&\\p1}"
       .. "m %d 0 b %d 0 %d %d %d %d b %d %d %d %d %d %d b %d %d %d %d %d %d b %d %d %d %d %d %d{\\p0}",
     math.floor(x) - r, math.floor(y) - r,
     r, r + k, 2 * r, r - k, 2 * r, r,
@@ -601,34 +601,20 @@ mp.add_key_binding(nil, "pick", function(ev)
   end
 end, { complex = true })
 
+-- Sol tuş: YALNIZ imleç ekran üstü bir düğmenin (zoom +/−, panel) üstündeyken yakalanır; başka her
+-- yerde bağ kaldırılır, böylece mpv'nin kendi sol tık davranışı (OSC vb.) bozulmaz.
 sync_click_binding = function()
-  local want = true -- sol sürükleme her zaman çalışsın (takip kapalıysa ilk sürükleme açar)
+  local want = (panel.hover ~= nil) or (zoomc.hover ~= nil)
   if want and not panel.bound then
     mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", function(ev)
-      local pos = mouse_xy()
-      ev = ev or { event = "press" } -- eski tek-olay çağrısı: tıklama gibi
-      if ev.event == "press" then
-        if panel.hover then
-          buttons[panel.hover].act()
-          render_panel()
-        elseif zoomc.hover then
-          zoom_buttons[zoomc.hover]()
-          render_zoom()
-        elseif enabled then
-          on_click()
-        end
-      elseif ev.event == "down" then
-        if panel.hover then
-          buttons[panel.hover].act()
-          render_panel()
-        elseif zoomc.hover then
-          zoom_buttons[zoomc.hover]()
-          render_zoom()
-        elseif pos then
-          drag.x0, drag.y0, drag.btn = pos.x, pos.y, "left"
-        end
-      elseif ev.event == "up" and drag.x0 then
-        finish_drag(pos)
+      ev = ev or { event = "press" }
+      if ev.event ~= "press" and ev.event ~= "down" then return end
+      if panel.hover then
+        buttons[panel.hover].act()
+        render_panel()
+      elseif zoomc.hover then
+        zoom_buttons[zoomc.hover]()
+        render_zoom()
       end
     end, { complex = true })
     panel.bound = true

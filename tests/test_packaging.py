@@ -87,8 +87,8 @@ def test_installer_references_existing_files_and_win10_directml():
     assert "MinVersion=10.0.18362" in iss and "ArchitecturesAllowed=x64compatible" in iss
     for bat in re.findall(r'\{app\}\\(\w+\.bat)', iss):
         assert (ROOT / "launcher" / bat).is_file(), bat
-    # YOLOX-S (Apache-2.0) kurulumla gelir; AGPL (Ultralytics YOLOv8) modeller asla pakete girmez
-    assert 'Excludes: "models\\yolov8*.onnx"' in iss and 'Excludes: "models\\*.onnx"' not in iss
+    # kişisel kullanım: YOLOX-S ve pose modeli kurulumla gelir (model dosyaları dışlanmaz)
+    assert "Excludes" not in iss
     assert "uninsneveruninstall" in iss
     assert 'MessagesFile: "compiler:Languages\\Turkish.isl"' in iss
 
@@ -167,7 +167,8 @@ def test_installer_upgrades_in_place_and_ships_model_with_license():
     assert "yolox_s.onnx" in fm and "YOLOX_LICENSE.txt" in fm and "Megvii-BaseDetection" in fm
     assert "throw" in fm and "SHA256" in fm  # indirme bozuksa derleme durur; özet günlüğe yazılır
     wf = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
-    assert r"models\yolox_s.onnx" in wf and "yolov8*.onnx" in wf and "tracker detect" in wf
+    assert r"models\yolox_s.onnx" in wf and r"models\yolov8s-pose.onnx" in wf
+    assert "export_pose.py" in wf and "tracker detect" in wf
     # kurulum sonrası otomatik başlatma seçeneği (sessiz kurulumda atlanır)
     assert "postinstall" in iss and "skipifsilent" in iss
 

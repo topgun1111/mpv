@@ -291,6 +291,6 @@ def test_lua_red_dot_overlay(tmp_path):
     d = {ln.split("\t")[0]: ln.split("\t")[1] for ln in r.stdout.splitlines()}
     assert d["OFF_WHEN_DISABLED"] in ("", "<yok>")
     for k in ("CENTER", "ZOOMED"):  # merkez (500,250); yarıçap = %1.2 yükseklik → 6 px
-        assert "\\1c&H0000FF&" in d[k] and "\\p1" in d[k], d[k]  # kırmızı (BGR), çizim modu
+        assert "\\1c&HFFFFFF&" in d[k] and "\\p1" in d[k], d[k]  # beyaz, çizim modu
         assert "\\pos(494,244)" in d[k], d[k]
     assert d["OUT"] == "" and d["HIDE"] == ""

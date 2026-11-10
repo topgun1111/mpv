@@ -42,8 +42,8 @@ RestartApplications=no
 Name: "tr"; MessagesFile: "compiler:Languages\Turkish.isl"
 
 [Files]
-; models\yolox_s.onnx (Apache-2.0) pakete CI'da konur ve kurulumla gelir. AGPL (Ultralytics YOLOv8) modeller dağıtılmaz.
-Source: "dist\TakipliOynat\*"; DestDir: "{app}"; Excludes: "models\yolov8*.onnx"; Flags: recursesubdirs createallsubdirs ignoreversion
+; models\yolox_s.onnx ve models\yolov8s-pose.onnx (eklem takibi; AGPL: yalnız kişisel kullanım) pakete CI'da konur.
+Source: "dist\TakipliOynat\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [InstallDelete]
 ; Güncellemede eski sürümden artakalan dosyalar çalışmayı bozmasın (kullanıcı verisi %APPDATA%'da, models\ ve

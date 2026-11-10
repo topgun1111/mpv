@@ -39,6 +39,11 @@ jobs:
         shell: pwsh
         run: ./scripts/fetch_model.ps1 -Target dist/TakipliOynat/models
         # Özeti doğrulayınca env: YOLOX_S_SHA256 olarak sabitle (tedarik zinciri)
+      - name: Pose modeli (YOLOv8s-pose, vücut parçası takibi; kişisel kullanım)
+        shell: pwsh
+        run: |
+          pip install ultralytics onnx
+          python scripts/export_pose.py dist/TakipliOynat/models yolov8s-pose
       - name: Paketlenmiş Python duman testi
         shell: pwsh
         working-directory: dist/TakipliOynat
@@ -51,7 +56,7 @@ jobs:
           # Kurulumdan sonra elle bir şey gerekmesin: model pakette olmalı ve gerçekten çalışmalı
           if (-not (Test-Path models\yolox_s.onnx)) { throw "models\yolox_s.onnx pakette yok" }
           if (-not (Test-Path models\YOLOX_LICENSE.txt)) { throw "YOLOX lisans metni (Apache-2.0) pakette yok" }
-          if (Get-ChildItem models -Filter "yolov8*.onnx") { throw "AGPL (yolov8) model pakete girmemeli" }
+          if (-not (Test-Path models\yolov8s-pose.onnx)) { throw "models\yolov8s-pose.onnx pakette yok" }
           .\python\python.exe -c "import numpy as np, cv2; cv2.imwrite('blank.jpg', np.zeros((720, 1280, 3), np.uint8))"
           .\python\python.exe -m tracker detect blank.jpg --model models\yolox_s.onnx --out blank_out.jpg
           if ($LASTEXITCODE -ne 0) { throw "YOLOX modeli duman testinde çalışmadı" }

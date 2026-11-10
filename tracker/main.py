@@ -231,13 +231,24 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
                                    conf=cfg.number_conf)
         reid = ReIdManager(emb, cfg, team=team, numbers=numbers)
         print(f"Re-ID açık: provider={emb.session.get_providers()[0]}")
+    pose = None
+    try:
+        from .detector import resolve_model_path
+        from .pose import PoseEstimator
+
+        if resolve_model_path(cfg.pose_model).is_file():
+            pose = PoseEstimator(cfg.pose_model, conf_thres=cfg.pose_conf,
+                                 device=args.device or cfg.device)
+            print(f"Vücut parçası takibi açık: provider={pose.session.get_providers()[0]}")
+    except Exception as e:  # eklem takibi isteğe bağlı: yoksa/bozuksa eski davranış
+        print(f"UYARI: pose modeli yüklenemedi ({e}); eklem takibi kapalı.", file=sys.stderr)
     events: queue.Queue = queue.Queue()
     listener = EventListener(cfg.ipc_path, events)
     listener.start()
     try:
         with MpvIpc(cfg.ipc_path, keep_events=False) as mpv:  # komut bağlantısı olay biriktirmez
             run_live(mpv, events, pipeline, cfg, stats_every=args.stats, reid=reid,
-                     cfg_path=args.cfg_path)
+                     cfg_path=args.cfg_path, pose=pose)
     finally:
         listener.stop()
     return 0

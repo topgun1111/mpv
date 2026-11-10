@@ -40,7 +40,7 @@ def test_panel_buttons_hit_test_and_actions(tmp_path):
     assert cmd[10] == "script-message track-status"
     assert cmd[11] == "-"  # Sabit: yalnız panel durumu
 
-    assert d["ENABLED_BOUND"] == ["false"]  # düğme üstünde değil; sol bağ her zaman açık
+    assert d["ENABLED_BOUND"] == ["false"]  # düğme üstünde değil: sol bağ yok
     assert d["TARGET_CLICK"] == ["-"]
     assert d["HIDDEN"] == ["true"]
     assert d["UNBOUND"] == ["true"]

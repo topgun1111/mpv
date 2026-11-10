@@ -111,7 +111,9 @@ class LiveController:
         reid=None,
         cfg_path: str | None = None,
         point_factory=None,
+        pose=None,
     ):
+        self.pose = pose  # PoseEstimator | None: sağ tık eklem yakınındaysa eklem takibi
         self.pipeline, self.cfg, self.reid = pipeline, cfg, reid  # reid: ReIdManager | None
         # (kare, px, py, cfg) -> update(kare) -> BBox | None veren nesne; testte sahtesi verilir
         self._point_factory = point_factory or _default_point_factory
@@ -139,7 +141,7 @@ class LiveController:
         return self.target_id is not None or self.point is not None
 
     def dot(self) -> tuple[float, float] | None:
-        """Ekranda kırmızı nokta olarak gösterilecek konum; hedef yok/kayıpsa None."""
+        """Ekranda beyaz nokta olarak gösterilecek konum; hedef yok/kayıpsa None."""
         return self._dot if self.enabled and self.has_target and self._lost_t0 is None else None
 
     def _clear_lost(self) -> None:
@@ -230,7 +232,9 @@ class LiveController:
             return "Takip: hedef seç (tıkla)"
         if self._lost_t0 is not None:
             return "Takip: hedef kayıp" + (" (uzaklaşıyor)" if self._zooming_out else "")
-        return "Takip: nesne" if self.point is not None else f"Takip: ID {self.target_id}"
+        if self.point is not None:
+            return "Takip: " + getattr(self.point, "label", "nesne")
+        return f"Takip: ID {self.target_id}"
 
     def needs_frame(self, t: float) -> bool:
         """Duraklatılmış (time-pos değişmiyor) ve bekleyen tıklama yoksa kare işlemeye gerek yok."""
@@ -332,8 +336,13 @@ class LiveController:
             out = self._release()
             return Output(view=out.view, osd=out.osd)
         try:
-            pt = (self._point_factory(frame, px, py, self.cfg, box=box) if box is not None
-                  else self._point_factory(frame, px, py, self.cfg))
+            pt = self._try_keypoint(frame, px, py) if box is None else None
+            if pt is not None:
+                pass
+            elif box is not None:
+                pt = self._point_factory(frame, px, py, self.cfg, box=box)
+            else:
+                pt = self._point_factory(frame, px, py, self.cfg)
         except Exception as e:  # cv2 yok / kare bozuk: takip döngüsü düşmesin
             return Output(osd=f"Nesne takibi başlatılamadı: {e}")
         if not self.has_target:
@@ -348,7 +357,23 @@ class LiveController:
         self.point = pt
         self._clear_lost()
         self.flt.reset()
-        return self._follow(pt.bbox, fw, fh, t, "Hedef: nesne")
+        return self._follow(pt.bbox, fw, fh, t, "Hedef: " + getattr(pt, "label", "nesne"))
+
+    def _try_keypoint(self, frame, px: float, py: float):
+        """Pose modeli varsa ve tıklama bir eklem yakınındaysa o eklemin izleyicisi; yoksa None."""
+        if self.pose is None:
+            return None
+        from .pose import KeypointTracker, nearest_keypoint
+
+        try:
+            poses = self.pose.estimate(frame)
+        except Exception:  # model/kare hatası: eski nesne takibine düş
+            return None
+        hit = nearest_keypoint(poses, px, py, self.cfg.kp_tol, self.cfg.kp_min_conf)
+        if hit is None:
+            return None
+        i, k = hit
+        return KeypointTracker(self.pose, poses[i], k, self.cfg.kp_box, self.cfg.kp_min_conf)
 
     def _step_point(self, frame, t: float, osd: str | None) -> Output:
         fh, fw = frame.shape[:2]
@@ -401,8 +426,9 @@ def run_live(
     stats_every: float = 0.0,
     reid=None,
     cfg_path: str | None = None,
+    pose=None,
 ) -> None:
-    ctl = LiveController(pipeline, cfg, reid=reid, cfg_path=cfg_path)
+    ctl = LiveController(pipeline, cfg, reid=reid, cfg_path=cfg_path, pose=pose)
     last_hud: tuple[str, bool] = ("", False)
     min_dt = 1.0 / max(cfg.live_fps, 1.0)
     last_view: View | None = None
@@ -411,7 +437,7 @@ def run_live(
     last_dot: tuple[str, str] = ("", "")
 
     def sync_dot() -> None:
-        # Kırmızı takip noktası (Lua `track-dot`); yalnız konum değişince gönderilir
+        # Beyaz takip noktası (Lua `track-dot`); yalnız konum değişince gönderilir
         nonlocal last_dot
         d = ctl.dot()
         msg = ("off", "") if d is None else (f"{d[0]:.4f}", f"{d[1]:.4f}")

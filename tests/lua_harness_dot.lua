@@ -1,4 +1,4 @@
--- Kırmızı takip noktası (Ortam: TRACK_LUA, VIDEO, DATA_LUA).
+-- Beyaz takip noktası (Ortam: TRACK_LUA, VIDEO, DATA_LUA).
 local dir = (arg and arg[0] or ""):match("^(.*)[/\\]") or "."
 local reg = dofile(dir .. "/lua_mp_stub.lua")
 dofile(os.getenv("TRACK_LUA"))
