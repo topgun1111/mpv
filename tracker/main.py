@@ -57,6 +57,9 @@ def build_parser() -> argparse.ArgumentParser:
     of.add_argument("--reid-model", help="OSNet ONNX yolu (varsayılan: config.reid_model)")
     of.add_argument("--team", action="store_true",
                     help="İzlerin takım rengini kaydet (ID zincirlemede farklı takım elenir)")
+    of.add_argument("--pose", action="store_true",
+                    help="Eklemleri de kaydet (track.json sürüm 2; --part için gerekir)")
+    of.add_argument("--pose-model", help="Poz ONNX yolu (varsayılan: config.pose_model)")
     _add_target_args(of)
     bn = sub.add_parser("bench", help="Kıyasla: izleme/görünüm kalitesi + hız")
     bn.add_argument("video", help="Video ya da .track.json (json: tespit yapılmaz)")
@@ -81,6 +84,9 @@ def _add_target_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--target-id", type=int, help="Hedef iz kimliği")
     g.add_argument("--click", nargs=3, type=float, metavar=("SN", "NX", "NY"),
                    help="Hedef: SN anında (0..1 normalize) NX,NY noktasındaki kişi")
+    p.add_argument("--part", metavar="EKLEM",
+                   help="Kişi yerine eklemi izle: indeks 0-16 ya da ad (örn. \"sol ayak bileği\"); "
+                        "--target-id/--click ile; track.json'da eklem verisi gerekir")
 
 
 def _resolve_target(doc: dict, cfg: Config, args: argparse.Namespace) -> int | None:
@@ -94,7 +100,23 @@ def _resolve_target(doc: dict, cfg: Config, args: argparse.Namespace) -> int | N
         if tid is None:
             raise ValueError(f"{t:g} sn'de ({nx:g}, {ny:g}) noktasında kişi yok")
         return tid
+    if getattr(args, "part", None) and doc.get("target"):  # yalnız --part: mevcut hedefin eklemi
+        return doc["target"]["id"]
     return None
+
+
+def _parse_part(value: str | None) -> int | None:
+    from .pose import KEYPOINT_NAMES
+
+    if value is None:
+        return None
+    v = value.strip().lower()
+    if v.isdigit() and int(v) < len(KEYPOINT_NAMES):
+        return int(v)
+    if v in KEYPOINT_NAMES:
+        return KEYPOINT_NAMES.index(v)
+    raise ValueError(f"bilinmeyen eklem: {value!r} (0-{len(KEYPOINT_NAMES) - 1} ya da "
+                     + ", ".join(KEYPOINT_NAMES) + ")")
 
 
 def _print_tracks(doc: dict, top: int = 10) -> None:
@@ -110,9 +132,13 @@ def _finish_doc(doc: dict, cfg: Config, args: argparse.Namespace, out: str) -> N
 
     tid = _resolve_target(doc, cfg, args)
     if tid is not None:
-        apply_target(doc, tid, cfg, link=not getattr(args, "no_link", False))
+        part = _parse_part(getattr(args, "part", None))
+        apply_target(doc, tid, cfg, link=not getattr(args, "no_link", False), part=part)
         linked = doc["target"].get("linked", [])
-        print(f"hedef ID {tid}" + (f" (+ Re-ID ile bağlanan: {linked})" if linked else "")
+        from .pose import KEYPOINT_NAMES
+
+        print(f"hedef ID {tid}" + (f", eklem: {KEYPOINT_NAMES[part]}" if part is not None else "")
+              + (f" (+ Re-ID ile bağlanan: {linked})" if linked else "")
               + f": {len(doc['views'])} görünüm anahtar karesi")
     elif not doc.get("target"):
         _print_tracks(doc)
@@ -161,11 +187,17 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
         from .team import TeamBank
 
         tbank = TeamBank(cfg)
+    pest = None
+    if args.pose:
+        from .pose import PoseEstimator
+
+        pest = PoseEstimator(args.pose_model or cfg.pose_model, conf_thres=cfg.pose_conf,
+                             device=args.device or cfg.device)
     pipe = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf))
-    samples, size = run_detection(src, pipe, progress, total, bank=bank, team=tbank)
+    samples, size = run_detection(src, pipe, progress, total, bank=bank, team=tbank, pose=pest)
     doc = make_doc(args.video, size, src.src_fps, src.duration, fps, samples,
                    emb=bank.result() if bank else None,
-                   team=tbank.result() if tbank else None)
+                   team=tbank.result() if tbank else None, pose=pest is not None)
     _finish_doc(doc, cfg, args, args.out or f"{args.video}.track.json")
     return 0
 

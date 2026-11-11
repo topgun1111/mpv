@@ -12,6 +12,9 @@ Aşamalar (hepsi IO'suz, testli; yalnız `VideoSource` cv2 kullanır):
    "samples": [{"t": 0.1, "d": [[id, x1, y1, x2, y2, skor], ...]}, ...],
    "target": {"id": 7} | null,
    "views": [[t, zoom, pan_x, pan_y], ...]}   # target yoksa []
+Sürüm 2 (`offline --pose`, B1): her örnekte isteğe bağlı `"kp": {"<id>": [x, y, güven] × 17}`
+(düz liste, 51 sayı; x/y normalize, güven 0..1; COCO sırası = `pose.KEYPOINT_NAMES`) ve hedefte
+`"part": <eklem indeksi>`. Sürüm 1 dosyaları aynen okunur; `kp` yoksa parça hedefi seçilemez.
 Hedef seçilince ayrıca küçük bir `<video>.views.json` yazılır (`save_views`): yalnız
 {"version", "video": {"path"}, "target", "views"}; Lua (Parça 10) bunu okur, büyük `samples`'ı
 ayrıştırmaz. `views` doğrudan mpv `video-zoom`/`video-pan-x/y` değerleridir (Parça 10 Lua bunları
@@ -26,9 +29,12 @@ from .bytetrack import Track
 from .config import Config
 from .geometry import BBox, View, compute_view
 from .live import pick_track
+from .pose import N_KPT, _iou
 from .smooth import ease_view, smooth_zero_phase
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 1  # eklemsiz dosyalar + `<video>.views.json` (Lua yalnız 1'i kabul eder)
+POSE_SCHEMA_VERSION = 2  # eklem verisi (`kp`) içeren track.json
+SUPPORTED_VERSIONS = (SCHEMA_VERSION, POSE_SCHEMA_VERSION)
 
 
 class VideoSource:
@@ -65,11 +71,31 @@ class VideoSource:
             self._cap.release()
 
 
+def associate_poses(tracks, poses, min_iou: float = 0.3) -> dict:
+    """İz ↔ poz eşleme (kutu IoU'su, açgözlü, her poz bir kez): {iz kimliği: Pose}."""
+    pairs = sorted(((_iou(tr.bbox, p.bbox), i, j) for i, tr in enumerate(tracks)
+                    for j, p in enumerate(poses)), reverse=True)
+    out, used = {}, set()
+    for v, i, j in pairs:
+        if v < min_iou:
+            break
+        if tracks[i].id not in out and j not in used:
+            out[tracks[i].id] = poses[j]
+            used.add(j)
+    return out
+
+
+def _kp_row(p, w: int, h: int) -> list[float]:
+    return [v for x, y, c in p.kpts
+            for v in (round(float(x) / w, 4), round(float(y) / h, 4), round(float(c), 2))]
+
+
 def run_detection(frames, pipeline, progress=None, total: int | None = None, bank=None,
-                  team=None):
+                  team=None, pose=None):
     """`frames`: (t, kare) üreteci → (örnekler, (w, h)). Kare boyutu ilk kareden alınır.
     `bank` (reid.TrackletBank) verilirse izlerin ilk/son embedding'leri toplanır;
-    `team` (team.TeamBank) verilirse izlerin takım rengi toplanır."""
+    `team` (team.TeamBank) verilirse izlerin takım rengi toplanır;
+    `pose` (pose.PoseEstimator) verilirse izlere eşlenen eklemler örneğe `kp` olarak yazılır."""
     samples, size = [], None
     for n, (t, frame) in enumerate(frames, 1):
         h, w = frame.shape[:2]
@@ -84,15 +110,22 @@ def run_detection(frames, pipeline, progress=None, total: int | None = None, ban
             b = tr.bbox
             d.append([tr.id, round(b.x1 / w, 4), round(b.y1 / h, 4),
                       round(b.x2 / w, 4), round(b.y2 / h, 4), round(tr.score, 3)])
-        samples.append({"t": round(t, 3), "d": d})
+        smp = {"t": round(t, 3), "d": d}
+        if pose is not None:
+            kp = {str(i): _kp_row(p, w, h)
+                  for i, p in associate_poses(tracks, pose.estimate(frame)).items()}
+            if kp:
+                smp["kp"] = kp
+        samples.append(smp)
         if progress:
             progress(n, total)
     return samples, size or (0, 0)
 
 
 def make_doc(path: str, size, fps_src: float, duration: float, sample_fps: float,
-             samples: list, emb: dict | None = None, team: dict | None = None) -> dict:
-    doc = {"version": SCHEMA_VERSION,
+             samples: list, emb: dict | None = None, team: dict | None = None,
+             pose: bool = False) -> dict:
+    doc = {"version": POSE_SCHEMA_VERSION if pose else SCHEMA_VERSION,
             "video": {"path": path, "w": size[0], "h": size[1], "fps": round(fps_src, 3),
                       "duration": round(duration, 3)},
             "sample_fps": sample_fps, "samples": samples, "target": None, "views": []}
@@ -148,7 +181,7 @@ def view_at(views: list[list[float]], t: float) -> tuple[float, float, float]:
 def load_doc(path: str | Path) -> dict:
     doc = json.loads(Path(path).read_text(encoding="utf-8"))
     ver = doc.get("version") if isinstance(doc, dict) else None
-    if ver != SCHEMA_VERSION:
+    if ver not in SUPPORTED_VERSIONS:
         raise ValueError(f"desteklenmeyen track.json sürümü: {ver}")
     for k in ("video", "samples"):
         if k not in doc:
@@ -207,6 +240,42 @@ def build_views(doc: dict, target_id: int | set[int], cfg: Config) -> list[list[
             if d[0] in ids and d[5] >= best.get(i, -1.0):  # birden çok kimlik: en yüksek skor
                 b = BBox(d[1], d[2], d[3], d[4])
                 boxes[i], best[i] = [b.cx, b.cy, b.w, b.h], d[5]
+    return _views_from_boxes(ts, boxes, cfg)
+
+
+def part_boxes(doc: dict, ids: set[int], part: int, cfg: Config) -> dict[int, list[float]]:
+    """Seçili eklemin örnek başına [cx, cy, w, h] kutusu (normalize; kutu = kişi boyu × `kp_box`,
+    piksel olarak kare). Güveni `kp_min_conf` altındaki eklem yok sayılır (kısa boşluklar
+    `_views_from_boxes` içinde doldurulur). Birden çok kimlikte en güvenilir eklem."""
+    w, h = doc["video"]["w"] or 1, doc["video"]["h"] or 1
+    boxes: dict[int, list[float]] = {}
+    best: dict[int, float] = {}
+    for i, s in enumerate(doc["samples"]):
+        kps = s.get("kp") or {}
+        for d in s["d"]:
+            row = kps.get(str(d[0]))
+            if d[0] not in ids or not row:
+                continue
+            x, y, c = row[3 * part: 3 * part + 3]
+            if c >= cfg.kp_min_conf and c >= best.get(i, -1.0):
+                side = max(cfg.kp_box * (d[4] - d[2]) * h, 8.0)  # piksel
+                boxes[i], best[i] = [x, y, side / w, side / h], c
+    return boxes
+
+
+def build_part_views(doc: dict, ids: int | set[int], part: int,
+                     cfg: Config) -> list[list[float]]:
+    """Kimlik(ler)in `part` eklemi için görünüm anahtar kareleri (sıfır-faz, boşluk dolduran)."""
+    if not 0 <= part < N_KPT:
+        raise ValueError(f"eklem indeksi 0..{N_KPT - 1} olmalı: {part}")
+    ts = [s["t"] for s in doc["samples"]]
+    ids = {ids} if isinstance(ids, int) else set(ids)
+    return _views_from_boxes(ts, part_boxes(doc, ids, part, cfg), cfg)
+
+
+def _views_from_boxes(ts: list[float], boxes: dict[int, list[float]],
+                      cfg: Config) -> list[list[float]]:
+    n = len(ts)
     vis = sorted(boxes)
     # 1) kısa kayıpları doğrusal doldur (ileri-geri bilgi: non-causal)
     for a, b in zip(vis, vis[1:], strict=False):
@@ -261,13 +330,20 @@ def build_views(doc: dict, target_id: int | set[int], cfg: Config) -> list[list[
     return out
 
 
-def apply_target(doc: dict, target_id: int, cfg: Config, link: bool = True) -> dict:
-    """Hedefi ayarla. `doc['emb']` varsa ve `link` ise Re-ID ile ID değişimlerini zincirler."""
+def apply_target(doc: dict, target_id: int, cfg: Config, link: bool = True,
+                 part: int | None = None) -> dict:
+    """Hedefi ayarla. `doc['emb']` varsa ve `link` ise Re-ID ile ID değişimlerini zincirler.
+    `part` (eklem indeksi) verilirse görünüm kişiyi değil o eklemi izler (`kp` gerekir)."""
+    if part is not None and not any(s.get("kp") for s in doc["samples"]):
+        raise ValueError("track.json'da eklem verisi yok; `offline --pose` ile yeniden tara")
     linked: list[int] = []
     if link and doc.get("emb"):
         from .reid import link_ids
 
         linked = link_ids(doc, target_id, cfg)
-    doc["target"] = {"id": target_id, **({"linked": linked} if linked else {})}
-    doc["views"] = build_views(doc, {target_id, *linked}, cfg)
+    doc["target"] = {"id": target_id, **({"part": part} if part is not None else {}),
+                     **({"linked": linked} if linked else {})}
+    ids = {target_id, *linked}
+    doc["views"] = (build_views(doc, ids, cfg) if part is None
+                    else build_part_views(doc, ids, part, cfg))
     return doc

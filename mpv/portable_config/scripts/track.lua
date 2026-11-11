@@ -182,7 +182,7 @@ local function load_views(vpath)
       local doc, err = utils.parse_json(text)
       if not doc then
         reason = suffix .. " okunamadı: " .. tostring(err)
-      elseif doc.version ~= 1 then
+      elseif doc.version ~= 1 and doc.version ~= 2 then
         reason = suffix .. ": desteklenmeyen sürüm " .. tostring(doc.version)
       elseif type(doc.views) ~= "table" or #doc.views == 0 then
         reason = suffix .. ": hedef seçilmemiş (offline-view --target-id N)"
