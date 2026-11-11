@@ -74,6 +74,8 @@ class Config:
     kp_world: bool = True  # eklem takibi: kamera hareketi telafisi (dünya konumu)
     kp_filter: bool = True  # eklem konumuna One-Euro süzgeci
     kp_reacq_single: bool = True  # uzun kayıptan sonra karede tek uygun kişi varsa yeniden bağla
+    gmc: bool = True  # ByteTrack tahmini kamera hareketiyle telafi edilir (canlı + offline)
+    gmc_side: int = 480  # kamera kestirimi için kare en uzun kenarı (px)
     point_max_side: int = 640  # nesne izleyici kareyi en uzun kenarı bu olacak şekilde küçültür
 
     def __post_init__(self) -> None:

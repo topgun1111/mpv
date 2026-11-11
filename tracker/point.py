@@ -25,6 +25,7 @@ from __future__ import annotations
 import numpy as np
 
 from .geometry import BBox
+from .gmc import CameraMotion, estimate_step
 
 _MIN_WORK_BOX = 20  # çalışma ölçeğinde kutunun en küçük kenarı (px)
 _CORE = 0.6  # köşe noktaları kutunun ortadaki bu oranından seçilir (kenardaki arka planı ele)
@@ -356,20 +357,8 @@ class WorldPointTracker:
             x1, y1 = int(b.x1 * c - m), int(b.y1 * c - m)
             x2, y2 = int(b.x2 * c + m), int(b.y2 * c + m)
             mask[max(y1, 0):max(y2, 0), max(x1, 0):max(x2, 0)] = 0
-        pts = cv2.goodFeaturesToTrack(prev, 250, 0.01, 8, mask=mask)
-        if pts is None or len(pts) < 10:
-            return
-        lk = {"winSize": (21, 21), "maxLevel": 4,
-              "criteria": (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.03)}
-        p1, st, _ = cv2.calcOpticalFlowPyrLK(prev, cur, pts, None, **lk)
-        p0, st2, _ = cv2.calcOpticalFlowPyrLK(cur, prev, p1, None, **lk)
-        fb = np.linalg.norm((pts - p0).reshape(-1, 2), axis=1)
-        good = (st.ravel() == 1) & (st2.ravel() == 1) & (fb < 1.0)
-        if int(good.sum()) < 10:
-            return
-        a, b = p1[good].reshape(-1, 2), pts[good].reshape(-1, 2)  # kare t -> kare t-1
-        A, inl = cv2.estimateAffinePartial2D(a, b, method=cv2.RANSAC, ransacReprojThreshold=2.0)
-        if A is None or inl is None or int(inl.sum()) < 8:
+        A = estimate_step(cv2, prev, cur, mask)
+        if A is None:
             return
         S = np.diag([self.cs, self.cs, 1.0])
         step = np.vstack([A, [0, 0, 1]])
@@ -377,28 +366,4 @@ class WorldPointTracker:
         self.W = self.W @ full
 
 
-class CameraComp(WorldPointTracker):
-    """Yalnız kamera hareketi telafisi (hedefsiz): `WorldPointTracker`'ın kamera kestirimi
-    (`_camera`, kare → dünya `W`) yeniden kullanılır; eklem takibi (B2) kare dışına çıkan parçanın
-    dünya konumunu bununla taşır. Kestirilemeyen karelerde `W` değişmez (kimlik dönüşümü)."""
-
-    def __init__(self, frame_bgr: np.ndarray, cam_side: int = 480):
-        import cv2
-
-        self._cv2 = cv2
-        self.fh, self.fw = frame_bgr.shape[:2]
-        self.cs = min(1.0, cam_side / max(self.fw, self.fh))
-        self.cprev = self._cgray(frame_bgr)
-        self.W = np.eye(3)
-        self.visible = False  # `_camera` hedef kutusunu maskelemesin
-
-    def update(self, frame_bgr: np.ndarray) -> None:  # type: ignore[override]
-        cur = self._cgray(frame_bgr)
-        self._camera(cur)
-        self.cprev = cur
-
-    def to_world(self, x: float, y: float) -> tuple[float, float]:
-        return self._to_world(x, y)
-
-    def to_frame(self, wx: float, wy: float) -> tuple[float, float]:
-        return self._to_frame(wx, wy)
+CameraComp = CameraMotion  # eklem takibi (B2) için hedefsiz kamera telafisi (gmc.py)

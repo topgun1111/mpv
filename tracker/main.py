@@ -157,7 +157,7 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
     from .bytetrack import ByteTracker
     from .detector import Detector
     from .offline import VideoSource, make_doc, run_detection
-    from .pipeline import Pipeline
+    from .pipeline import Pipeline, make_gmc
 
     fps = args.fps or cfg.offline_fps
     src = VideoSource(args.video, fps)
@@ -193,7 +193,7 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
 
         pest = PoseEstimator(args.pose_model or cfg.pose_model, conf_thres=cfg.pose_conf,
                              device=args.device or cfg.device)
-    pipe = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf))
+    pipe = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf), gmc=make_gmc(cfg))
     samples, size = run_detection(src, pipe, progress, total, bank=bank, team=tbank, pose=pest)
     doc = make_doc(args.video, size, src.src_fps, src.duration, fps, samples,
                    emb=bank.result() if bank else None,
@@ -221,7 +221,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     from .bytetrack import ByteTracker
     from .detector import Detector
     from .live import EventListener, model_line, run_live
-    from .pipeline import NullPipeline, Pipeline
+    from .pipeline import NullPipeline, Pipeline, make_gmc
     from .single import SingleInstance
 
     if (args.team or args.number) and not args.reid:
@@ -258,7 +258,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
         print(f"detector: provider={det.providers[0]}, girdi={det.size}")
         info = [model_line("Model", args.model or cfg.model_path, det.session,
                            f"{det.model_type}, {det.size[1]}x{det.size[0]}")]
-        pipeline = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf))
+        pipeline = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf), gmc=make_gmc(cfg))
     reid = None
     if args.reid:
         from .reid import Embedder, ReIdManager

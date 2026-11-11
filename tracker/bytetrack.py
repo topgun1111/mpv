@@ -133,6 +133,17 @@ class KalmanBox:
         self.x = self.x + K @ (z - self.H @ self.x)
         self.P = (np.eye(8) - K @ self.H) @ self.P
 
+    def compensate(self, M: np.ndarray) -> None:
+        """Kamera hareketi: önceki kare → bu kare 3x3 benzerlik dönüşümü (konum, boy, hız)."""
+        L = M[:2, :2]
+        self.x[:2] = L @ self.x[:2] + M[:2, 2]
+        self.x[4:6] = L @ self.x[4:6]
+        s = float(np.sqrt(abs(np.linalg.det(L))))
+        if s > 0:
+            self.x[3] *= s
+            self.x[7] *= s
+            self.x[3] = max(self.x[3], 1.0)
+
     @property
     def bbox(self) -> BBox:
         cx, cy, a, h = self.x[:4]
@@ -179,13 +190,22 @@ class ByteTracker:
         self._tracks = []
         self._next_id = 1
 
-    def update(self, detections) -> list[Track]:
-        """detections: Detection listesi (bbox, score). Dönüş: bu karede GÖRÜLEN izler."""
+    @property
+    def boxes(self) -> list[BBox]:
+        """Canlı izlerin son kutuları (kamera kestirimi köşe seçerken bunları maskeler)."""
+        return [t.bbox for t in self._tracks]
+
+    def update(self, detections, motion: np.ndarray | None = None) -> list[Track]:
+        """detections: Detection listesi (bbox, score). Dönüş: bu karede GÖRÜLEN izler.
+        `motion`: önceki kare → bu kare kamera dönüşümü (3x3, gmc.py); verilirse tahmin
+        kamera kaymasıyla birlikte yapılır (kimlik/None = sabit kamera)."""
         high = [d for d in detections if d.score >= self.high_thr]
         low = [d for d in detections if self.low_thr <= d.score < self.high_thr]
 
         for t in self._tracks:
             t.kf.predict()
+            if motion is not None:
+                t.kf.compensate(motion)
             t.age += 1
             t.lost += 1  # eşleşirse sıfırlanır
 

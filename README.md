@@ -66,6 +66,7 @@ TakipliOynat/
 │  ├─ detector.py                # YOLOv8/YOLOX ONNX çözücüleri + cihaz seçimi
 │  ├─ bytetrack.py, pipeline.py  # ByteTrack + detector birleşimi
 │  ├─ point.py                   # sınıfsız nesne izleyici (sağ tık; optik akış + şablon + kamera telafisi)
+│  ├─ gmc.py                     # kamera hareketi telafisi (LK + RANSAC; ByteTrack, offline, nokta/eklem)
 │  ├─ pose.py                    # eklem (vücut parçası) takibi (YOLOv8-pose)
 │  ├─ reid.py, team.py, number.py  # OSNet Re-ID, takım rengi, forma numarası
 │  ├─ live.py                    # canlı mod (hedef seçimi, kayıp yönetimi, HUD)
@@ -139,6 +140,8 @@ python -m tracker bench video.mp4.track.json                          # yalnız 
 Ölçütler: kimlik sayısı, kısa izler, olası ID değişimi, hedefin görülme/kayıp yüzdesi, canlı-benzetimi ile offline görünüm arasındaki sapma ve titreme (`--target-id` yoksa en uzun iz). Diğer ortak bayraklar: `--model`, `--device`, `--fps`. Canlı modda ek bayraklar: `--wait SN` (mpv IPC'sini bekle), `--stats SN` (fps/gecikme satırı).
 
 ### Eklem (vücut parçası) takibi (Parça 22)
+**Kamera hareketi telafisi (G1)**: `tracker/gmc.py` (`CameraMotion`) arka plan köşelerinden kareden kareye kamera dönüşümünü kestirir; ByteTrack tahmini (Kalman konum/boy/hız) bu dönüşümle kaydırılır, böylece kamera hızlı kayarken kişilerin kimliği kopmaz. Canlıda ve `offline` taramada açıktır; kişi kutuları köşe seçiminden dışlanır, kestirilemezse ya da çekim kesmesinde (kayma > kare genişliğinin %50'si) dönüşüm kimlik sayılır. Ayarlar (`config.json`): `gmc` (true; `false` eski davranış), `gmc_side` (480). Ek maliyet: karede ~birkaç ms (`live --stats` gecikmesine bak).
+
 `models/yolov8s-pose.onnx` varsa yüklenir (yoksa sessizce kapalı). Sağ tık bir eklemin (`kp_tol`: kişi boyunun 0.12'si) yakınına yapılırsa o eklem izlenir (HUD: «Hedef: sol ayak bileği»), uzaksa nesne takibi. Ayarlar (`config.json`): `pose_model`, `pose_conf` (0.3), `kp_tol`, `kp_min_conf` (0.35), `kp_box` (0.10), `kp_hold` (6), `kp_hold_s` (1.5), `kp_world`, `kp_filter`, `kp_reacq_single`. Canlıda çalışır; offline için `offline VIDEO --pose` eklemleri `track.json`'a (sürüm 2) yazar, `--part "sol ayak bileği"` (ya da 0–16) görünümü o eklemden üretir (B1).
 
 ### Offline oynatma (Parça 10)
