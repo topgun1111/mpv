@@ -28,9 +28,10 @@ local function buttons()
   return {
     { w = 1,   label = "-", act = function() speed_step(-0.1) end },
     { w = 2,   label = string.format("%.1fx", mp.get_property_number("speed", 1) or 1),
+      on = math.abs((mp.get_property_number("speed", 1) or 1) - 1) > 0.01,
       act = function() mp.set_property_number("speed", 1); mp.osd_message("Hız: 1.0x", 1.5) end },
     { w = 1,   label = "+", act = function() speed_step(0.1) end },
-    { w = 1.4, label = "CC", dim = not sub_on(), act = function() mp.command("osd-auto cycle sub") end },
+    { w = 1.4, label = "CC", on = sub_on(), off = not sub_on(), act = function() mp.command("osd-auto cycle sub") end },
     { w = 2,   label = "Liste", act = function() mp.command("show-text ${playlist} 5000") end },
   }
 end
@@ -52,19 +53,33 @@ local function layout()
   return W, H
 end
 
+local function rr(w, h, r) -- yuvarlatılmış dikdörtgen çizimi (ASS)
+  return string.format("m %d 0 l %d 0 b %d 0 %d 0 %d %d l %d %d b %d %d %d %d %d %d l %d %d b 0 %d 0 %d 0 %d l 0 %d b 0 0 0 0 %d 0",
+    r, w - r, w, w, w, r, w, h - r, w, h, w, h, w - r, h, r, h, h, h, h - r, r, r)
+end
+
 local function render()
   if not st.vis then ov:remove(); return end
   local W, H = layout()
-  if W <= 0 then return end
+  if W <= 0 or #st.rects == 0 then return end
   ov.res_x, ov.res_y = W, H
-  local out = {}
+  local out, f, l = {}, st.rects[1], st.rects[#st.rects]
+  local pad = math.floor(f.h * 0.22)
+  local bw, bh = (l.x + l.w) - f.x + 2 * pad, f.h + 2 * pad
+  -- gölge + kapsül arka plan
+  out[#out + 1] = string.format("{\\an7\\pos(%d,%d)\\bord0\\shad0\\1c&H000000&\\1a&HC0&\\p1}%s{\\p0}",
+    f.x - pad + 2, f.y - pad + 3, rr(bw, bh, math.floor(bh / 2)))
+  out[#out + 1] = string.format("{\\an7\\pos(%d,%d)\\bord1\\3c&H606060&\\3a&H90&\\shad0\\1c&H1A1A1A&\\1a&H38&\\p1}%s{\\p0}",
+    f.x - pad, f.y - pad, rr(bw, bh, math.floor(bh / 2)))
   for i, r in ipairs(st.rects) do
     local b, on = st.list[i], (i == st.hover)
-    out[#out + 1] = string.format(
-      "{\\an7\\pos(%d,%d)\\bord0\\shad0\\1c&H%s&\\1a&H%s&\\p1}m 0 0 l %d 0 %d %d 0 %d{\\p0}",
-      r.x, r.y, on and "0088FF" or "202020", on and "10" or "50", r.w, r.w, r.h, r.h)
-    out[#out + 1] = string.format("{\\an5\\pos(%d,%d)\\bord0\\shad0\\fs%d\\1c&H%s&}%s",
-      math.floor(r.x + r.w / 2), math.floor(r.y + r.h / 2), math.floor(r.h * 0.5), b.dim and "909090" or "FFFFFF", b.label)
+    if on then
+      out[#out + 1] = string.format("{\\an7\\pos(%d,%d)\\bord0\\shad0\\1c&H0088FF&\\1a&H00&\\p1}%s{\\p0}",
+        r.x, r.y, rr(r.w, r.h, math.floor(r.h / 2)))
+    end
+    local col = on and "FFFFFF" or (b.on and "0088FF") or (b.off and "808080") or "F0F0F0"
+    out[#out + 1] = string.format("{\\an5\\pos(%d,%d)\\bord0\\shad0\\b1\\fs%d\\1c&H%s&}%s",
+      math.floor(r.x + r.w / 2), math.floor(r.y + r.h / 2), math.floor(r.h * 0.5), col, b.label)
   end
   ov.data = table.concat(out, "\n")
   ov:update()
