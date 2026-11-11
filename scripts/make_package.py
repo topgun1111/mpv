@@ -33,7 +33,8 @@ def main() -> int:
     _copytree(ROOT / "mpv" / "portable_config", OUT / "mpv" / "portable_config")
     (OUT / "models").mkdir()
     (OUT / "models" / ".gitkeep").touch()
-    shutil.copy2(ROOT / "models" / "MODELLER.txt", OUT / "models" / "MODELLER.txt")
+    for name in ("MODELLER.txt", "manifest.json"):
+        shutil.copy2(ROOT / "models" / name, OUT / "models" / name)
     for bat in sorted((ROOT / "launcher").glob("*.bat")):  # CRLF: cmd.exe için
         data = bat.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
         (OUT / bat.name).write_bytes(data)

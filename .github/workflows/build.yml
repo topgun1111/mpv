@@ -44,6 +44,12 @@ jobs:
         run: |
           pip install ultralytics onnx
           python scripts/export_pose.py dist/TakipliOynat/models yolov8s-pose
+      - name: ffmpeg indir (GPL derlemesi, libx264; takip kamerası dışa aktarma için)
+        shell: pwsh
+        run: ./scripts/fetch_ffmpeg.ps1 -Target dist/TakipliOynat/ffmpeg
+        # Özeti doğrulayınca env: FFMPEG_SHA256 olarak sabitle
+      - name: Model/araç bütünlüğü (models/manifest.json) + SHA256SUMS
+        run: python scripts/verify_models.py dist/TakipliOynat --write-sums
       - name: Paketlenmiş Python duman testi
         shell: pwsh
         working-directory: dist/TakipliOynat
@@ -57,10 +63,18 @@ jobs:
           if (-not (Test-Path models\yolox_s.onnx)) { throw "models\yolox_s.onnx pakette yok" }
           if (-not (Test-Path models\YOLOX_LICENSE.txt)) { throw "YOLOX lisans metni (Apache-2.0) pakette yok" }
           if (-not (Test-Path models\yolov8s-pose.onnx)) { throw "models\yolov8s-pose.onnx pakette yok" }
+          if (-not (Test-Path ffmpeg\ffmpeg.exe)) { throw "ffmpeg\ffmpeg.exe pakette yok" }
+          if (-not (Test-Path models\SHA256SUMS.txt)) { throw "models\SHA256SUMS.txt yok" }
           .\python\python.exe -c "import numpy as np, cv2; cv2.imwrite('blank.jpg', np.zeros((720, 1280, 3), np.uint8))"
           .\python\python.exe -m tracker detect blank.jpg --model models\yolox_s.onnx --out blank_out.jpg
           if ($LASTEXITCODE -ne 0) { throw "YOLOX modeli duman testinde çalışmadı" }
-          Remove-Item blank.jpg, blank_out.jpg -ErrorAction SilentlyContinue
+          # pose modeli açılıyor mu ve çıktı düzeni [1,56,N] mi (tracker/pose.py çözücüsünün varsayımı)
+          .\python\python.exe -c "import onnxruntime as o; s = o.InferenceSession('models/yolov8s-pose.onnx', providers=['CPUExecutionProvider']); sh = s.get_outputs()[0].shape; print('pose çıktı', sh); assert sh[1] == 56, sh"
+          if ($LASTEXITCODE -ne 0) { throw "yolov8s-pose.onnx açılmadı ya da çıktı düzeni [1,56,N] değil" }
+          # ffmpeg libx264 ile gerçekten kodluyor mu (dışa aktarma sessiz yedeğe düşmesin)
+          .\ffmpeg\ffmpeg.exe -hide_banner -loglevel error -f lavfi -i testsrc=size=320x240:rate=10 -t 1 -c:v libx264 -pix_fmt yuv420p ff_test.mp4
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path ff_test.mp4)) { throw "ffmpeg libx264 duman testi başarısız" }
+          Remove-Item blank.jpg, blank_out.jpg, ff_test.mp4 -ErrorAction SilentlyContinue
       - name: Taşınabilir ZIP
         shell: pwsh
         run: Compress-Archive -Path dist/TakipliOynat -DestinationPath dist/TakipliOynat-portable.zip

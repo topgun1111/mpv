@@ -15,6 +15,8 @@ tarafından belirlenir (depoda `LICENSE` dosyası yoksa tüm haklar saklıdır).
 | **opencv-python-headless** | Sarmalayıcı MIT; OpenCV Apache-2.0; tekerlek FFmpeg (LGPL-2.1+) ve başka kütüphaneler içerir (`LICENSE-3RD-PARTY.txt`) | pip ile | Lisans dosyaları kalmalı; FFmpeg DLL'leri değiştirilebilir (dinamik) bırakılmalı |
 | **ONNX Runtime — DirectML** (`onnxruntime-directml`) | MIT; `DirectML.dll` Microsoft yeniden dağıtılabilir bileşeni (tekerlekte `ThirdPartyNotices.txt`) | pip ile | Tekerlekteki bildirimler kalmalı |
 | **YOLOX-S modeli** (`models\yolox_s.onnx`, Megvii-BaseDetection/YOLOX) | Apache-2.0 | Derlemede (`scripts/fetch_model.ps1`) resmî sürümden indirilir, değiştirilmeden kurulumla birlikte gelir; böylece kurulumdan sonra elle model kopyalamak gerekmez | Lisans metni `models\YOLOX_LICENSE.txt` olarak pakette kalmalı. COCO verisinin kendi koşulları ayrıca geçerlidir |
+| **YOLOv8s-pose modeli** (`models\\yolov8s-pose.onnx`, Ultralytics) | **AGPL-3.0** | Derlemede `scripts/export_pose.py` ile ONNX'e çevrilir (eklem takibi); **kişisel kullanım** — başkalarına dağıtırsan AGPL şartları geçerli olur | Dosyayı dağıtırsan kaynak/lisans yükümlülüğü; bkz. Madde 2 |
+| **ffmpeg** (`ffmpeg\\ffmpeg.exe`, BtbN FFmpeg-Builds win64 **GPL** derlemesi; libx264 içerir) | GPL-2.0+/GPL-3.0 (x264: GPL-2.0+; ffmpeg çekirdeği LGPL-2.1+) | Değiştirilmeden, ayrı çalıştırılabilir; yalnız `export` komutu alt süreç olarak çalıştırır (bağlama yok). `scripts/fetch_ffmpeg.ps1` indirir | Lisans metni `ffmpeg\\FFMPEG_LICENSE.txt`; **kaynak teklifi**: Madde 3. Derleme kimliği `ffmpeg\\BUILD_INFO.txt` |
 | **Inno Setup** (yalnız derleme aracı) | Inno Setup License (serbest) | Kurulum programına küçük çalışma zamanı gömülür | Ek yükümlülük yok |
 
 Python paketlerinin tam lisans listesi için paketlenmiş ortamda:
@@ -48,6 +50,17 @@ paketi aldıktan sonra **en az üç yıl** boyunca, dağıtım maliyetini aşmay
 herkese sağlamayı yazılı olarak taahhüt eder (GPL-2.0 madde 3(b)); kolaylık için yukarıdaki
 bağlantılar ve BUILD_INFO.txt'deki sürüm bilgisi bu teklifin parçasıdır. Daha güvenli yol: indirilen
 mpv sürümünü sabitleyip (`fetch_deps.ps1 -Tag <sürüm>`) kaynak arşivini paketle birlikte yayımlamak.
+
+ffmpeg (ve x264) için de aynı teklif geçerlidir: kaynak kodu https://ffmpeg.org/download.html ve
+https://www.videolan.org/developers/x264.html adreslerindedir; derleme betikleri
+https://github.com/BtbN/FFmpeg-Builds (tam adres/özet `ffmpeg\\BUILD_INFO.txt`'de).
+
+## 3b. Paket bütünlüğü
+
+`models\\manifest.json` pakette bulunması zorunlu model/araç dosyalarını (boyut, lisans, isteğe bağlı
+SHA256) listeler; `scripts/verify_models.py` derlemede denetler, `models\\SHA256SUMS.txt` kurulan
+dosyaların özetini verir. Yeni bir model (Re-ID, tüm-vücut pose...) eklenirken **önce** manifest ve bu
+belge (lisansıyla) güncellenir.
 
 ## 4. Takipli Oynat kodu ile ilişki
 

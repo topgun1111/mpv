@@ -176,3 +176,83 @@ def test_installer_upgrades_in_place_and_ships_model_with_license():
 def test_models_note_says_bundled_and_stays_ascii():
     m = (ROOT / "models" / "MODELLER.txt").read_text(encoding="ascii")
     assert "HAZIR GELIR" in m and "GEREKMEZ" in m
+
+
+def test_models_manifest_matches_workflow_installer_and_verifier(tmp_path):
+    """I1: zorunlu dosya listesi tek yerde (manifest); workflow/installer/doğrulayıcı uyumlu."""
+    vm = _load("verify_models")
+    files = vm.load_manifest()
+    paths = {e["path"] for e in files}
+    assert {"models/yolox_s.onnx", "models/yolov8s-pose.onnx", "ffmpeg/ffmpeg.exe"} <= paths
+    wf = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+    for e in files:
+        # her zorunlu dosya workflow'da duman testinde ya da manifest denetiminde geçmeli
+        assert e["path"].split("/")[-1] in wf or "verify_models.py" in wf
+        assert e["min_bytes"] > 0 and e["license"]
+    order = [wf.index(k) for k in ("fetch_deps.ps1", "fetch_model.ps1", "export_pose.py",
+                                   "fetch_ffmpeg.ps1", "verify_models.py", "DmlExecutionProvider",
+                                   "Compress-Archive", "iscc")]
+    assert order == sorted(order)  # tüm bileşenler paketlenmeden doğrulama/zip/installer yok
+    assert "libx264" in wf and "[1,56,N]" in wf
+    iss = (ROOT / "installer.iss").read_text(encoding="utf-8")
+    assert r'{app}\ffmpeg' in iss  # güncellemede eski ffmpeg yenilenir
+    ff = (ROOT / "scripts" / "fetch_ffmpeg.ps1").read_text(encoding="utf-8")
+    assert "libx264" in ff and "throw" in ff and "BUILD_INFO.txt" in ff and "SHA256" in ff
+    assert "-gpl" in ff  # LGPL derlemesinde libx264 yok
+
+
+def test_verify_models_detects_missing_small_bad_hash_and_missing_license(tmp_path):
+    vm = _load("verify_models")
+    files = [
+        {"path": "models/a.onnx", "min_bytes": 10, "license": "X",
+         "license_file": "models/A_LIC.txt", "sha256": None},
+        {"path": "bin/f.exe", "min_bytes": 5, "license": "Y", "license_file": None, "sha256": None},
+    ]
+    errs, sums = vm.check(tmp_path, files)
+    assert len(errs) == 2 and all(e.startswith("EKSİK") for e in errs) and not sums
+    (tmp_path / "models").mkdir()
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "models" / "a.onnx").write_bytes(b"x" * 4)  # çok küçük
+    (tmp_path / "bin" / "f.exe").write_bytes(b"12345")
+    errs, sums = vm.check(tmp_path, files)
+    assert len(errs) == 1 and errs[0].startswith("ÇOK KÜÇÜK") and list(sums) == ["bin/f.exe"]
+    (tmp_path / "models" / "a.onnx").write_bytes(b"y" * 20)
+    errs, _ = vm.check(tmp_path, files)
+    assert len(errs) == 1 and errs[0].startswith("LİSANS DOSYASI EKSİK")
+    (tmp_path / "models" / "A_LIC.txt").write_text("lisans")
+    assert vm.check(tmp_path, files)[0] == []
+    files[1]["sha256"] = "0" * 64  # sabitlenmiş özet uyuşmuyor → derleme durmalı
+    errs, _ = vm.check(tmp_path, files)
+    assert len(errs) == 1 and errs[0].startswith("ÖZET UYUŞMUYOR")
+    # büyük/küçük harf fark etmez
+    files[1]["sha256"] = vm.sha256_of(tmp_path / "bin" / "f.exe").upper()
+    assert vm.check(tmp_path, files)[0] == []
+
+
+def test_verify_models_cli_writes_sums_and_fails_on_incomplete_package(tmp_path, capsys):
+    vm = _load("verify_models")
+    assert vm.main(["verify_models.py", str(tmp_path)]) == 1  # boş paket: hepsi eksik
+    err = capsys.readouterr().err
+    assert "models/yolox_s.onnx" in err and "ffmpeg/ffmpeg.exe" in err
+    for e in vm.load_manifest():  # sahte ama yeterince büyük dosyalar + lisanslar
+        p = tmp_path / e["path"]
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"\0" * e["min_bytes"])
+        if e["license_file"]:
+            lp = tmp_path / e["license_file"]
+            lp.parent.mkdir(parents=True, exist_ok=True)
+            lp.write_text("lisans")
+    assert vm.main(["verify_models.py", str(tmp_path), "--write-sums"]) == 0
+    sums = (tmp_path / "models" / "SHA256SUMS.txt").read_text(encoding="utf-8").splitlines()
+    assert len(sums) == len(vm.load_manifest()) and all(len(ln.split("  ")[0]) == 64 for ln in sums)
+
+
+def test_make_package_ships_manifest_and_notices_cover_ffmpeg(tmp_path, monkeypatch):
+    monkeypatch.setattr(pkg, "OUT", tmp_path / "TakipliOynat")
+    assert pkg.main() == 0
+    assert (tmp_path / "TakipliOynat" / "models" / "manifest.json").is_file()
+    n = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    for key in ("ffmpeg", "libx264", "yolov8s-pose", "FFMPEG_LICENSE.txt", "manifest.json", "x264"):
+        assert key in n, key
+    m = (ROOT / "models" / "MODELLER.txt").read_text(encoding="ascii")
+    assert "ffmpeg" in m and "manifest.json" in m and "SHA256SUMS" in m

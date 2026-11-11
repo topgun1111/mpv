@@ -1,6 +1,6 @@
 ; Takipli Oynat - tam kurulum (gömülü Python + mpv + DirectML + YOLOX-S modeli). Derleme: iscc /DAppVersion=x installer.iss
 ; Önkoşul: dist\TakipliOynat içinde python\ (scripts/build_embedded.py), mpv\mpv.exe (fetch_deps.ps1)
-; ve models\yolox_s.onnx (fetch_model.ps1). Kurulumdan sonra elle bir şey kurmak/kopyalamak gerekmez.
+; models\yolox_s.onnx (fetch_model.ps1), models\yolov8s-pose.onnx (export_pose.py), ffmpeg\ffmpeg.exe (fetch_ffmpeg.ps1). Kurulumdan sonra elle bir şey kurmak/kopyalamak gerekmez.
 ;
 ; GÜNCELLEME: yeni setup.exe'yi çalıştırmak yeter. AppId aynı olduğundan eski kurulumun üstüne (aynı klasör,
 ; aynı yetki, aynı Başlat menüsü grubu) sorusuz kurulur; açık mpv/python kendiliğinden kapatılır; eski
@@ -42,7 +42,8 @@ RestartApplications=no
 Name: "tr"; MessagesFile: "compiler:Languages\Turkish.isl"
 
 [Files]
-; models\yolox_s.onnx ve models\yolov8s-pose.onnx (eklem takibi; AGPL: yalnız kişisel kullanım) pakete CI'da konur.
+; models\yolox_s.onnx, models\yolov8s-pose.onnx (eklem takibi; AGPL: yalnız kişisel kullanım) ve ffmpeg\ffmpeg.exe
+; (dışa aktarma; GPL) pakete CI'da konur (models\manifest.json + scripts\verify_models.py denetler).
 Source: "dist\TakipliOynat\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [InstallDelete]
@@ -50,6 +51,7 @@ Source: "dist\TakipliOynat\*"; DestDir: "{app}"; Flags: recursesubdirs createall
 ; mpv\portable_config\watch_later korunur)
 Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\tracker"
+Type: filesandordirs; Name: "{app}\ffmpeg"
 Type: filesandordirs; Name: "{app}\mpv\portable_config\scripts"
 Type: filesandordirs; Name: "{app}\mpv\portable_config\script-modules"
 

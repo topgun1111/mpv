@@ -22,6 +22,14 @@ VUCUT PARCASI (EKLEM) TAKIBI - PAKETTE (kisisel kullanim)
                      Sag tik bir eklemin (ayak bilegi, diz, bilek, omuz...) yakinina yapilirsa o eklem izlenir;
                      uzaksa eski nesne takibi. Dosya yoksa yalniz nesne takibi calisir. Ayarlar: pose_model, kp_tol.
 
+TAKIP KAMERASI VIDEO DISA AKTARMA - PAKETTE
+  ffmpeg\\ffmpeg.exe  BtbN FFmpeg-Builds win64 GPL derlemesi (libx264). Kurulumla gelir, elle ffmpeg kurmak GEREKMEZ.
+                     Lisans: ffmpeg\\FFMPEG_LICENSE.txt, kaynak/derleme bilgisi: ffmpeg\\BUILD_INFO.txt.
+
+PAKET BUTUNLUGU
+  models\\manifest.json zorunlu dosyalari listeler (CI'da scripts/verify_models.py denetler);
+  models\\SHA256SUMS.txt kurulan dosyalarin ozetidir (elle dogrulama icin).
+
 ISTEGE BAGLI
   osnet_x0_25.onnx    Re-ID (oyuncu ID degisirse yeniden bulur). torchreid ile disa aktar.
                       Agirliklar egitim verisinin lisansina tabidir (Market-1501 vb. ticari olmayabilir).
