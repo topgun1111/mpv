@@ -86,18 +86,23 @@ def decode_yolo_pose(
 
 
 def nearest_keypoint(
-    poses: list[Pose], px: float, py: float, tol: float = 0.12, min_conf: float = 0.35
+    poses: list[Pose], px: float, py: float, tol: float = 0.12, min_conf: float = 0.35,
+    fine_tol: float = 0.05, fine_conf: float | None = None,
 ) -> tuple[int, int] | None:
     """(px, py) noktasına en yakın güvenilir eklem: (poz indeksi, eklem indeksi).
 
     Uzaklık sınırı kişi boyunun `tol` oranıdır; hiçbiri yeterince yakın değilse None.
+    O2: poz 17'den çok nokta taşıyorsa (tüm-vücut: el/yüz/ayak parmağı) 17'den sonraki küçük
+    noktalar için `fine_tol` (daha dar) ve `fine_conf` (None = `min_conf`) kullanılır.
     """
     best: tuple[float, int, int] | None = None
     for i, p in enumerate(poses):
-        limit = tol * max(p.bbox.y2 - p.bbox.y1, 1.0)
-        for k in range(N_KPT):
+        height = max(p.bbox.y2 - p.bbox.y1, 1.0)
+        for k in range(len(p.kpts)):
+            fine = k >= N_KPT
+            limit = (fine_tol if fine else tol) * height
             x, y, c = p.kpts[k]
-            if c < min_conf:
+            if c < (min_conf if not fine or fine_conf is None else fine_conf):
                 continue
             d = float(np.hypot(x - px, y - py))
             if d <= limit and (best is None or d < best[0]):
@@ -212,13 +217,21 @@ class KeypointTracker:
     def __init__(self, estimator: PoseEstimator, pose: Pose, kp: int, box_frac: float = 0.10,
                  min_conf: float = 0.35, hold: int = 0, *, hold_s: float = 0.0, cam=None,
                  smooth: bool = False, reacq_single: bool = True, appearance=None,
-                 clock=time.monotonic) -> None:
+                 refiner=None, clock=time.monotonic) -> None:
         self.est, self.kp, self.box_frac, self.min_conf = estimator, kp, box_frac, min_conf
         self.hold, self._misses = hold, 0  # hold: tolere edilen ardışık ıska
         self.hold_s, self.cam, self.reacq_single, self.clock = hold_s, cam, reacq_single, clock
         self.app = appearance  # reid.PartAppearance | None (G3): kalabalıkta kişiyi görünümle bul
         self._frame: np.ndarray | None = None
-        self.label = KEYPOINT_NAMES[kp]
+        # O2: kp >= 17 tüm-vücut noktasıdır; kişi hâlâ 17 noktalı pozla eşlenir (`_ck` = üst eklem)
+        # ve yalnız eşlenen kişi `refiner` (wholebody.WholeBodyEstimator) ile 133 noktaya genişler
+        self.refiner = refiner
+        if kp < N_KPT:
+            self.label, self._ck = KEYPOINT_NAMES[kp], kp
+        else:
+            from .wholebody import WB_NAMES, parent_joint
+
+            self.label, self._ck = WB_NAMES[kp], parent_joint(kp)
         self._person = pose.bbox
         self._pos = (float(pose.kpts[kp][0]), float(pose.kpts[kp][1]))
         self._h = max(pose.bbox.y2 - pose.bbox.y1, 1.0)
@@ -260,7 +273,9 @@ class KeypointTracker:
         self._blind_t = None
         self._h = max(best.bbox.y2 - best.bbox.y1, 1.0)
         prev, self._person = self._person, best.bbox
-        if best.kpts[self.kp][2] < self.min_conf:
+        if self.kp >= N_KPT and self.refiner is not None and len(best.kpts) <= self.kp:
+            best = self.refiner.refine(frame_bgr, best)  # yalnız eşleşen kişi: kare başına 1
+        if len(best.kpts) <= self.kp or best.kpts[self.kp][2] < self.min_conf:
             # Eklem görünmüyor ama kişi var: eklemi kişinin kayması kadar taşı (tek karelik
             # güven düşüşü hedefi düşürmesin; artı işareti de sönmesin)
             x, y = self._pos[0] + best.bbox.cx - prev.cx, self._pos[1] + best.bbox.cy - prev.cy
@@ -314,7 +329,7 @@ class KeypointTracker:
                 return cand[i]
         for p in cand:
             ph = max(p.bbox.y2 - p.bbox.y1, 1.0)
-            kx, ky, kc = p.kpts[self.kp]
+            kx, ky, kc = p.kpts[self._ck]
             ref = (float(kx), float(ky)) if kc >= self.min_conf else (p.bbox.cx, p.bbox.cy)
             d = float(np.hypot(ref[0] - px, ref[1] - py)) / ph
             if (d <= 0.6 or p.bbox.contains(px, py)) and (best is None or d < best_d):

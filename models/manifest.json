@@ -60,6 +60,15 @@
       "sha256": null,
       "optional": true,
       "feature": "ayni model fp16 (DirectML hizi icin pose-bench ile kiyasla)"
+    },
+    {
+      "path": "models/rtmpose-wholebody.onnx",
+      "min_bytes": 20000000,
+      "license": "Apache-2.0 (kod); agirlik COCO-WholeBody/UBody egitim verisi kosullarina tabi",
+      "license_file": null,
+      "sha256": null,
+      "optional": true,
+      "feature": "tum-vucut poz: el, yuz, ayak parmagi (133 nokta; O2)"
     }
   ]
 }

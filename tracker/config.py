@@ -75,6 +75,10 @@ class Config:
     pose_model: str = "models/yolov8s-pose.onnx"  # eklem takibi (isteğe bağlı)
     pose_conf: float = 0.3  # kişi (poz) tespit eşiği
     single_pose: bool = False  # G2: poz modeli kişi dedektörü de olsun (tek çıkarım)
+    wholebody: str = "auto"  # O2: tüm-vücut poz (el/yüz/parmak): auto (dosya varsa) | on | off
+    wholebody_model: str = "models/rtmpose-wholebody.onnx"  # RTMPose-wholebody ONNX (133 nokta)
+    wb_tol: float = 0.05  # tüm-vücut küçük noktaları (parmak, yüz) tıklama toleransı (boy oranı)
+    wb_min_conf: float = 0.3  # RTMPose nokta güveni alt sınırı (SimCC ölçeği YOLO'dan farklıdır)
     kp_tol: float = 0.12  # sağ tık eklemin bu kadar (boy oranı) yakınındaysa
     kp_min_conf: float = 0.35  # eklem güveni alt sınırı (altı = eklem kayıp)
     kp_box: float = 0.10  # eklem etrafındaki takip kutusu (kişi boyu oranı)

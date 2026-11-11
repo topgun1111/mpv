@@ -18,6 +18,7 @@ tarafından belirlenir (depoda `LICENSE` dosyası yoksa tüm haklar saklıdır).
 | **YOLOv8s-pose modeli** (`models\\yolov8s-pose.onnx`, Ultralytics) | **AGPL-3.0** | Derlemede `scripts/export_pose.py` ile ONNX'e çevrilir (eklem takibi); **kişisel kullanım** — başkalarına dağıtırsan AGPL şartları geçerli olur | Dosyayı dağıtırsan kaynak/lisans yükümlülüğü; bkz. Madde 2 |
 | **YOLO11m-pose modeli** (`models\\yolo11m-pose.onnx`, `...-fp16.onnx`; isteğe bağlı, CI'da `scripts/export_pose.py` ile üretilir) | **AGPL-3.0** | `yolov8s-pose` ile aynı koşullar: **kişisel kullanım**; dağıtırsan AGPL | Bkz. Madde 2 |
 | **OSNet x0.25 Re-ID modeli** (`models\\osnet_x0_25.onnx`; isteğe bağlı, CI'da `scripts/export_reid.py` ile üretilir) | torchreid kodu MIT; **ağırlık: ImageNet ön eğitimi (ImageNet kullanım koşulları, araştırma/ticari olmayan)** | Derlemede ONNX'e çevrilir; Re-ID verisiyle (Market-1501 vb.) eğitilmemiştir. **Kişisel kullanım**; dağıtmadan önce ağırlık/veri lisansını doğrula | Dosyayı dağıtırsan veri lisansı yükümlülüğü; bkz. Madde 2 |
+| **RTMPose-wholebody** (`models\\rtmpose-wholebody.onnx`; isteğe bağlı, CI'da `scripts/export_wholebody.py` ile OpenMMLab'ın hazır ONNX arşivinden indirilir) | MMPose/RTMPose kodu Apache-2.0; **ağırlık: COCO-WholeBody / UBody eğitim verisi koşullarına tabi** | Değiştirilmeden ONNX Runtime ile çalışır; el/yüz/ayak parmağı (133 nokta). **Kişisel kullanım**; dağıtmadan önce veri lisansını doğrula | Apache-2.0 lisans metni/atıf; veri lisansı yükümlülüğü (Madde 2) |
 | **ffmpeg** (`ffmpeg\\ffmpeg.exe`, BtbN FFmpeg-Builds win64 **GPL** derlemesi; libx264 içerir) | GPL-2.0+/GPL-3.0 (x264: GPL-2.0+; ffmpeg çekirdeği LGPL-2.1+) | Değiştirilmeden, ayrı çalıştırılabilir; yalnız `export` komutu alt süreç olarak çalıştırır (bağlama yok). `scripts/fetch_ffmpeg.ps1` indirir | Lisans metni `ffmpeg\\FFMPEG_LICENSE.txt`; **kaynak teklifi**: Madde 3. Derleme kimliği `ffmpeg\\BUILD_INFO.txt` |
 | **Inno Setup** (yalnız derleme aracı) | Inno Setup License (serbest) | Kurulum programına küçük çalışma zamanı gömülür | Ek yükümlülük yok |
 
@@ -32,7 +33,7 @@ Python paketlerinin tam lisans listesi için paketlenmiş ortamda:
 Paketi başkalarına dağıtırsan AGPL şartları geçerli olur (pose modelini çıkar ya da kaynağı aç).
 Re-ID/numara modelleri depoda yoktur; lisans sorumluluğu modeli edinen/dağıtana aittir.
 
-**Planlı (ürün amacı: tüm modeller exe ile gelsin)**: Re-ID (OSNet) ağırlıkları, daha güçlü pose (YOLO11-pose, AGPL-3.0) ve tüm-vücut pose (RTMPose-wholebody; ağırlık lisansı eğitim verisine bağlı) pakete konursa bu tablo ve Madde 1 **o sürümle birlikte** güncellenmeli; model eklenmeden önce lisansı doğrulanır. Bu yapı kişisel kullanım içindir; tüm modelleri başkalarına dağıtmak AGPL ve veri kümesi koşullarını devreye sokar.
+**Planlı (ürün amacı: tüm modeller exe ile gelsin)**: Re-ID (OSNet) ağırlıkları, daha güçlü pose (YOLO11-pose, AGPL-3.0) ve tüm-vücut pose (RTMPose-wholebody, O2: CI'da isteğe bağlı eklendi; COCO-WholeBody ağırlık lisansı eğitim verisine bağlı) pakete konursa bu tablo ve Madde 1 **o sürümle birlikte** güncellenmeli; model eklenmeden önce lisansı doğrulanır. Bu yapı kişisel kullanım içindir; tüm modelleri başkalarına dağıtmak AGPL ve veri kümesi koşullarını devreye sokar.
 
 | Model | Lisans | Not |
 |---|---|---|

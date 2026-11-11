@@ -130,8 +130,10 @@ class LiveController:
         cfg_path: str | None = None,
         point_factory=None,
         pose=None,
+        wholebody=None,
     ):
         self.pose = pose  # PoseEstimator | None: sağ tık eklem yakınındaysa eklem takibi
+        self.wb = wholebody  # WholeBodyEstimator | None (O2): el/yüz/ayak parmağı noktaları
         self.pipeline, self.cfg, self.reid = pipeline, cfg, reid  # reid: ReIdManager | None
         # (kare, px, py, cfg) -> update(kare) -> BBox | None veren nesne; testte sahtesi verilir
         self._point_factory = point_factory or _default_point_factory
@@ -423,7 +425,10 @@ class LiveController:
             poses = self.pose.estimate(frame)
         except Exception:  # model/kare hatası: eski nesne takibine düş
             return None
-        hit = nearest_keypoint(poses, px, py, self.cfg.kp_tol, self.cfg.kp_min_conf)
+        if self.wb is not None:  # O2: yalnız tıklanan kişiyi 133 noktaya genişlet
+            poses = [self.wb.refine(frame, p) if p.bbox.contains(px, py) else p for p in poses]
+        hit = nearest_keypoint(poses, px, py, self.cfg.kp_tol, self.cfg.kp_min_conf,
+                               self.cfg.wb_tol, self.cfg.wb_min_conf)
         if hit is None:
             return None
         i, k = hit
@@ -441,8 +446,12 @@ class LiveController:
             from .reid import PartAppearance
 
             app = PartAppearance(emb, self.cfg)
-        return KeypointTracker(self.pose, poses[i], k, self.cfg.kp_box, self.cfg.kp_min_conf,
-                               hold=self.cfg.kp_hold, hold_s=self.cfg.kp_hold_s, cam=cam,
+        fine = k >= 17  # tüm-vücut noktası: kendi güven eşiği, daha küçük takip kutusu
+        return KeypointTracker(self.pose, poses[i], k,
+                               self.cfg.kp_box * (0.5 if fine else 1.0),
+                               self.cfg.wb_min_conf if fine else self.cfg.kp_min_conf,
+                               refiner=self.wb if fine else None, hold=self.cfg.kp_hold,
+                               hold_s=self.cfg.kp_hold_s, cam=cam,
                                smooth=self.cfg.kp_filter, reacq_single=self.cfg.kp_reacq_single,
                                appearance=app)
 
@@ -499,9 +508,11 @@ def run_live(
     cfg_path: str | None = None,
     pose=None,
     info: list[str] | None = None,
+    wholebody=None,
 ) -> None:
     """info: sol üst bilgi bloğundaki sabit satırlar (model/cihaz...). None = blok gönderilmez."""
-    ctl = LiveController(pipeline, cfg, reid=reid, cfg_path=cfg_path, pose=pose)
+    ctl = LiveController(pipeline, cfg, reid=reid, cfg_path=cfg_path, pose=pose,
+                         wholebody=wholebody)
     last_hud: tuple[str, bool, str] = ("", False, "")
     perf: tuple[float, float] | None = None  # (kare/sn, gecikme ms): ~1 sn'lik pencere
     pf_n, pf_lag, pf_t = 0, 0.0, clock()

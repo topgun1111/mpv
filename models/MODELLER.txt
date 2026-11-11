@@ -37,6 +37,14 @@ TEK MODEL (G2) - ISTEGE BAGLI, CI'DA URETILIR
   python -m tracker pose-bench klip.mp4 --model models\yolov8s-pose.onnx --model models\yolo11m-pose.onnx --model models\yolo11m-pose-fp16.onnx
   Sonra tracker_config.json: "pose_model": "models/yolo11m-pose.onnx", "single_pose": true.
 
+TUM VUCUT POZ (O2: EL, YUZ, AYAK PARMAGI) - CI'DA URETILIR, ISTEGE BAGLI (uretilemezse yok)
+  rtmpose-wholebody.onnx  OpenMMLab RTMPose-m wholebody (133 nokta, COCO-WholeBody; girdi 256x192, cikti SimCC), scripts/export_wholebody.py
+                      hazir onnx_sdk arsivini indirir (torch gerekmez). Kod Apache-2.0; agirlik COCO-WholeBody/UBody
+                      egitim verisi kosullarina tabidir: KISISEL KULLANIM. Dosya varsa canli modda OTOMATIK acilir
+                      (config: wholebody = auto | on | off). Sag tik bir parmagin/yuz noktasinin/ayak parmaginin
+                      yakinina yapilirsa o nokta izlenir (wb_tol, wb_min_conf); vucut eklemleri YOLO-pose ile eskisi gibi.
+                      Model yalniz secili kisiye calisir (kare basina 1 cikarim). Offline tarama henuz 17 nokta.
+
 RE-ID (KISI GORUNUMU) - CI'DA URETILIR, KURULUMLA GELMESI HEDEFLENIR (istege bagli: uretilemezse yok)
   osnet_x0_25.onnx    scripts/export_reid.py ile (torchreid, ImageNet on egitimli agirlik; Re-ID verisiyle egitilmemistir,
                       reid_thres gercek videoda ayarlanmali). Dosya varsa canli modda Re-ID OTOMATIK acilir

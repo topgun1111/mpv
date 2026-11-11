@@ -429,6 +429,22 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
             info.append(model_line("Poz", cfg.pose_model, pose.session))
     except Exception as e:  # eklem takibi isteğe bağlı: yoksa/bozuksa eski davranış
         print(f"UYARI: pose modeli yüklenemedi ({e}); eklem takibi kapalı.", file=sys.stderr)
+    wb = None
+    if pose is not None and cfg.wholebody != "off":  # O2: tüm-vücut (el/yüz/ayak parmağı)
+        try:
+            from .detector import resolve_model_path
+            from .wholebody import WholeBodyEstimator
+
+            wb_path = resolve_model_path(cfg.wholebody_model)
+            if wb_path.is_file():
+                wb = WholeBodyEstimator(wb_path, device=args.device or cfg.device)
+                print(f"Tüm-vücut poz açık: provider={wb.session.get_providers()[0]}")
+                info.append(model_line("Tüm vücut", cfg.wholebody_model, wb.session))
+            elif cfg.wholebody == "on":
+                print(f"UYARI: {cfg.wholebody_model} yok; el/yüz/ayak parmağı takibi kapalı.",
+                      file=sys.stderr)
+        except Exception as e:  # isteğe bağlı: yoksa/bozuksa 17 noktalı davranış
+            print(f"UYARI: tüm-vücut modeli yüklenemedi ({e}); yalnız 17 nokta.", file=sys.stderr)
     events: queue.Queue = queue.Queue()
     # Aynı mpv'yi birden çok takip programı sürmesin (her mpv açılışı yeni süreç başlatır)
     inst = SingleInstance(Path(args.cfg_path).resolve().parent / "tracker.lock")
@@ -442,7 +458,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     try:
         with MpvIpc(cfg.ipc_path, keep_events=False) as mpv:  # komut bağlantısı olay biriktirmez
             run_live(mpv, events, pipeline, cfg, stats_every=stats, reid=reid,
-                     cfg_path=args.cfg_path, pose=pose, info=info, stop=stop)
+                     cfg_path=args.cfg_path, pose=pose, info=info, stop=stop, wholebody=wb)
     finally:
         stop.set()
         listener.stop()
