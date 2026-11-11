@@ -54,7 +54,7 @@ def test_menu_table_is_declarative_and_consistent():
     for c in cmds:
         if c in todo:
             assert c not in acts, f"{c} todo ama eylemi var"
-    assert {"export", "scan"} <= todo and "open" not in todo  # E1, A1 gri; M2 (Dosya) açık
+    assert "scan" in todo and not {"export", "open", "open_target"} & todo  # E1 açık, scan gri
     inp = (PC / "input.conf").read_text(encoding="utf-8")
     assert "F10 script-binding track/menu" in inp
     assert "k script-binding track/rotate" in inp

@@ -24,7 +24,7 @@ Hedef davranışlar:
 | Hızlı hareket | Kalman + öngörü; parça kayması yalnız görünüm EMA'sıyla yumuşatılır; gerçek videoda doğrulanmadı | V1 (ölç), B2 (One-Euro, kayıp zinciri) |
 | Kare dışı → geri girişte devam | Nesne/dikdörtgen: kamera telafili `WorldPointTracker` kare dışında ilerletir, geri girince şablonla bulur. Eklem (canlı): kamera telafili öngörü `kp_hold_s` (1.5 sn) sürer, kişi geri girince yeniden bağlanır (B2). Kişi: ByteTrack ID + isteğe bağlı Re-ID. Gerçek videoda doğrulanmadı | B2 (kare dışı süreklilik), G1, G3 |
 | Offline: noktayı seç → tara → takip et | Offline tarama yalnız **kişi** içindir (`--target-id` ya da `--click` ile kişi); nokta/dikdörtgen/parça ile offline yok; sonuç `track.json` + `views.json` (mpv'de `o` ile oynar) | A1 (+B1), A2, A3 — Faz 3 |
-| Sonucu **video olarak kaydet** | **Yok** (yalnız görünüm anahtar kareleri) | **E1** (ffmpeg, ses dahil; Faz 3), E2 |
+| Sonucu **video olarak kaydet** | **Var (E1)**: Dosya → «Takip kamerası dışa aktar…» / `export VIDEO` | E2 (boyut/oran, PiP, kuyruk) |
 | Tüm model/uzantılar exe ile | `yolox_s.onnx` + `yolov8s-pose.onnx` pakette. **Re-ID (OSNet), forma numarası modeli pakette değil** (hazır ONNX yok; G3 CI'da dışa aktaracak); YOLO11-pose/tüm vücut pozu planlı | **I1** (hepsini installer'a koy), G3, G2, O2 — Faz 4 |
 
 Öncelik sırası ve parça numaraları (B1, B2, A1, E1, I1, G3…) `handover.md` → «Ürün amacı ve öncelikler» ve «Yol haritası → Parts» bölümündedir.
@@ -66,6 +66,7 @@ TakipliOynat/
 │  ├─ detector.py                # YOLOv8/YOLOX ONNX çözücüleri + cihaz seçimi
 │  ├─ bytetrack.py, pipeline.py  # ByteTrack + detector birleşimi
 │  ├─ point.py                   # sınıfsız nesne izleyici (sağ tık; optik akış + şablon + kamera telafisi)
+│  ├─ export.py                  # takip kamerası videosu (kırp+ölçekle → ffmpeg x264, ses aynen)
 │  ├─ scan.py                    # hedefle aç + arka plan taraması (seçim çözümü, ilerleme, sürdürme)
 │  ├─ gmc.py                     # kamera hareketi telafisi (LK + RANSAC; ByteTrack, offline, nokta/eklem)
 │  ├─ pose.py                    # eklem (vücut parçası) takibi (YOLOv8-pose)
@@ -141,6 +142,8 @@ python -m tracker bench video.mp4.track.json                          # yalnız 
 Ölçütler: kimlik sayısı, kısa izler, olası ID değişimi, hedefin görülme/kayıp yüzdesi, canlı-benzetimi ile offline görünüm arasındaki sapma ve titreme (`--target-id` yoksa en uzun iz). Diğer ortak bayraklar: `--model`, `--device`, `--fps`. Canlı modda ek bayraklar: `--wait SN` (mpv IPC'sini bekle), `--stats SN` (fps/gecikme satırı).
 
 ### Eklem (vücut parçası) takibi (Parça 22)
+**Takip kamerası dışa aktarma (E1)**: `python -m tracker export VIDEO [--views F] [--out F] [--no-audio] [--crf 18] [--ffmpeg yol]` (ya da Dosya → «Takip kamerası dışa aktar…») `<video>.views.json` anahtar karelerini her kareye uygular (zoom = 2^z, merkez = 0.5 − pan, kenar boşluğu yok), kareleri ffmpeg'e ham BGR olarak verir (`libx264 -crf 18 -preset veryfast`, `yuv420p`, `+faststart`) ve özgün sesi aynen ekler. Çıktı `<video>.takipli.mp4`, boyut kaynakla aynı (çift). ffmpeg sırası: `--ffmpeg`, `TAKIPLI_FFMPEG`, `ffmpeg\\ffmpeg.exe` (python klasörünün yanı), PATH; yoksa sessiz yedek (`cv2.VideoWriter` mp4v, uyarı). İlerleme `<çıktı>.export.json`; `<çıktı>.export.cancel` iptal eder (yarım çıktı silinir). Hedefli aç + tara (A1) → dışa aktar = iki menü adımı.
+
 **Hedefle aç + arka plan taraması (A1)**: Dosya → «Hedefle video aç + tara…» videoyu açıp duraklatır; ilk sağ tık (nokta) ya da sağ tuşla sürükleme (alan) canlı takibi hemen başlatır ve arka planda `python -m tracker offline VIDEO --select-point SN NX NY` (ya da `--select-rect SN NX1 NY1 NX2 NY2`) taramasını başlatır. Hedef tarama o ana varınca çözülür: nokta bir eklemin yakınındaysa **eklem**, değilse noktadaki **kişi**; alan kişiyi büyük ölçüde kapsıyorsa kişi, küçük alan içinde eklem varsa o eklem (pose modeli varsa taramaya otomatik eklenir). Sonuç `<video>.track.json` + `<video>.views.json`; bitince `o` tuşu offline takibi açar. İlerleme `<video>.track.json.scan.json`'a (durum, %, hedef) yazılır, her 100 örnekte `.partial.json` kesinti noktası alınır: `offline VIDEO --resume` kaldığı yerden sürdürür; `<çıktı>.scan.cancel` dosyası oluşturulursa tarama durur. Konsolsuz çalışırken günlük masaüstünde `takipli-tarama-log.txt`. Not: sınıfsız nesneler (kişi/eklem olmayan) offline taranmaz; seçim en yakın kişiye çözülür, yoksa hata.
 
 **Kamera hareketi telafisi (G1)**: `tracker/gmc.py` (`CameraMotion`) arka plan köşelerinden kareden kareye kamera dönüşümünü kestirir; ByteTrack tahmini (Kalman konum/boy/hız) bu dönüşümle kaydırılır, böylece kamera hızlı kayarken kişilerin kimliği kopmaz. Canlıda ve `offline` taramada açıktır; kişi kutuları köşe seçiminden dışlanır, kestirilemezse ya da çekim kesmesinde (kayma > kare genişliğinin %50'si) dönüşüm kimlik sayılır. Ayarlar (`config.json`): `gmc` (true; `false` eski davranış), `gmc_side` (480). Ek maliyet: karede ~birkaç ms (`live --stats` gecikmesine bak).

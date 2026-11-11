@@ -157,6 +157,22 @@ reg.timers[#reg.timers]()
 out("SCAN_DONE", reg.osd[#reg.osd])
 os.remove(pf)
 
+-- E1: Dışa aktar (9.): görünüm dosyası yoksa uyarı; varsa detached `export` + ilerleme
+reg.spawn = nil; pick(9)
+out("EXPORT_NOVIEWS", tostring(reg.spawn == nil), reg.osd[#reg.osd])
+local vf = io.open(os.getenv("VIDEO") .. ".views.json", "wb"); vf:write('{"views":[[0,0,0,0]]}'); vf:close()
+pick(9)
+local e = reg.spawn.args
+local want = os.getenv("VIDEO"):gsub("%.[^./\\]+$", "") .. ".takipli.mp4"
+out("EXPORT_SPAWN", tostring(reg.spawn.detached), e[5], e[6], tostring(e[7] == os.getenv("VIDEO")), tostring(e[9] == want))
+local ef = io.open(want .. ".export.json", "wb"); ef:write('{"state":"running","pct":55}'); ef:close()
+reg.timers[#reg.timers]()
+out("EXPORT_PROGRESS", reg.osd[#reg.osd])
+ef = io.open(want .. ".export.json", "wb"); ef:write('{"state":"done","pct":100}'); ef:close()
+reg.timers[#reg.timers]()
+out("EXPORT_DONE", reg.osd[#reg.osd])
+os.remove(want .. ".export.json"); os.remove(os.getenv("VIDEO") .. ".views.json")
+
 -- Saf modül
 out("PURE_QUOTE", TF.ps_quote("a'b"))
 out("PURE_CLEAN", tostring(TF.clean("\239\187\191 C:\\a b.mp4 \r\nfoo")), tostring(TF.clean("  \r\n")))

@@ -16,7 +16,7 @@ M.MENUS = {
     { cmd = "close", label = "Videoyu kapat" },
     { sep = true },
     { cmd = "open_target", label = "Hedefle video aç + tara…" },
-    { cmd = "export", label = "Takip kamerası dışa aktar…", todo = true },
+    { cmd = "export", label = "Takip kamerası dışa aktar…" },
     { sep = true },
     { cmd = "quit", label = "Çıkış", key = "Q" },
   } },

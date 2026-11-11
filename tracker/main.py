@@ -79,6 +79,13 @@ def build_parser() -> argparse.ArgumentParser:
     bn.add_argument("--max-seconds", type=float, default=0.0, help="Yalnız ilk N sn (0: hepsi)")
     bn.add_argument("--target-id", type=int, help="Hedef iz (varsayılan: en uzun iz)")
     bn.add_argument("--out", help="JSON rapor yolu")
+    ex = sub.add_parser("export", help="Takip kamerası videosu: görünümleri uygula → mp4 (ffmpeg)")
+    ex.add_argument("video")
+    ex.add_argument("--views", help="Görünüm dosyası (varsayılan: <video>.views.json)")
+    ex.add_argument("--out", help="Çıktı (varsayılan: <video>.takipli.mp4)")
+    ex.add_argument("--ffmpeg", help="ffmpeg yolu (varsayılan: TAKIPLI_FFMPEG, ffmpeg\\, PATH)")
+    ex.add_argument("--no-audio", action="store_true", help="Sesi ekleme")
+    ex.add_argument("--crf", type=int, default=18, help="x264 kalitesi (düşük = iyi; 18)")
     ov = sub.add_parser("offline-view", help="track.json'da hedefi seç/değiştir (tespit yok)")
     ov.add_argument("json")
     ov.add_argument("--out", help="Çıktı (varsayılan: girdinin üzerine yazar)")
@@ -235,6 +242,25 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
                    emb=bank.result() if bank else None,
                    team=tbank.result() if tbank else None, pose=pest is not None)
     _finish_doc(doc, cfg, args, out)
+    return 0
+
+
+def run_export_cmd(cfg: Config, args: argparse.Namespace) -> int:
+    import time
+
+    from .export import default_out, export_video, load_views
+
+    views = load_views(args.views or f"{args.video}.views.json")
+    out = args.out or default_out(args.video)
+    t0 = time.monotonic()
+    r = export_video(args.video, views, out, cfg, ffmpeg=args.ffmpeg, audio=not args.no_audio,
+                     crf=args.crf)
+    if r.get("cancelled"):
+        print("dışa aktarma iptal edildi")
+        return 3
+    dt = time.monotonic() - t0
+    print(f"kaydedildi: {r['out']} ({r['frames']} kare, {r['size'][0]}x{r['size'][1]}, "
+          f"{'ses dahil' if r['audio'] else 'sessiz'}, {dt:.0f} sn)")
     return 0
 
 
@@ -473,6 +499,15 @@ def main(argv: list[str] | None = None) -> int:
             save_report(rep, args.out)
             print(f"kaydedildi: {args.out}")
         return 0
+    if args.cmd == "export":
+        _log_if_headless(args.cfg_path, "takipli-aktarma-log.txt")
+        try:
+            return run_export_cmd(cfg, args)
+        except KeyboardInterrupt:
+            return 130
+        except (FileNotFoundError, ValueError, RuntimeError, OSError) as e:
+            print(f"HATA: {e}", file=sys.stderr)
+            return 1
     if args.cmd in ("offline", "offline-view"):
         try:
             fn = run_offline_cmd if args.cmd == "offline" else run_offline_view_cmd

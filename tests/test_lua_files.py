@@ -52,7 +52,11 @@ def test_file_menu_flow(tmp_path):
     assert d["PURE_CAP"] == ["10", "/v/15.mp4", "/v"]
     assert d["PURE_URL"] == ["true", "false", "nil"]
     assert d["PURE_SNAP"] == ["90", "nil", "nil"]
-    assert d["MENU_COUNT"] == ["9"]
+    assert d["MENU_COUNT"] == ["10"]
+    # E1: dışa aktarma
+    assert d["EXPORT_NOVIEWS"][0] == "true" and "görünüm dosyası yok" in d["EXPORT_NOVIEWS"][1]
+    assert d["EXPORT_SPAWN"][0] == "true" and d["EXPORT_SPAWN"][2:] == ["export", "true", "true"]
+    assert "%55" in d["EXPORT_PROGRESS"][0] and "bitti" in d["EXPORT_DONE"][0]
     # A1: hedefli açma
     assert d["SCAN_NOT_PENDING"] == ["true"]
     assert d["SCAN_OPEN"] == ["loadfile C:\\Videolar\\hedef.mp4 replace", "yes"]

@@ -916,6 +916,45 @@ if TRACK_SHOW_MENU ~= false then
           osd("hedefi sağ tıkla (nokta) ya da sağ tuşla sürükle (alan)", 6)
         end)
       end
+      -- E1: Dosya → Takip kamerası dışa aktar: `<video>.views.json` varsa detached
+      -- `tracker export VIDEO --out <video>.takipli.mp4`; ilerleme `<çıktı>.export.json`'dan okunur.
+      local exp = { running = false, prog = nil }
+      local function poll_export()
+        if not exp.running then return end
+        local text = read_file(exp.prog)
+        local p = text and utils.parse_json(text)
+        if type(p) == "table" then
+          if p.state == "done" then
+            exp.running = false
+            osd("dışa aktarma bitti: " .. exp.out, 8)
+            return
+          elseif p.state == "error" or p.state == "cancelled" then
+            exp.running = false
+            osd(p.state == "error" and ("dışa aktarma hatası: " .. tostring(p.error)) or "dışa aktarma iptal", 6)
+            return
+          end
+          osd(string.format("dışa aktarılıyor %%%s", tostring(p.pct or "?")), 1.5)
+        end
+        mp.add_timeout(2, poll_export)
+      end
+      FILES.export = function()
+        if exp.running then osd("dışa aktarma sürüyor", 2); return end
+        local vp = video_path()
+        if not vp then osd("dışa aktarmak için yerel video aç", 3); return end
+        if not read_file(vp .. ".views.json") then
+          osd("görünüm dosyası yok: önce hedef seç ve tara (Hedefle video aç)", 5); return
+        end
+        local py = python_exe()
+        if not py then osd("dışa aktarma başlatılamadı: python/ bulunamadı", 4); return end
+        local out = vp:gsub("%.[^./\\]+$", "") .. ".takipli.mp4"
+        mp.command_native({ name = "subprocess", playback_only = false, detached = true,
+          capture_stdout = false, capture_stderr = false,
+          args = { py, "-m", "tracker", "--config",
+            (os.getenv("APPDATA") or ".") .. "/TakipliOynat/config.json", "export", vp, "--out", out } })
+        exp.running, exp.prog, exp.out = true, out .. ".export.json", out
+        osd("dışa aktarma başladı: " .. out, 4)
+        mp.add_timeout(2, poll_export)
+      end
       FILES.open_folder = function() dialog(TF.folder_script(fstate.dir), function(p) open_target(p, true) end) end
       FILES.open_url = function()
         dialog(TF.url_script(), function(u)
