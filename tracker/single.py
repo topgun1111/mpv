@@ -7,13 +7,15 @@ from __future__ import annotations
 import os
 import threading
 import time
+import uuid
 from pathlib import Path
 
 
 class SingleInstance:
     def __init__(self, path: str | Path):
         self.path = Path(path)
-        self.token = f"{os.getpid()}-{time.time_ns()}"
+        # uuid: Windows saati kaba, aynı süreçte iki nesne aynı time_ns alabiliyordu (CI hatası)
+        self.token = f"{os.getpid()}-{time.time_ns()}-{uuid.uuid4().hex}"
 
     def claim(self) -> bool:
         """Sahipliği al (öncekini düşürür). Dosya yazılamazsa False: koruma devre dışı kalır."""
