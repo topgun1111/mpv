@@ -104,6 +104,14 @@ def test_lua_playback_matches_python_reference(tmp_path):
     assert by["TIMER"][1] != "nil"  # gecikmeli yeniden uygulama
     assert by["ENDFILE"][1] == "nil"
     assert "bulunamadı" in by["MISSING"][1]
+    # A2: otomatik geçiş yumuşak (başlangıç → hedef), sebep OSD'de, canlı kapanır
+    assert "taranmış iz kullanılıyor" in by["AUTO_OSD"][1] and "yavaş" in by["AUTO_OSD"][1]
+    exp = view_at(doc["views"], 1.0)
+    assert float(by["AUTO_START"][1]) == pytest.approx(0.0, abs=1e-9)  # 0'dan başlar
+    mid = float(by["AUTO_MID"][1])
+    assert 0.0 < mid < exp[0] or exp[0] < mid < 0.0  # arada
+    assert float(by["AUTO_END"][1]) == pytest.approx(exp[0], abs=1e-9)
+    assert by["AUTO_TIMER"][1] == "2" and by["AUTO_TWICE"][1] == "true"
 
 
 def test_cli_offline_view_writes_views_file(tmp_path):

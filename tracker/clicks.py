@@ -15,6 +15,8 @@ SETTING_MSG = "track-setting"  # track-setting <fill|speed|lead|all> <+1|-1|0>
 SAVE_MSG = "track-save"
 STATUS_MSG = "track-status"
 DOT_MSG = "track-dot"  # Python → Lua: takip noktası (nx ny, video-normalize) ya da "off"
+SOURCE_MSG = "track-source"  # Lua → Python (A2): kaynak modu auto|live|scanned
+USE_SCANNED_MSG = "track-use-scanned"  # Python → Lua (A2): taranmış ize geç <sebep>
 HUD_MSG = "track-hud"  # Python → Lua (script-message-to track track-hud <metin>)
 
 

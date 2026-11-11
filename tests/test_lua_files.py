@@ -52,7 +52,7 @@ def test_file_menu_flow(tmp_path):
     assert d["PURE_CAP"] == ["10", "/v/15.mp4", "/v"]
     assert d["PURE_URL"] == ["true", "false", "nil"]
     assert d["PURE_SNAP"] == ["90", "nil", "nil"]
-    assert d["MENU_COUNT"] == ["10"]
+    assert d["MENU_COUNT"] == ["11"]
     # E1: dışa aktarma
     assert d["EXPORT_NOVIEWS"][0] == "true" and "görünüm dosyası yok" in d["EXPORT_NOVIEWS"][1]
     assert d["EXPORT_SPAWN"][0] == "true" and d["EXPORT_SPAWN"][2:] == ["export", "true", "true"]
@@ -66,3 +66,7 @@ def test_file_menu_flow(tmp_path):
     assert d["SCAN_ARGS"] == ["true"] and d["SCAN_ONCE"] == ["true"]
     assert "%40" in d["SCAN_PROGRESS"][0] and "ID 3" in d["SCAN_PROGRESS"][0]
     assert "tarama bitti" in d["SCAN_DONE"][0]
+    # A3: yeniden tara + yavaş bayrağı
+    assert d["RESCAN"] == ["true", "--rescan", "--select-point", "true"]
+    assert d["RESCAN_PAUSED"] == ["true"] and d["RESCAN_PLAY"] == ["true"]
+    assert d["RESCAN_END"] == ["true"]

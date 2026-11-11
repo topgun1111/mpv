@@ -42,3 +42,26 @@ out("ENDFILE", tostring(reg.set["video-zoom"]))
 reg.props.path = os.getenv("VIDEO") .. ".yok"
 reg.bind.offline()
 out("MISSING", last_osd())
+
+-- A2: Python `track-use-scanned` → taranmış ize yumuşak geçiş (canlı kapanır, OSD sebebi söyler)
+reg.props.path = os.getenv("VIDEO")
+reg.props["time-pos"] = 1.0
+reg.props["video-zoom"], reg.props["video-pan-x"], reg.props["video-pan-y"] = 0.0, 0.0, 0.0
+reg.bind.toggle() -- canlı açık
+reg.now, reg.set, reg.timers = 100.0, {}, {}
+reg.msgs["track-use-scanned"]("canlı yavaş: 2.0 kare/sn")
+out("AUTO_OSD", last_osd())
+local z0 = reg.set["video-zoom"]
+out("AUTO_START", tostring(z0))
+reg.now = 100.3 -- geçişin ortası: hedefle başlangıç arasında
+reg.set = {}
+reg.obs["time-pos"](nil, 1.0)
+out("AUTO_MID", tostring(reg.set["video-zoom"]))
+reg.now = 101.0 -- bitti: tam hedef
+reg.set = {}
+reg.obs["time-pos"](nil, 1.0)
+out("AUTO_END", tostring(reg.set["video-zoom"]))
+out("AUTO_TIMER", tostring(#reg.timers))
+reg.set = {}
+reg.msgs["track-use-scanned"]("x") -- zaten taranmış: yok sayılır
+out("AUTO_TWICE", tostring(next(reg.set) == nil))

@@ -68,6 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Hedef: SN anında dikdörtgen (kişi ya da küçükse içindeki eklem)")
     of.add_argument("--resume", action="store_true",
                     help="Kesilen taramayı <çıktı>.partial.json'dan sürdür")
+    of.add_argument("--rescan", action="store_true",
+                    help="A3: önbelleği ve kesinti noktasını yok say, baştan tara")
     of.add_argument("--progress", action="store_true",
                     help="İlerleme/kesinti dosyalarını yaz (--select-* ile otomatik)")
     _add_target_args(of)
@@ -172,13 +174,42 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
     import time
 
     from .bytetrack import ByteTracker
-    from .detector import Detector
+    from .cache import cached_doc, scan_sig
+    from .detector import Detector, resolve_model_path
     from .offline import VideoSource, make_doc, run_detection
     from .pipeline import Pipeline, make_gmc
-    from .scan import selection_from_args
+    from .scan import finish_cached, selection_from_args
 
     fps = args.fps or cfg.offline_fps
     src = VideoSource(args.video, fps)
+    out = args.out or f"{args.video}.track.json"
+    sel = selection_from_args(args)
+    if sel and (args.target_id is not None or args.click):
+        print("--select-* ile --target-id/--click birlikte verilemez", file=sys.stderr)
+        return 2
+    if sel and not args.pose:  # parça seçimi için model varsa eklem de tara
+        args.pose = resolve_model_path(args.pose_model or cfg.pose_model).is_file()
+    sig = scan_sig(args.video, fps, resolve_model_path(args.model or cfg.model_path),
+                   resolve_model_path(args.pose_model or cfg.pose_model) if args.pose else None,
+                   "reid" if args.reid else None, "team" if args.team else None)
+    if not args.rescan:  # A3: aynı video+fps+model → tarama atlanır
+        doc = cached_doc(out, sig, need_pose=args.pose)
+        if doc is not None and (not args.reid or "emb" in doc) and (not args.team or "team" in doc):
+            print(f"önbellekten: {out} (tarama atlandı; baştan taramak için --rescan)")
+            sc = finish_cached(out, doc, cfg, sel, fps, sig)
+            if sc.target:
+                args.target_id = sc.target["id"]
+                if "part" in sc.target:
+                    args.part = str(sc.target["part"])
+            elif sel:
+                print(f"UYARI: {sc.error or 'hedef çözülemedi'}; izler listeleniyor",
+                      file=sys.stderr)
+            _finish_doc(doc, cfg, args, out)
+            return 0
+    else:
+        args.resume = False
+        for suffix in (".partial.json", ".scan.cancel"):
+            Path(out + suffix).unlink(missing_ok=True)
     det = Detector(args.model or cfg.model_path, conf_thres=cfg.live_det_conf,
                    iou_thres=cfg.det_iou, input_size=cfg.det_size,
                    device=args.device or cfg.device, model_type=cfg.model_type,
@@ -206,26 +237,17 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
 
         tbank = TeamBank(cfg)
     pest = None
-    if selection_from_args(args) and not args.pose:  # parça seçimi için model varsa eklem de tara
-        from .detector import resolve_model_path
-
-        args.pose = resolve_model_path(args.pose_model or cfg.pose_model).is_file()
     if args.pose:
         from .pose import PoseEstimator
 
         pest = PoseEstimator(args.pose_model or cfg.pose_model, conf_thres=cfg.pose_conf,
                              device=args.device or cfg.device)
     pipe = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf), gmc=make_gmc(cfg))
-    out = args.out or f"{args.video}.track.json"
-    sel = selection_from_args(args)
-    if sel and (args.target_id is not None or args.click):
-        print("--select-* ile --target-id/--click birlikte verilemez", file=sys.stderr)
-        return 2
     if sel or args.resume or args.progress:
         from .scan import run_scan
 
         samples, size, sc = run_scan(src, pipe, cfg, out, sel, fps, total, resume=args.resume,
-                                     pose=pest, progress=progress)
+                                     pose=pest, progress=progress, sig=sig)
         if sc.cancelled:
             print(f"tarama durduruldu ({len(samples)} örnek); --resume ile sürdür")
             return 3
@@ -240,7 +262,7 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
                                       pose=pest)
     doc = make_doc(args.video, size, src.src_fps, src.duration, fps, samples,
                    emb=bank.result() if bank else None,
-                   team=tbank.result() if tbank else None, pose=pest is not None)
+                   team=tbank.result() if tbank else None, pose=pest is not None, sig=sig)
     _finish_doc(doc, cfg, args, out)
     return 0
 
@@ -250,7 +272,7 @@ def run_export_cmd(cfg: Config, args: argparse.Namespace) -> int:
 
     from .export import default_out, export_video, load_views
 
-    views = load_views(args.views or f"{args.video}.views.json")
+    views = load_views(args.views or f"{args.video}.views.json", video=args.video)
     out = args.out or default_out(args.video)
     t0 = time.monotonic()
     r = export_video(args.video, views, out, cfg, ffmpeg=args.ffmpeg, audio=not args.no_audio,

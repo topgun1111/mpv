@@ -64,8 +64,15 @@ def ffmpeg_cmd(ff: str, size: tuple[int, int], fps: float, src: str, out: str,
                   "-pix_fmt", "yuv420p", "-movflags", "+faststart", out]
 
 
-def load_views(path: str | Path) -> list[list[float]]:
+def load_views(path: str | Path, video: str | None = None) -> list[list[float]]:
+    """`video` verilirse ve dosya başka bir videonun imzasını (`vsig`) taşıyorsa ValueError (A3)."""
     d = json.loads(Path(path).read_text(encoding="utf-8"))
+    if video is not None:
+        from .cache import views_match
+
+        if not views_match(path, video):
+            raise ValueError(f"{path}: bu görünüm başka bir videoya (ya da değişmiş dosyaya) ait; "
+                             "yeniden tara (--rescan)")
     v = d.get("views") or []
     if not v:
         raise ValueError(f"{path}: görünüm anahtar karesi yok (önce hedef seçip tara)")

@@ -135,11 +135,15 @@ def run_detection(frames, pipeline, progress=None, total: int | None = None, ban
 
 def make_doc(path: str, size, fps_src: float, duration: float, sample_fps: float,
              samples: list, emb: dict | None = None, team: dict | None = None,
-             pose: bool = False) -> dict:
+             pose: bool = False, sig: str | None = None) -> dict:
     doc = {"version": POSE_SCHEMA_VERSION if pose else SCHEMA_VERSION,
             "video": {"path": path, "w": size[0], "h": size[1], "fps": round(fps_src, 3),
                       "duration": round(duration, 3)},
             "sample_fps": sample_fps, "samples": samples, "target": None, "views": []}
+    if sig:  # A3: tarama önbelleği imzası (video yol+boyut+mtime, fps, modeller)
+        from .cache import file_sig
+
+        doc["sig"], doc["vsig"] = sig, file_sig(path)
     if emb:
         doc["emb"] = emb  # {id: {"first": [int...], "last": [int...]}} (×100 tamsayı)
     if team:
@@ -165,6 +169,8 @@ def save_views(doc: dict, path: str | Path) -> None:
     """Oynatma için küçük dosya: `samples` olmadan yalnız hedef + görünüm anahtar kareleri."""
     small = {"version": SCHEMA_VERSION, "video": {"path": doc["video"].get("path", "")},
              "target": doc.get("target"), "views": doc.get("views", [])}
+    if doc.get("vsig"):
+        small["vsig"] = doc["vsig"]
     Path(path).write_text(json.dumps(small, separators=(",", ":"), ensure_ascii=False),
                           encoding="utf-8")
 

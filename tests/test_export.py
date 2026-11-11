@@ -7,8 +7,15 @@ import cv2
 import numpy as np
 import pytest
 
-from tracker.export import (crop_rect, default_out, export_video, ffmpeg_cmd, find_ffmpeg,
-                            load_views, render_frame)
+from tracker.export import (
+    crop_rect,
+    default_out,
+    export_video,
+    ffmpeg_cmd,
+    find_ffmpeg,
+    load_views,
+    render_frame,
+)
 from tracker.geometry import pan_for_center
 
 

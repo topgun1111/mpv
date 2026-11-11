@@ -18,8 +18,10 @@ from .clicks import (
     RESET_MSG,
     SAVE_MSG,
     SETTING_MSG,
+    SOURCE_MSG,
     STATUS_MSG,
     TOGGLE_MSG,
+    USE_SCANNED_MSG,
     message_name,
     parse_click,
 )
@@ -27,6 +29,7 @@ from .config import Config
 from .frames import grab_frame
 from .geometry import View, compute_view
 from .ipc import MpvCommandError, MpvIpc, MpvIpcError
+from .quality import SOURCES, QualityWindow, scanned_agrees, views_ready
 from .settings import SETTINGS, adjust, status_text
 from .smooth import BoxFilter, ViewSmoother, ease_view
 
@@ -140,6 +143,7 @@ class LiveController:
             cfg.alpha_pos, cfg.alpha_zoom, cfg.dead_zone_pos, cfg.dead_zone_zoom
         )
         self.enabled = False
+        self.source = "auto"  # A2: auto | live | scanned (Lua menüsü `track-source` yollar)
         self.target_id: int | None = None
         self.last_tracks: list = []
         self._click = None
@@ -204,6 +208,10 @@ class LiveController:
             if not on:
                 self._reset_tracking()
                 return Output(view=View())
+            return Output()
+        if name == SOURCE_MSG:
+            a = (ev.get("args") or [None, "auto"])[1:2]
+            self.source = a[0] if a and a[0] in SOURCES else "auto"
             return Output()
         if name == RESET_MSG:
             self._reset_tracking()
@@ -493,6 +501,7 @@ def run_live(
     min_dt = 1.0 / max(cfg.live_fps, 1.0)
     last_view: View | None = None
     n, lag_sum, t_stat = 0, 0.0, clock()
+    qual, sw_last, views_cache = QualityWindow(cfg.auto_window_s), -1e9, (0.0, None)
 
     last_dot: tuple[str, str] = ("", "")
     dot_on: bool | None = None
@@ -578,6 +587,27 @@ def run_live(
             emit(ctl.step(frame, float(t)))
             n += 1
             lag_sum += clock() - t0
+            # A2: canlı kötüyse (ve taranmış iz hazır + aynı hedefse) taranmış ize geç
+            if not ctl.has_target or ctl.source != "auto":
+                qual.reset()
+            else:
+                qual.add(clock(), clock() - t0, ctl._lost_t0 is not None)
+                why = qual.verdict(cfg)
+                if why and clock() - sw_last >= 10.0:
+                    if clock() - views_cache[0] >= 2.0:
+                        try:
+                            views_cache = (clock(), views_ready(mpv.get_property("path")))
+                        except MpvCommandError:
+                            views_cache = (clock(), None)
+                    vw = views_cache[1]
+                    if vw and scanned_agrees(vw, float(t), ctl.dot()):
+                        sw_last = clock()
+                        qual.reset()
+                        log(f"taranmış ize geçiliyor ({why})")
+                        try:
+                            mpv.command("script-message-to", "track", USE_SCANNED_MSG, why)
+                        except MpvCommandError as e:
+                            log(f"geçiş gönderilemedi: {e}")
             pf_n, pf_lag = pf_n + 1, pf_lag + (clock() - t0)
             if clock() - pf_t >= 1.0:  # bilgi bloğu: ~1 sn'de bir güncellenen hız/gecikme
                 perf = (pf_n / (clock() - pf_t), pf_lag / pf_n * 1000)

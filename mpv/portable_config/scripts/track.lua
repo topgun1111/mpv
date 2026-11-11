@@ -217,6 +217,16 @@ local function view_at(o, t)
     o.PY[lo] + (o.PY[hi] - o.PY[lo]) * f
 end
 
+-- A2: canlıdan taranmışa geçişte mevcut görünümden hedefe yumuşak geçiş (off.ease)
+local function eased(z, px, py)
+  local e = off.ease
+  if not e then return z, px, py end
+  local f = (mp.get_time() - e.t0) / e.dur
+  if f >= 1 then off.ease = nil; return z, px, py end
+  f = f * f * (3 - 2 * f)
+  return e.z + (z - e.z) * f, e.px + (px - e.px) * f, e.py + (py - e.py) * f
+end
+
 local function apply_view(z, px, py)
   local l = off.last
   if l and math.abs(l[1] - z) < 1e-4 and math.abs(l[2] - px) < 1e-4
@@ -229,30 +239,39 @@ local function apply_view(z, px, py)
   mp.set_property_number("video-pan-y", py)
 end
 
-set_offline = function(on)
+set_offline = function(on, ease, reason)
   if on == off.on then return end
   if on then
     local vpath = video_path()
     if not vpath then osd("offline: yerel video dosyası yok"); return end
-    local data, reason = load_views(vpath)
-    if not data then osd("offline " .. reason, 4); return end
+    local data, why = load_views(vpath)
+    if not data then osd("offline " .. why, 4); return end
     local was_live = enabled
     if was_live then set_enabled(false) end -- canlı modu kapat
     off.n, off.T, off.Z, off.PX, off.PY = data.n, data.T, data.Z, data.PX, data.PY
     off.target, off.last, off.on = data.target, nil, true
+    if ease then
+      off.ease = { z = mp.get_property_number("video-zoom", 0), px = mp.get_property_number("video-pan-x", 0),
+        py = mp.get_property_number("video-pan-y", 0), t0 = mp.get_time(), dur = 0.6 }
+    end
     local function reapply()
       local t = mp.get_property_number("time-pos")
-      if off.on and t then off.last = nil; apply_view(view_at(off, t)) end
+      if off.on and t then off.last = nil; apply_view(eased(view_at(off, t))) end
     end
     reapply()
+    if ease then mp.add_timeout(0.7, reapply) end -- duraklatılmışsa geçiş yarım kalmasın
     -- Canlı mod kapanırken Python'un gönderdiği 1x sıfırlaması gecikmeli gelebilir: yeniden uygula
     if was_live then mp.add_timeout(0.5, reapply) end
     render_hud()
     if refresh_panel then refresh_panel() end
-    osd(string.format("offline AÇIK (hedef ID %s, %d anahtar kare)",
-      tostring(off.target and off.target.id or "?"), off.n))
+    if ease then
+      osd("taranmış iz kullanılıyor (" .. tostring(reason or "canlı zayıf") .. ")", 4)
+    else
+      osd(string.format("offline AÇIK (hedef ID %s, %d anahtar kare)",
+        tostring(off.target and off.target.id or "?"), off.n))
+    end
   else
-    off.on, off.last = false, nil
+    off.on, off.last, off.ease = false, nil, nil
     render_hud()
     if refresh_panel then refresh_panel() end
     mp.set_property_number("video-zoom", 0)
@@ -264,10 +283,25 @@ end
 
 -- time-pos oynatmada ve duraklatılmışken atlamada da gelir
 mp.observe_property("time-pos", "number", function(_, t)
-  if off.on and t then apply_view(view_at(off, t)) end
+  if off.on and t then apply_view(eased(view_at(off, t))) end
 end)
 
 mp.add_key_binding(nil, "offline", function() set_offline(not off.on) end)
+
+-- A2: görünüm kaynağı. auto = canlı zayıflarsa Python `track-use-scanned` yollar; live/scanned elle.
+local source = "auto"
+local SOURCE_LABEL = { auto = "otomatik", live = "canlı", scanned = "taranmış iz" }
+local function set_source(m)
+  source = m
+  mp.commandv("script-message", "track-source", m)
+  if m == "scanned" then set_offline(true)
+  elseif m == "live" and off.on then set_offline(false) end
+  if m ~= "scanned" or not off.on then osd("kaynak: " .. SOURCE_LABEL[m], 2) end
+end
+mp.register_script_message("track-use-scanned", function(reason)
+  if source ~= "auto" or off.on or not video_path() then return end
+  set_offline(true, true, reason)
+end)
 
 mp.register_event("end-file", function()
   if off.on then -- veri eski videoya aitti
@@ -853,7 +887,20 @@ if TRACK_SHOW_MENU ~= false then
       -- sağ tuşla sürükle = alan) canlı takibi hemen başlatır ve arka planda
       -- `tracker offline VIDEO --select-point|--select-rect ...` taramasını başlatır. İlerleme
       -- `<video>.track.json.scan.json`'dan 2 sn'de bir okunur; bitince `o` tuşu offline takibi açar.
-      local scan = { pending = false, running = false, prog = nil }
+      local scan = { pending = false, running = false, prog = nil, slow = nil, last = nil }
+      -- A3: oynatma açıkken tarama canlı takibe yer açsın: `<çıktı>.scan.slow` varlığı = yavaş tarama
+      local function slow_flag(on)
+        if not scan.slow then return end
+        if on then
+          local f = io.open(scan.slow, "wb")
+          if f then f:write("1"); f:close() end
+        else
+          os.remove(scan.slow)
+        end
+      end
+      mp.observe_property("pause", "bool", function(_, paused)
+        if scan.running then slow_flag(not paused) end
+      end)
       local function python_exe()
         local env = os.getenv("TRACK_PYTHON")
         if env then return env end
@@ -872,11 +919,13 @@ if TRACK_SHOW_MENU ~= false then
         if type(p) == "table" then
           if p.state == "done" then
             scan.running = false
+            slow_flag(false)
             if p.error and not p.target then osd("tarama bitti ama " .. p.error, 5)
             else osd("tarama bitti - offline takip için o tuşu", 5) end
             return
           elseif p.state == "cancelled" then
             scan.running = false
+            slow_flag(false)
             osd("tarama durduruldu", 3)
             return
           end
@@ -885,8 +934,7 @@ if TRACK_SHOW_MENU ~= false then
         end
         mp.add_timeout(2, poll_scan)
       end
-      scan_start = function(kind, t, a, b, c, d)
-        if not scan.pending or scan.running then return end
+      local function launch_scan(kind, t, a, b, c, d, rescan)
         local vp = video_path()
         if not vp then osd("hedefli tarama için yerel video gerek", 3); return end
         local py = python_exe()
@@ -901,12 +949,27 @@ if TRACK_SHOW_MENU ~= false then
             args[#args + 1] = v
           end
         end
+        if rescan then args[#args + 1] = "--rescan" end
         mp.command_native({ name = "subprocess", playback_only = false, detached = true,
           capture_stdout = false, capture_stderr = false, args = args })
         scan.pending, scan.running, scan.prog = false, true, vp .. ".track.json.scan.json"
+        scan.slow = vp .. ".track.json.scan.slow"
+        scan.last = { kind, t, a, b, c, d }
         mp.set_property("pause", "no")
-        osd("hedef seçildi - arka planda taranıyor", 3)
+        slow_flag(true)
+        osd(rescan and "yeniden taranıyor (önbellek yok sayıldı)" or "hedef seçildi - arka planda taranıyor", 3)
         mp.add_timeout(2, poll_scan)
+      end
+      scan_start = function(kind, t, a, b, c, d)
+        if not scan.pending or scan.running then return end
+        launch_scan(kind, t, a, b, c, d, false)
+      end
+      -- A3: Dosya → Yeniden tara: son hedefle, önbelleği yok sayarak (`--rescan`) baştan tara
+      FILES.rescan = function()
+        if scan.running then osd("tarama sürüyor", 2); return end
+        if not scan.last then osd("önce «Hedefle video aç + tara…» ile hedef seç", 4); return end
+        local l = scan.last
+        launch_scan(l[1], l[2], l[3], l[4], l[5], l[6], true)
       end
       FILES.open_target = function()
         dialog(TF.open_script(fstate.dir), function(p)
@@ -996,6 +1059,8 @@ if TRACK_SHOW_MENU ~= false then
       panel = function() panel.pinned = not panel.pinned; panel.visible = true; render_panel() end,
       toggle = function() set_enabled(not enabled) end, release = do_release,
       offline = function() set_offline(not off.on) end,
+      src_auto = function() set_source("auto") end, src_live = function() set_source("live") end,
+      src_scanned = function() set_source("scanned") end,
       speed_up = setting("speed", 1), speed_down = setting("speed", -1),
       lead_up = setting("lead", 1), lead_down = setting("lead", -1),
       fill_up = setting("fill", 1), fill_down = setting("fill", -1),
@@ -1007,7 +1072,10 @@ if TRACK_SHOW_MENU ~= false then
     local NEED_VIDEO = { close = true, save_view = true, load_view = true } -- video yokken gri
     local LIVE = { release = true, speed_up = true, speed_down = true, lead_up = true,
       lead_down = true, fill_up = true, fill_down = true }
-    local CHECK = { toggle = function() return enabled end, offline = function() return off.on end,
+    local CHECK = { src_auto = function() return source == "auto" end,
+      src_live = function() return source == "live" end,
+      src_scanned = function() return source == "scanned" end,
+      toggle = function() return enabled end, offline = function() return off.on end,
       hud = function() return hud.visible end, panel = function() return panel.pinned end }
     menu = TM.new({
       run = function(cmd)

@@ -37,6 +37,11 @@ class Config:
     kf_accel: float = 0.5  # hedef Kalman süreç gürültüsü: ivme std (kare boyutu/sn²)
     kf_meas: float = 0.01  # hedef Kalman ölçüm gürültüsü std (kare boyutu oranı)
     lost_hold_s: float = 1.0  # sn (video zamanı); hedef kaybolunca son görünümde bu kadar bekle
+    auto_window_s: float = 5.0  # A2: canlı kalite penceresi, sn (0: otomatik geçiş kapalı)
+    auto_fps_ratio: float = 0.6  # A2: canlı hız < live_fps × bu → taranmış ize geç
+    auto_lag_ms: float = 300.0  # A2: ortalama adım gecikmesi bunu aşarsa geç
+    auto_lost_frac: float = 0.3  # A2: penceredeki kayıp kare oranı bunu aşarsa geç
+    scan_throttle_s: float = 0.15  # A3: oynatma açıkken tarama örnek başına uyur (0: kapalı)
     offline_fps: float = 10.0  # offline: saniyede işlenen kare (video bundan hızlıysa atlanır)
     offline_interp_s: float = 0.6  # offline: bu süreden kısa hedef kayıpları doğrusal doldurulur
     offline_alpha: float = 0.4  # offline: sıfır-faz EMA katsayısı (konum; boyut bunun 0.4'ü)

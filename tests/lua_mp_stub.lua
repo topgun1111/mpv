@@ -9,6 +9,7 @@ local mp = {
   remove_key_binding = function(name) reg.bind[name] = nil end,
   observe_property = function(name, _, fn) reg.obs[name] = fn end,
   register_event = function(name, fn) reg.ev[name] = fn end,
+  get_time = function() return reg.now or 0 end,
   get_property = function(n) return reg.props[n] end,
   get_property_number = function(n, d) return reg.props[n] or d end,
   get_property_native = function(n) return reg.props[n] end,

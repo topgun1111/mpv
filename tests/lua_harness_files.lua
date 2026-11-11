@@ -157,6 +157,19 @@ reg.timers[#reg.timers]()
 out("SCAN_DONE", reg.osd[#reg.osd])
 os.remove(pf)
 
+-- A3: yeniden tara (10.): son hedefle `--rescan`; yavaş bayrağı duraklatmaya göre
+reg.spawn = nil; pick(10)
+local ra = reg.spawn.args
+out("RESCAN", tostring(reg.spawn.detached), ra[#ra], ra[8], tostring(io.open(pf:gsub("scan%.json$", "scan.slow"), "rb") ~= nil))
+reg.obs["pause"](nil, true) -- duraklatıldı → tarama tam hızda (bayrak kalkar)
+out("RESCAN_PAUSED", tostring(io.open(pf:gsub("scan%.json$", "scan.slow"), "rb") == nil))
+reg.obs["pause"](nil, false)
+out("RESCAN_PLAY", tostring(io.open(pf:gsub("scan%.json$", "scan.slow"), "rb") ~= nil))
+f = io.open(pf, "wb"); f:write('{"state":"done","pct":100}'); f:close()
+reg.timers[#reg.timers]()
+out("RESCAN_END", tostring(io.open(pf:gsub("scan%.json$", "scan.slow"), "rb") == nil))
+os.remove(pf)
+
 -- E1: Dışa aktar (9.): görünüm dosyası yoksa uyarı; varsa detached `export` + ilerleme
 reg.spawn = nil; pick(9)
 out("EXPORT_NOVIEWS", tostring(reg.spawn == nil), reg.osd[#reg.osd])

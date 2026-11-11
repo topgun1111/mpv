@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from .cache import THROTTLE_SUFFIX
 from .config import Config
 
 LOOKAHEAD_S = 0.3  # seçimden bu kadar sonrasına varınca çöz (iz oturmuş olsun)
@@ -129,7 +130,7 @@ class Scan:
     """Tarama yardımcısı: ilerleme + kesinti noktası + iptal + hedef çözümü."""
 
     def __init__(self, out: str, cfg: Config, sel: Selection | None, size, fps: float,
-                 total: int | None, clock=time.monotonic):
+                 total: int | None, clock=time.monotonic, sig: str | None = None):
         self.out = Path(out)
         self.prog = self.out.with_name(self.out.name + ".scan.json")
         self.part = self.out.with_name(self.out.name + ".partial.json")
@@ -138,6 +139,14 @@ class Scan:
         self.clock, self.target, self.error = clock, None, None
         self._last = -1e9
         self.cancelled = False
+        self.sig = sig  # A3: farklı video/model/fps'in kesinti noktası sürdürülmez
+        self.slow_file = self.out.with_name(self.out.name + THROTTLE_SUFFIX)
+
+    def _partial_doc(self, samples) -> dict:
+        d = {"fps": self.fps, "size": list(self.size), "samples": samples}
+        if self.sig:
+            d["sig"] = self.sig
+        return d
 
     def load_partial(self) -> list:
         """Önceki kesinti noktasının örnekleri (video/fps uyuşmazsa boş)."""
@@ -146,6 +155,8 @@ class Scan:
         except (OSError, ValueError):
             return []
         ok = d.get("fps") == self.fps and tuple(d.get("size", ())) == tuple(self.size)
+        if self.sig and d.get("sig") != self.sig:
+            ok = False
         return d.get("samples", []) if ok else []
 
     def _doc(self, samples):
@@ -175,12 +186,13 @@ class Scan:
         if self.sel is not None and self.target is None:
             self._resolve(samples)
         if n % CHECKPOINT_EVERY == 0:
-            _atomic_write(self.part, {"fps": self.fps, "size": list(self.size),
-                                      "samples": samples})
+            _atomic_write(self.part, self._partial_doc(samples))
         now = self.clock()
         if now - self._last >= 1.0:
             self._last = now
             self.write("running", n, samples)
+        if self.cfg.scan_throttle_s > 0 and self.slow_file.exists():  # oynatma açık: yer aç
+            time.sleep(self.cfg.scan_throttle_s)
 
     def should_stop(self) -> bool:
         if self.cancel_file.exists():
@@ -189,13 +201,12 @@ class Scan:
 
     def finish(self, n: int, samples: list) -> None:
         if self.cancelled:  # kesinti noktası kalır; --resume ile sürer
-            _atomic_write(self.part, {"fps": self.fps, "size": list(self.size),
-                                      "samples": samples})
+            _atomic_write(self.part, self._partial_doc(samples))
             self.write("cancelled", n, samples)
             return
         self._resolve(samples, final=True)
         self.write("done", n, samples)
-        for p in (self.part, self.cancel_file):
+        for p in (self.part, self.cancel_file, self.slow_file):
             try:
                 p.unlink()
             except OSError:
@@ -203,11 +214,12 @@ class Scan:
 
 
 def run_scan(src, pipe, cfg: Config, out: str, sel: Selection | None, fps: float,
-             total: int | None, resume: bool = False, pose=None, progress=None):
+             total: int | None, resume: bool = False, pose=None, progress=None,
+             sig: str | None = None):
     """Taramayı yürüt → (örnekler, boyut, Scan). `resume`: kesinti noktasından sürdür."""
     from .offline import run_detection
 
-    sc = Scan(out, cfg, sel, (src.w, src.h), fps, total)
+    sc = Scan(out, cfg, sel, (src.w, src.h), fps, total, sig=sig)
     done = sc.load_partial() if resume else []
     if done:
         src.start = done[-1]["t"]
@@ -220,3 +232,14 @@ def run_scan(src, pipe, cfg: Config, out: str, sel: Selection | None, fps: float
                                   on_sample=sc.on_sample, should_stop=sc.should_stop)
     sc.finish(len(samples), samples)
     return samples, (size if size[0] else (src.w, src.h)), sc
+
+
+def finish_cached(out: str, doc: dict, cfg: Config, sel: Selection | None, fps: float,
+                  sig: str | None = None) -> Scan:
+    """A3: önbellekten gelen belge için ilerleme dosyasını `done` yap, hedefi çöz (tarama yok)."""
+    v = doc["video"]
+    sc = Scan(out, cfg, sel, (v.get("w", 0), v.get("h", 0)), fps, len(doc["samples"]), sig=sig)
+    sc._resolve(doc["samples"], final=True)
+    sc.write("done", len(doc["samples"]), doc["samples"])
+    sc.slow_file.unlink(missing_ok=True)
+    return sc
