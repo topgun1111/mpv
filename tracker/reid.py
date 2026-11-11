@@ -148,6 +148,54 @@ class Gallery:
             self.vecs.pop(0)
 
 
+class PartAppearance:
+    """Eklem (vücut parçası) takibi için kişi görünümü: izlenen kişinin galerisi tutulur; parça
+    kareden çıkıp kalabalıkta geri dönünce aday kişiler galeriyle karşılaştırılır (B2 + Re-ID)."""
+
+    def __init__(self, embedder, cfg: Config):
+        self.emb, self.cfg = embedder, cfg
+        self.gallery = Gallery(cfg.reid_gallery)
+        self._t: float | None = None
+
+    def observe(self, frame: np.ndarray, person: BBox, others: list[BBox], t: float) -> None:
+        """Hedef kişi görünürken (en sık `reid_every_s`) temiz kırpıntıyı galeriye ekler."""
+        if self._t is not None and t - self._t < self.cfg.reid_every_s:
+            return
+        fh, fw = frame.shape[:2]
+        wrap = type("B", (), {"bbox": person})
+        if not crop_ok(wrap, [type("B", (), {"bbox": o}) for o in others], fw, fh,
+                       self.cfg.reid_min_h, self.cfg.reid_max_iou):
+            return
+        self._t = t
+        try:
+            e = self.emb.embed(frame, [person])[0]
+        except Exception:  # model/kare hatası: galeri büyümez, takip sürer
+            return
+        if float(e @ e) > 0.5:  # sıfır satırı (kırpılamadı) değil
+            self.gallery.add(e)
+
+    def pick(self, frame: np.ndarray, boxes: list[BBox]) -> int | None:
+        """Galeriye eşik+marjla en çok benzeyen adayın indeksi; güvenilir değilse None."""
+        if not boxes or len(self.gallery) == 0:
+            return None
+        try:
+            embs = self.emb.embed(frame, boxes)
+        except Exception:
+            return None
+        sc = [self.gallery.score(e) if float(e @ e) > 0.5 else -1.0 for e in embs]
+        order = sorted(range(len(sc)), key=lambda i: -sc[i])
+        top = order[0]
+        if sc[top] < self.cfg.reid_thres:
+            return None
+        if len(order) > 1 and sc[top] - sc[order[1]] < self.cfg.reid_margin:
+            return None
+        return top
+
+    def clear(self) -> None:
+        self.gallery.clear()
+        self._t = None
+
+
 class ReIdManager:
     def __init__(self, embedder, cfg: Config, team=None, numbers=None):
         """`team`: team.TeamClassifier | None; `numbers`: number.NumberReader | None (ikisi de

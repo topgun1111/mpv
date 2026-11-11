@@ -37,7 +37,10 @@ def check(pkg: Path, files: list[dict]) -> tuple[list[str], dict[str, str]]:
     for e in files:
         p = pkg / e["path"]
         if not p.is_file():
-            errors.append(f"EKSİK: {e['path']} ({e.get('feature', '')})")
+            if e.get("optional"):
+                print(f"UYARI: isteğe bağlı dosya yok: {e['path']} ({e.get('feature', '')})")
+            else:
+                errors.append(f"EKSİK: {e['path']} ({e.get('feature', '')})")
             continue
         size = p.stat().st_size
         if size < e["min_bytes"]:

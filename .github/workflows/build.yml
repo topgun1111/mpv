@@ -44,6 +44,19 @@ jobs:
         run: |
           pip install ultralytics onnx
           python scripts/export_pose.py dist/TakipliOynat/models yolov8s-pose
+      - name: Güçlü pose adayı (YOLO11m-pose fp32+fp16; isteğe bağlı, tek-model/benchmark için)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          pip install onnxconverter-common
+          python scripts/export_pose.py dist/TakipliOynat/models yolo11m-pose --fp16
+      - name: Re-ID modeli (OSNet x0.25, isteğe bağlı; indirilemezse Re-ID kapalı kalır)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install torchreid gdown onnx
+          python scripts/export_reid.py dist/TakipliOynat/models osnet_x0_25
       - name: ffmpeg indir (GPL derlemesi, libx264; takip kamerası dışa aktarma için)
         shell: pwsh
         run: ./scripts/fetch_ffmpeg.ps1 -Target dist/TakipliOynat/ffmpeg
@@ -71,6 +84,16 @@ jobs:
           # pose modeli açılıyor mu ve çıktı düzeni [1,56,N] mi (tracker/pose.py çözücüsünün varsayımı)
           .\python\python.exe -c "import onnxruntime as o; s = o.InferenceSession('models/yolov8s-pose.onnx', providers=['CPUExecutionProvider']); sh = s.get_outputs()[0].shape; print('pose çıktı', sh); assert sh[1] == 56, sh"
           if ($LASTEXITCODE -ne 0) { throw "yolov8s-pose.onnx açılmadı ya da çıktı düzeni [1,56,N] değil" }
+          foreach ($pm in "yolo11m-pose", "yolo11m-pose-fp16") {
+            if (Test-Path "models\$pm.onnx") {
+              .\python\python.exe -c "import onnxruntime as o; s = o.InferenceSession('models/$pm.onnx', providers=['CPUExecutionProvider']); sh = s.get_outputs()[0].shape; print('$pm çıktı', sh); assert sh[1] == 56, sh"
+              if ($LASTEXITCODE -ne 0) { throw "$pm.onnx açılmadı ya da çıktı [1,56,N] değil" }
+            } else { Write-Host "UYARI: models\$pm.onnx yok (isteğe bağlı)" }
+          }
+          if (Test-Path models\osnet_x0_25.onnx) {
+            .\python\python.exe -c "import onnxruntime as o, numpy as np; s = o.InferenceSession('models/osnet_x0_25.onnx', providers=['CPUExecutionProvider']); y = s.run(None, {s.get_inputs()[0].name: np.zeros((1, 3, 256, 128), np.float32)})[0]; print('reid çıktı', y.shape); assert y.ndim == 2"
+            if ($LASTEXITCODE -ne 0) { throw "osnet_x0_25.onnx açılmadı ya da çıktı [N,D] değil" }
+          } else { Write-Host "UYARI: osnet_x0_25.onnx yok: Re-ID kapalı kalacak (reid_live=auto)" }
           # ffmpeg libx264 ile gerçekten kodluyor mu (dışa aktarma sessiz yedeğe düşmesin)
           .\ffmpeg\ffmpeg.exe -hide_banner -loglevel error -f lavfi -i testsrc=size=320x240:rate=10 -t 1 -c:v libx264 -pix_fmt yuv420p ff_test.mp4
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path ff_test.mp4)) { throw "ffmpeg libx264 duman testi başarısız" }

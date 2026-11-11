@@ -435,9 +435,16 @@ class LiveController:
                 cam = CameraComp(frame)
             except Exception:  # cv2 yok: kamera telafisiz sürer
                 cam = None
+        app = None
+        emb = getattr(self.reid, "emb", None)
+        if emb is not None and self.cfg.kp_reid:  # G3: kalabalıkta kişiyi görünümle de bul
+            from .reid import PartAppearance
+
+            app = PartAppearance(emb, self.cfg)
         return KeypointTracker(self.pose, poses[i], k, self.cfg.kp_box, self.cfg.kp_min_conf,
                                hold=self.cfg.kp_hold, hold_s=self.cfg.kp_hold_s, cam=cam,
-                               smooth=self.cfg.kp_filter, reacq_single=self.cfg.kp_reacq_single)
+                               smooth=self.cfg.kp_filter, reacq_single=self.cfg.kp_reacq_single,
+                               appearance=app)
 
     def _step_point(self, frame, t: float, osd: str | None) -> Output:
         fh, fw = frame.shape[:2]

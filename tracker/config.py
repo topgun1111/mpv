@@ -46,6 +46,10 @@ class Config:
     offline_interp_s: float = 0.6  # offline: bu süreden kısa hedef kayıpları doğrusal doldurulur
     offline_alpha: float = 0.4  # offline: sıfır-faz EMA katsayısı (konum; boyut bunun 0.4'ü)
     reid_model: str = "models/osnet_x0_25.onnx"  # OSNet ONNX (girdi 256x128)
+    reid_live: str = "auto"  # canlıda Re-ID: auto (model dosyası varsa aç) | on | off
+    team_live: bool = False  # canlıda takım rengi elemesi (yalnız Re-ID açıkken; spor için)
+    number_live: bool = False  # canlıda forma numarası elemesi (numara modeli de gerekir)
+    kp_reid: bool = True  # eklem takibi kayıptan dönünce kişiyi Re-ID görünümüyle de ara
     reid_thres: float = 0.6  # kosinüs benzerliği alt sınırı (hedefi yeni ID'ye bağlamak için)
     reid_margin: float = 0.05  # en iyi aday ikinciden en az bu kadar iyi olmalı
     reid_every_s: float = 0.3  # video sn; galeri besleme/eşleştirme en sık bu aralıkla
@@ -70,6 +74,7 @@ class Config:
     point_min_score: float = 0.55  # şablon benzerliği (NCC) alt sınırı; altı = nesne kayıp
     pose_model: str = "models/yolov8s-pose.onnx"  # eklem takibi (isteğe bağlı)
     pose_conf: float = 0.3  # kişi (poz) tespit eşiği
+    single_pose: bool = False  # G2: poz modeli kişi dedektörü de olsun (tek çıkarım)
     kp_tol: float = 0.12  # sağ tık eklemin bu kadar (boy oranı) yakınındaysa
     kp_min_conf: float = 0.35  # eklem güveni alt sınırı (altı = eklem kayıp)
     kp_box: float = 0.10  # eklem etrafındaki takip kutusu (kişi boyu oranı)

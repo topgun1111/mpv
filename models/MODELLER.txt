@@ -30,10 +30,23 @@ PAKET BUTUNLUGU
   models\\manifest.json zorunlu dosyalari listeler (CI'da scripts/verify_models.py denetler);
   models\\SHA256SUMS.txt kurulan dosyalarin ozetidir (elle dogrulama icin).
 
-ISTEGE BAGLI
-  osnet_x0_25.onnx    Re-ID (oyuncu ID degisirse yeniden bulur). torchreid ile disa aktar.
+TEK MODEL (G2) - ISTEGE BAGLI, CI'DA URETILIR
+  yolo11m-pose.onnx, yolo11m-pose-fp16.onnx  Ultralytics YOLO11m-pose (AGPL-3.0, kisisel kullanim); cikti [1,56,N].
+  single_pose=true (ya da live/offline --single-pose) ile poz modeli kisi tespitini de yapar: ayri person modeli
+  yuklenmez, offline --pose taramasinda kare basina 1 cikarim. Varsayilan KAPALI (olculmedi). Karar icin Windows'ta:
+  python -m tracker pose-bench klip.mp4 --model models\yolov8s-pose.onnx --model models\yolo11m-pose.onnx --model models\yolo11m-pose-fp16.onnx
+  Sonra tracker_config.json: "pose_model": "models/yolo11m-pose.onnx", "single_pose": true.
+
+RE-ID (KISI GORUNUMU) - CI'DA URETILIR, KURULUMLA GELMESI HEDEFLENIR (istege bagli: uretilemezse yok)
+  osnet_x0_25.onnx    scripts/export_reid.py ile (torchreid, ImageNet on egitimli agirlik; Re-ID verisiyle egitilmemistir,
+                      reid_thres gercek videoda ayarlanmali). Dosya varsa canli modda Re-ID OTOMATIK acilir
+                      (config: reid_live = auto | on | off); eklem takibi kalabalikta kisiyi gorunumle bulur (kp_reid).
+                      Takim rengi / forma numarasi yalniz config ile: team_live, number_live.
                       Agirliklar egitim verisinin lisansina tabidir (Market-1501 vb. ticari olmayabilir).
+
+ISTEGE BAGLI
   jersey_number.onnx  Forma numarasi (girdi [N,C,H,W], cikti [N,101]; bkz. tracker/number.py).
 
 Offline.bat osnet_x0_25.onnx varsa --reid --team ekler. Canli modda (mpv'nin otomatik baslattigi takip programi)
-Re-ID/takim/numara KAPALIDIR; yalnizca elle: python -m tracker live --reid [--team] [--number]. Baslat.bat sadece mpv'yi acar.
+Re-ID, osnet_x0_25.onnx varsa kendiliginden acilir (reid_live=auto); takim/numara config ile (team_live/number_live)
+ya da elle: python -m tracker live --reid [--team] [--number]. Baslat.bat sadece mpv'yi acar.

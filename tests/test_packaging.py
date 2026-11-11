@@ -256,3 +256,14 @@ def test_make_package_ships_manifest_and_notices_cover_ffmpeg(tmp_path, monkeypa
         assert key in n, key
     m = (ROOT / "models" / "MODELLER.txt").read_text(encoding="ascii")
     assert "ffmpeg" in m and "manifest.json" in m and "SHA256SUMS" in m
+
+
+def test_verify_models_optional_file_missing_is_warning_but_present_is_checked(tmp_path, capsys):
+    vm = _load("verify_models")
+    files = [{"path": "models/o.onnx", "min_bytes": 10, "license": "X", "license_file": None,
+              "sha256": None, "optional": True}]
+    assert vm.check(tmp_path, files) == ([], {})
+    assert "UYARI" in capsys.readouterr().out
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "o.onnx").write_bytes(b"x")  # var ama bozuk → hata
+    assert vm.check(tmp_path, files)[0][0].startswith("ÇOK KÜÇÜK")

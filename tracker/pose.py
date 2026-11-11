@@ -16,6 +16,7 @@ import numpy as np
 
 from .detector import (
     _MAX_CANDIDATES,
+    Detection,
     Detector,
     LetterboxInfo,
     nms,
@@ -139,6 +140,58 @@ class PoseEstimator:
         return decode_yolo_pose(out, info, w, h, self.conf_thres, self.iou_thres)
 
 
+class PoseDetector:
+    """Tek model: poz modeli hem kişi dedektörü (`detect`) hem eklem kaynağı (`estimate`) olur (G2).
+
+    `detect(kare)` pozdan kişi kutuları döner (`Detector` ile aynı arayüz → `Pipeline`); aynı kare
+    nesnesi için `estimate(kare)` ikinci bir çıkarım yapmadan önbellekteki pozları verir (offline
+    `--pose` taramasında kare başına tek çıkarım; canlıda tıklama anında ek çıkarım yok).
+    Çıkarım eşiği `min(det_conf, pose_conf)`; `detect` ≥ det_conf (ByteTrack düşük skor aşaması),
+    `estimate` ≥ pose_conf döndürür.
+    """
+
+    model_type = "yolo-pose"
+
+    def __init__(self, model_path: str | Path = "models/yolov8s-pose.onnx", det_conf: float = 0.1,
+                 pose_conf: float = 0.3, iou_thres: float = 0.45, input_size: int = 640,
+                 device: str = "auto", session: Any = None, estimator: PoseEstimator | None = None
+                 ) -> None:
+        self.det_conf, self.pose_conf = det_conf, pose_conf
+        self.est = estimator or PoseEstimator(model_path, min(det_conf, pose_conf), iou_thres,
+                                              input_size, device, session)
+        self.est.conf_thres = min(det_conf, pose_conf)
+        self._frame: np.ndarray | None = None
+        self._poses: list[Pose] = []
+        self.runs = 0  # model çıkarımı sayısı (test/bench)
+
+    @property
+    def session(self) -> Any:
+        return self.est.session
+
+    @property
+    def size(self) -> tuple[int, int]:
+        return self.est.size
+
+    @property
+    def providers(self) -> list[str]:
+        return list(self.est.session.get_providers())
+
+    def _infer(self, frame_bgr: np.ndarray) -> list[Pose]:
+        if self._frame is frame_bgr:  # aynı kare nesnesi: önbellek
+            return self._poses
+        self._poses = self.est.estimate(frame_bgr)
+        self._frame = frame_bgr
+        self.runs += 1
+        return self._poses
+
+    def detect(self, frame_bgr: np.ndarray) -> list[Detection]:
+        poses = self._infer(frame_bgr)
+        return [Detection(p.bbox, p.score) for p in poses if p.score >= self.det_conf]
+
+    def estimate(self, frame_bgr: np.ndarray) -> list[Pose]:
+        return [p for p in self._infer(frame_bgr) if p.score >= self.pose_conf]
+
+
 class KeypointTracker:
     """Seçilen kişinin seçilen eklemini her karede pozdan okur (point.py ile aynı arayüz).
 
@@ -158,11 +211,13 @@ class KeypointTracker:
 
     def __init__(self, estimator: PoseEstimator, pose: Pose, kp: int, box_frac: float = 0.10,
                  min_conf: float = 0.35, hold: int = 0, *, hold_s: float = 0.0, cam=None,
-                 smooth: bool = False, reacq_single: bool = True,
+                 smooth: bool = False, reacq_single: bool = True, appearance=None,
                  clock=time.monotonic) -> None:
         self.est, self.kp, self.box_frac, self.min_conf = estimator, kp, box_frac, min_conf
         self.hold, self._misses = hold, 0  # hold: tolere edilen ardışık ıska
         self.hold_s, self.cam, self.reacq_single, self.clock = hold_s, cam, reacq_single, clock
+        self.app = appearance  # reid.PartAppearance | None (G3): kalabalıkta kişiyi görünümle bul
+        self._frame: np.ndarray | None = None
         self.label = KEYPOINT_NAMES[kp]
         self._person = pose.bbox
         self._pos = (float(pose.kpts[kp][0]), float(pose.kpts[kp][1]))
@@ -191,6 +246,7 @@ class KeypointTracker:
 
     def update(self, frame_bgr: np.ndarray) -> BBox | None:
         self._fh, self._fw = frame_bgr.shape[:2]
+        self._frame = frame_bgr
         if self.cam is not None:
             self.cam.update(frame_bgr)
         poses = self.est.estimate(frame_bgr)
@@ -198,6 +254,9 @@ class KeypointTracker:
         best = self._reacquire(poses) if b2 and self._blind_t is not None else self._match(poses)
         if best is None:  # kişi bu karede bulunamadı
             return self._blind() if b2 else self._held()
+        if self.app is not None and self._blind_t is None:
+            self.app.observe(frame_bgr, best.bbox, [p.bbox for p in poses if p is not best],
+                             self.clock())
         self._blind_t = None
         self._h = max(best.bbox.y2 - best.bbox.y1, 1.0)
         prev, self._person = self._person, best.bbox
@@ -249,6 +308,12 @@ class KeypointTracker:
             if not 0.5 <= ph / self._h <= 2.0:
                 continue  # boy tutarsız: başka kişi
             cand.append(p)
+        if self.app is not None and self._frame is not None and cand:
+            i = self.app.pick(self._frame, [p.bbox for p in cand])  # G3: görünümle kurtarma
+            if i is not None:
+                return cand[i]
+        for p in cand:
+            ph = max(p.bbox.y2 - p.bbox.y1, 1.0)
             kx, ky, kc = p.kpts[self.kp]
             ref = (float(kx), float(ky)) if kc >= self.min_conf else (p.bbox.cx, p.bbox.cy)
             d = float(np.hypot(ref[0] - px, ref[1] - py)) / ph
