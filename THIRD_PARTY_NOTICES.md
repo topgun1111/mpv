@@ -28,6 +28,8 @@ Python paketlerinin tam lisans listesi için paketlenmiş ortamda:
 Paketi başkalarına dağıtırsan AGPL şartları geçerli olur (pose modelini çıkar ya da kaynağı aç).
 Re-ID/numara modelleri depoda yoktur; lisans sorumluluğu modeli edinen/dağıtana aittir.
 
+**Planlı (ürün amacı: tüm modeller exe ile gelsin)**: Re-ID (OSNet) ağırlıkları, daha güçlü pose (YOLO11-pose, AGPL-3.0) ve tüm-vücut pose (RTMPose-wholebody; ağırlık lisansı eğitim verisine bağlı) pakete konursa bu tablo ve Madde 1 **o sürümle birlikte** güncellenmeli; model eklenmeden önce lisansı doğrulanır. Bu yapı kişisel kullanım içindir; tüm modelleri başkalarına dağıtmak AGPL ve veri kümesi koşullarını devreye sokar.
+
 | Model | Lisans | Not |
 |---|---|---|
 | **YOLOX** (`yolox_s.onnx`, Megvii) — **önerilen, pakette gelir** | Apache-2.0 | Takipli Oynat'ta desteklenir (`model_type=yolox`, dosya adında "yolox" varsa otomatik). Ticari/kapalı dağıtım için uygun yol. COCO verisinin kendi koşulları ayrıca geçerlidir |

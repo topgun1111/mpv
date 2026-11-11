@@ -6,10 +6,22 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 
 ## Durum
 - Tamamlanan: **Parça 15/15 — PLAN BİTTİ** + ek parçalar 16–22 (16: düğme paneli, 17: sağ tık + zoom kontrolü + modelli/güncellenen installer, 18: sınıfsız nesne takibi, 19: kamera telafili nokta takibi, 20: sağ tuşla dikdörtgen, 21: sol tuş işlevleri kaldırıldı + beyaz nokta, 22: eklem takibi) + P23, M1, M2 (+ çift tık/HUD, tek takip programı, takip günlüğü düzeltmeleri).
-- Yol haritası: bu dosyada, "Yol haritası" bölümü (parça P23…O3; her parça = 1 oturum). Yapıldı: P23, M1, M2. Sıradaki: **M3** (Görünüm + Takip menüleri: zoom ön ayarları, sığdır/doldur, tam ekran, takip modu/hedef eylemleri).
+- Yol haritası: bu dosyada, "Yol haritası" → "Parts" (Faz 0–6; her parça = 1 oturum). Yapıldı: P23, M1, M2. Sıradaki: **V1** (gerçek videoda doğrulama + CI'a Lua), sonra B1 → B2 → G1 → A1 → E1 (bkz. "Suggested order"). Menü parçaları (M3/M4) 5. fazda.
 - Eski sıradaki: yok (yalnız Windows'ta gerçek doğrulama + `v1.0.0` etiketi; bkz. Parça 15 "Doğrulama")
 - Sürüm: **1.2.0** (`VERSION` ve `tracker/__init__.py`; `tests/test_license.py` ikisini de 1.2.0'a sabitler). Önceki notlardaki «1.3.0» hiçbir dosyada yok; yükseltilecekse `VERSION`, `__version__` ve bu testi birlikte güncelle, ilk sürüm etiketinden (`v*`) önce.
 - Testler: 230 (`pytest -q`; ruff temiz). `texlua`/`lua` yoksa Lua testleri atlanır (CI runner'larında Lua kurulu değil → `test_lua_*` CI'da çalışmıyor).
+
+## Ürün amacı ve öncelikler (kullanıcı, 2026-11-11 — bağlayıcı)
+**Spor/futbol odaklı değil.** Uygulama genel amaçlıdır: **insanları ve özellikle vücut parçalarını (ayak, bacak, diğer bölgeler ya da kişinin kendisi) aynı anda takip edip yakınlaştırır.**
+1. Kişi/parça **hızlı** hareket edebilir (vücut hareketi dahil); takip kaybolmamalı.
+2. Kişi/parça **kare dışına çıkıp geri girebilir**; takip geri girince **kaldığı yerden** sürmeli (yeni hedef seçmek gerekmemeli).
+3. **Offline özellik**: videoyu açınca önce **noktayı seç** → uygulama videoyu tarar, nesneyi/parçayı takip eder → sonucu **başka bir video olarak kaydeder** (takipli/yakınlaştırılmış çıktı).
+4. **Tüm uzantılar ve modeller exe (installer) ile gelir**; kurulum sonrası elle indirme yok. (Kişisel kullanım: AGPL pose modelleri pakette olabilir; dağıtım için `THIRD_PARTY_NOTICES.md`.)
+5. Futbol/forma/takım rengi = yalnız isteğe bağlı yardımcı sinyal; ürün dilinde «oyuncu» yerine «kişi/hedef» kullan.
+
+**Kodla karşılaştırma (2026-11-11)**: (a) offline tarama yalnız kişi için; nokta/parça seçerek offline yok → A1 + B1. (b) **Video dışa aktarma yok** (yalnız `views.json`) → E1. (c) Parça takibi yalnız canlı; kare dışı sürekliliği nesne takibinde var (`WorldPointTracker`), eklemde yok (`kp_hold`=6 adım) → B2/G1. (d) Pakette Re-ID ve numara modeli yok; ayrıca canlıda Re-ID açma yolu yok → G3 + config bayrakları. (e) Hiçbiri gerçek videoda ölçülmedi → P23 bench.
+
+**Sıra** (onaylandı, 2026-11-11): bkz. «Yol haritası» → «Parts» (Faz 0–6) ve «Suggested order». Eksik kalan her parça bir fazda yer alır; yeni parçalar: **V1** (doğrulama), **I1** (tüm modeller installer'da).
 
 ## Yol haritası (eski project.md; Parça 22 sonrası, P23…O3)
 Goal: track + zoom on people and their body parts simultaneously, never losing focus. Personal use (AGPL OK).
@@ -54,46 +66,47 @@ Baseline (see handover.md): ByteTrack + YOLOX/YOLOv8 person detector, Kalman + l
 - **Quality score** (live vs. offline): lost-frame %, view jitter, ID switches, live lag; sampled over a sliding window.
 
 ### Parts
-Status: P23, M1, M2 done → next M3.
+Status (2026-11-11): P23, M1, M2 done. **Next: V1.** Order below follows the product goal ("Ürün amacı ve öncelikler"): fast people/body-part tracking, resume after leaving/re-entering the frame, offline "pick point → scan → save as video", all models in the exe. Every undone part from earlier plans is placed in a phase; nothing is dropped. Part ids are kept (do not renumber; history refers to them).
 
-#### Foundation
+#### Phase 0 — Done
 - **P23 — Bench harness** ✅ (`tracker/bench.py`; real-clip runs pending on Windows): `python -m tracker bench video.mp4` → ID switches, lost %, jitter px/s, fps, latency, JSON report. Run on 2–3 real clips; fix first real-world breakages (pose `[1,56,N]` layout, DirectML fp16, `complex` mouse bindings). Output feeds A2's quality score.
-
-#### Menu bar (M)
 - **M1 — Menu engine + bar shell** ✅ (`script-modules/trackmenu.lua`; real mpv run pending): declarative menu table, top bar (File · View · Tracking · Tools · Settings · Help), hover/click/dropdown, auto-hide, keyboard nav (F10, arrows, Esc), enabled/checked state, shortcut hints. Wire existing actions only (toggle, reset, release, offline, HUD, panel). Python test for menu table/state; Lua harness test for hit-testing.
 - **M2 — File menu** ✅ (`script-modules/trackfiles.lua`; real Windows run pending): Open video, Open recent, Open folder/URL, Close, Save/Load view snapshot (`<video>.view.json`, static zoom/pan/rotate — NOT the per-frame `.views.json`), Export (greyed until E1), Exit. Remembers last dir. Dialogs = PowerShell+WinForms, not tkinter (embeddable Python ships no tkinter).
-- **M3 — View + Tracking menus**: View: zoom presets, fill %, fit/fill/original, fullscreen, always-on-top, HUD on/off, overlay toggles (box, dot, IDs, trails — greyed until built). Tracking: mode submenu (Off · Click object · Rectangle · Player ID · Body part · Auto-scan), target actions (release, switch, lock), lookahead/smoothing sliders as stepper items.
-- **M4 — Tools + Settings + Help**: Tools: run offline scan now, cancel scan, bench, open models folder, check models. Settings dialog (stepper list for `Config` keys, Save/Reset → `settings.json`), device (auto/dml/cuda/cpu), live fps, model selection. Help: shortcuts list, about, version, licences. Status bar line (mode · fps · device · scan progress).
 
-#### Open-with-point + auto-scan (A)
-- **A1 — Open with point & background scan**: CLI/menu "Open video with target…": pick video → first frame shown paused → user right-click/drag selects target → start live immediately and spawn `offline` scan in a background process (progress in status bar, resumable, writes `.track.json`). Target stored as `(t, point/rect)` and resolved to ID/part when scan reaches it.
-- **A2 — Auto-switch to precomputed**: sliding-window quality score (from P23 metrics); if live is worse than offline-derived views (or live fps < budget) → switch to offline views with eased handover, OSD "Using scanned track"; manual override in Tracking menu (Live / Scanned / Auto). Seek handling: live while scan hasn't reached `t`.
-- **A3 — Scan cache**: hash(video path+size+mtime+model) → reuse tracks on reopen; "Rescan" menu item; scan-ahead throttling when playback is running.
+#### Phase 1 — Ground truth (before building more)
+- **V1 — Real-run validation + CI hygiene** (NEW; carries the old "Doğrulama (yapılmadı)" lists from Parts 3–23): on Windows run `detect`, `live --stats 2`, `bench` on 2–3 real clips (fast body motion, subject leaves/re-enters, crowd); record one line per clip below "Cross-cutting rules"; fix first breakages (pose `[1,56,N]` layout, DirectML fp16, `complex` mouse bindings, menu bar visibility, PowerShell dialogs). Add Lua (`texlua`) to `ci.yml` so `test_lua_*` run in CI. Set the release version (VERSION + `__version__` + `tests/test_license.py` together) before the first `v*` tag. Exit: bench numbers exist; first `v*` tag possible.
 
-#### Body parts (B) — pose in offline + robustness
+#### Phase 2 — Body parts that survive fast motion and leaving the frame
 - **B1 — Pose in offline pipeline (schema v2)**: per-ID keypoints in `track.json` (`"kp"`), v1 reader kept; part target `{id, part}`; zero-phase smoothing + gap fill per keypoint → `views`.
-- **B2 — Robust part tracking**: bind part to ByteTrack ID; pose↔track association by keypoint-in-box; One-Euro filter per keypoint; occlusion fallback chain (parent joint + limb ratio → person sub-box → person → zoom-out).
-- **B3 — Part presets + menu**: head/torso/arms/legs/feet/hands keypoint-group boxes; Tracking → Body part submenu; hotkey cycle; part switch without re-scan.
-
-#### Multi-target (T)
-- **T1 — Target set + union framing**: N persons/parts, priority weights, min-zoom cap; zoom hysteresis. Menu: Tracking → Add/remove target.
-- **T2 — Group/ball modes**: group centre; ball + nearest players (ball model from O1).
-
-#### Output (E)
-- **E1 — Follow-cam export**: `export` CLI + File → Export: per-frame crop/scale from `views.json`, ffmpeg pipe (`libx264 -crf 18 -preset veryfast`), original audio mux, VFR-safe pts, progress bar in status.
-- **E2 — Export options**: output size/aspect (16:9, 9:16), burn-in overlays, picture-in-picture of full frame, batch queue.
-
-#### Engine upgrades (G)
+- **B2 — Robust part tracking**: bind part to ByteTrack ID; pose↔track association by keypoint-in-box; One-Euro filter per keypoint; occlusion fallback chain (parent joint + limb ratio → person sub-box → person → zoom-out). **Add (re-entry, product goal #2)**: keypoint/part targets carry a camera-compensated world position (reuse `WorldPointTracker` from point.py) so an off-screen part is propagated with damped velocity and re-acquired by pose↔track association when the person re-enters; `kp_hold` becomes seconds-based, not 6 steps. Test: synthetic clip where the target exits and re-enters on the same and on the opposite side.
 - **G1 — Camera-motion compensation in tracker**: extract GMC to `tracker/gmc.py`; use in ByteTrack prediction + offline.
+
+#### Phase 3 — Offline: pick the point first → scan → save a video
+- **A1 — Open with point & background scan**: CLI/menu "Open video with target…": pick video → first frame shown paused → user right-click/drag selects target → start live immediately and spawn `offline` scan in a background process (progress in status bar, resumable, writes `.track.json`). Target stored as `(t, point/rect)` and resolved to ID/part when scan reaches it. **Add (product goal #3)**: target may be a person, a body part, a point or a rectangle (today offline is person-only); the scan resolves it to `{id, part}` with the B1 schema and keeps tracking through exits/re-entries (B2).
+- **E1 — Follow-cam export**: `export` CLI + File → Export: per-frame crop/scale from `views.json`, ffmpeg pipe (`libx264 -crf 18 -preset veryfast`), original audio mux, VFR-safe pts, progress bar in status. This is the "save as another video" step of the product goal; make it reachable from the open-with-point flow (A1) as one action: choose point → scan → export.
+- **A3 — Scan cache**: hash(video path+size+mtime+model) → reuse tracks on reopen; "Rescan" menu item; scan-ahead throttling when playback is running.
+- **A2 — Auto-switch to precomputed**: sliding-window quality score (from P23 metrics); if live is worse than offline-derived views (or live fps < budget) → switch to offline views with eased handover, OSD "Using scanned track"; manual override in Tracking menu (Live / Scanned / Auto). Seek handling: live while scan hasn't reached `t`.
+
+#### Phase 4 — Everything ships in the exe (product goal #4)
+- **I1 — Bundle all models in the installer** (NEW): `build.yml` fetches/exports every model into `dist\TakipliOynat\models` (YOLOX-S, YOLOv8s-pose today; + OSNet from G3, + whichever pose model G2/O2 choose), smoke test checks each file, `MODELLER.txt` + `THIRD_PARTY_NOTICES.md` list each licence (AGPL/data-set terms; personal-use build), checksums pinned. Exit: clean Windows machine, install, every feature works with no manual download.
+- **G3 — Re-ID weights**: `export_reid.py` (OSNet ONNX) in CI, model checksums, wire gallery into B2 recovery. **Add**: config flags `reid`, `team`, `number` (live currently has no way to enable them from mpv; `track.lua` starts `tracker live` without flags) and wire them into `run_live_cmd`.
 - **G2 — Single pose-detector**: YOLO11m-pose replaces separate person detector when pose present; fp16/DirectML benchmark vs v8s-pose.
-- **G3 — Re-ID weights**: `export_reid.py` (OSNet ONNX) in CI, model checksums, wire gallery into B2 recovery.
+- **O2 — Whole-body pose**: RTMPose-wholebody (hands, face, toes) on selected crops; presets extend.
 - **G4 — Shot-cut detection**: histogram/edge diff + LK inlier collapse → reset + re-acquire (re-ID/pose); cuts logged in `track.json`.
 
-#### Later (O)
+#### Phase 5 — Several targets, presets, menus
+- **B3 — Part presets + menu**: head/torso/arms/legs/feet/hands keypoint-group boxes; Tracking → Body part submenu; hotkey cycle; part switch without re-scan.
+- **T1 — Target set + union framing**: N persons/parts, priority weights, min-zoom cap; zoom hysteresis. Menu: Tracking → Add/remove target.
+- **M3 — View + Tracking menus**: View: zoom presets, fill %, fit/fill/original, fullscreen, always-on-top, HUD on/off, overlay toggles (box, dot, IDs, trails — greyed until built). Tracking: mode submenu (Off · Click object · Rectangle · Player ID · Body part · Auto-scan), target actions (release, switch, lock), lookahead/smoothing sliders as stepper items.
+- **M4 — Tools + Settings + Help**: Tools: run offline scan now, cancel scan, bench, open models folder, check models. Settings dialog (stepper list for `Config` keys, Save/Reset → `settings.json`), device (auto/dml/cuda/cpu), live fps, model selection. Help: shortcuts list, about, version, licences. Status bar line (mode · fps · device · scan progress).
+- **T2 — Group/ball modes**: group centre; ball + nearest players (ball model from O1).
+- **E2 — Export options**: output size/aspect (16:9, 9:16), burn-in overlays, picture-in-picture of full frame, batch queue.
+
+#### Phase 6 — Later
 - **O1 — Objects & ball**: class selector (sports ball, car, animals); small-ball tiled/fine-tuned model.
-- **O2 — Whole-body pose**: RTMPose-wholebody (hands, face, toes) on selected crops; presets extend.
 - **O3 — Overlays & stats**: trails, all-ID labels, team boxes; pitch homography → heatmap/distance/speed.
 - **Parked**: SAM 2 click-to-track (check DirectML/ONNX viability first).
+
 
 ### Cross-cutting rules
 - Every part: synthetic tests + (once P23 exists) one real-clip bench line in handover.md.
@@ -102,7 +115,9 @@ Status: P23, M1, M2 done → next M3.
 - No new heavy dependency without CI pruning check.
 
 ### Suggested order (≈1 part per weekday session)
-P23 → M1 → M2 → M3 → A1 → A2 → M4 → B1 → B2 → E1 → B3 → T1 → G1 → A3 → G2 → G3 → G4 → E2 → T2 → O1 → O2 → O3
+Done: P23 → M1 → M2.
+**V1 → B1 → B2 → G1 → A1 → E1 → A3 → A2 → I1 → G3 → G2 → O2 → G4 → B3 → T1 → M3 → M4 → T2 → E2 → O1 → O3**
+(V1 first because nothing has run on real footage; B1/B2/G1 = fast motion + re-entry; A1/E1 = offline point→scan→video; I1/G3/G2/O2 = models in the exe.)
 
 ## 15 Parçalık Plan
 | # | Parça | Durum |

@@ -1,11 +1,33 @@
 # Takipli Oynat — mpv Tabanlı Nesne Takipli Otomatik Zoom
 
-Oynatma sırasında seçilen bir nesneyi (ör. futbolcu) takip edip `video-zoom` / `video-pan` ile otomatik yakınlaştıran Windows video oynatıcı paketi.
+Oynatma sırasında seçilen bir kişiyi, vücut parçasını (ayak, bacak…) ya da herhangi bir nesneyi takip edip `video-zoom` / `video-pan` ile otomatik yakınlaştıran Windows video oynatıcı paketi.
 
 ## Hedef
-- Ekranda tıklanan oyuncuyu takip et, kameraman hissiyle zoom/pan uygula
+- Ekranda seçilen kişiyi **ya da vücut parçasını** (ayak, bacak, el…) takip et, kameraman hissiyle zoom/pan uygula
 - Tek `setup.exe` ile kurulum, internetsiz çalışma
 - Açık kaynak bileşenler üzerine kurulu, mpv çekirdeğine dokunmadan
+
+## Amaç ve kapsam
+Takipli Oynat **spora özel değildir**. Amaç: videoda **insanları ve özellikle vücut parçalarını (ayak, bacak, el, baş… ya da kişinin kendisini) aynı anda takip edip yakınlaştırmak**. Futbol gibi sporlar yalnız bir örnektir; takım rengi/forma numarası gibi sinyaller isteğe bağlı ek araçlardır.
+
+Hedef davranışlar:
+- **Hızlı hareket**: kişi ya da vücut parçası hızlı hareket etse de hedef kaybedilmez.
+- **Kare dışına çıkıp geri gelme**: hedef kareden çıkınca takip bırakılmaz; hedef (kişi ya da parça) geri girince **kaldığı yerden** sürer.
+- **Offline iş akışı**: videoyu açıp önce **noktayı/parçayı seç** → program videoyu tarar, nesneyi takip eder → sonucu **ayrı bir takipli/yakınlaştırılmış video olarak kaydeder**.
+- **Her şey exe ile gelir**: gerekli tüm model ve uzantılar kurulum paketinin içindedir; kurulumdan sonra elle bir şey indirmek gerekmez.
+
+### Hedef ↔ mevcut durum (kodla karşılaştırıldı)
+| Hedef | Şu anki durum | Yol haritası |
+|---|---|---|
+| Kişi + vücut parçası takibi | Kişi: ByteTrack. Parça: yalnız **canlı** modda, YOLOv8s-pose (COCO-17: ayak bileği, diz, bilek…; el/yüz/ayak parmağı yok) | B1–B3 (Faz 2/5), O2 (tüm vücut, Faz 4) |
+| Aynı anda birden çok hedef | Tek hedef | T1 (Faz 5), T2 |
+| Hızlı hareket | Kalman + öngörü; parça kayması yalnız görünüm EMA'sıyla yumuşatılır; gerçek videoda doğrulanmadı | V1 (ölç), B2 (One-Euro, kayıp zinciri) |
+| Kare dışı → geri girişte devam | Nesne/dikdörtgen: kamera telafili `WorldPointTracker` kare dışında ilerletir, geri girince şablonla bulur. Eklem: yalnız `kp_hold` (6 adım) tolerans. Kişi: ByteTrack ID + isteğe bağlı Re-ID. Gerçek videoda doğrulanmadı | B2 (kare dışı süreklilik), G1, G3 |
+| Offline: noktayı seç → tara → takip et | Offline tarama yalnız **kişi** içindir (`--target-id` ya da `--click` ile kişi); nokta/dikdörtgen/parça ile offline yok; sonuç `track.json` + `views.json` (mpv'de `o` ile oynar) | A1 (+B1), A2, A3 — Faz 3 |
+| Sonucu **video olarak kaydet** | **Yok** (yalnız görünüm anahtar kareleri) | **E1** (ffmpeg, ses dahil; Faz 3), E2 |
+| Tüm model/uzantılar exe ile | `yolox_s.onnx` + `yolov8s-pose.onnx` pakette. **Re-ID (OSNet), forma numarası modeli pakette değil** (hazır ONNX yok; G3 CI'da dışa aktaracak); YOLO11-pose/tüm vücut pozu planlı | **I1** (hepsini installer'a koy), G3, G2, O2 — Faz 4 |
+
+Öncelik sırası ve parça numaraları (B1, B2, A1, E1, I1, G3…) `handover.md` → «Ürün amacı ve öncelikler» ve «Yol haritası → Parts» bölümündedir.
 
 ## Neden mpv (VLC değil)
 - Runtime property'ler: `video-zoom` (log2), `video-pan-x`, `video-pan-y`
@@ -84,13 +106,14 @@ Ayrıntılı denetim: **`THIRD_PARTY_NOTICES.md`** (pakete ve Başlat menüsüne
 - `tests/`: 230 test (Python + `texlua` ile Lua harness; `texlua`/`lua` yoksa Lua testleri atlanır — CI'da şu an yüklü değil)
 
 ## Bilinen Riskler
-- Aynı formalı oyuncuların kesişmesinde ID kayması → Re-ID + renk/numara sinyali
+- Benzer görünümlü kişilerin (ör. aynı formalı) kesişmesinde ID kayması → Re-ID (+ isteğe bağlı renk/numara sinyali); Re-ID modeli henüz pakette yok
+- Hızlı hareket / kare dışına çıkış → mevcut telafiler gerçek videoda doğrulanmadı (bkz. «Hedef ↔ mevcut durum»)
 - Küçük hedef (30–60 px) → tam çözünürlük inference
 - Ani kamera pan'ı → bbox sıçraması → Kalman + dead-zone
 - CPU-only makinelerde canlı mod düşük fps → offline mod
 
 ## Yol Haritası
-Ayrıntılı plan, durum ve sonraki parçalar (M3…O3; P23, M1, M2 yapıldı) "Yol haritası" bölümündedir (`handover.md`). Tamamlanan: **Parça 1–15** + ek parçalar 16–22 (düğme paneli, sağ tık/zoom kontrolü, nesne ve eklem takibi, dikdörtgen seçimi) + P23, M1, M2; sürüm dosyaları **1.2.0**. Parça 1–15: (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası, canlı ayar tuşları + durum etiketi,  Python + tam installer, lisans denetimi + YOLOX alternatifi + release).
+Ayrıntılı plan ve sıra `handover.md` → "Yol haritası" bölümündedir (Faz 0–6; yapıldı: P23, M1, M2; sıradaki: **V1** gerçek videoda doğrulama, sonra B1/B2 vücut parçası + kare dışı süreklilik, A1/E1 offline «noktayı seç → tara → video kaydet», I1/G3 tüm modeller installer'da). Tamamlanan: **Parça 1–15** + ek parçalar 16–22 (düğme paneli, sağ tık/zoom kontrolü, nesne ve eklem takibi, dikdörtgen seçimi) + P23, M1, M2; sürüm dosyaları **1.2.0**. Parça 1–15: (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası, canlı ayar tuşları + durum etiketi,  Python + tam installer, lisans denetimi + YOLOX alternatifi + release).
 
 ### Sağ tık: herhangi bir nesneyi takip (Parça 18)
 `tracker/point.py`: sağ tıklanan nokta için kutu çıkarılır (aynı renkteki bitişik bölge; olmazsa karenin %6'sı kadar kare), sonra her karede Lucas-Kanade optik akışı kutuyu taşır, şablon benzerliği (NCC) yanlış şeye kaymayı yakalar, tutmazsa son konum çevresinde şablon aranır; bulunamazsa "hedef kayıp" (bekle → kademeli zoom-out) ve nesne geri gelirse takip sürer. Kamera hareketi telafisi (Parça 19, `WorldPointTracker`): arka plan köşelerinden kareden kareye kamera dönüşümü birikir; hedef dünya koordinatında tutulur, kare dışına çıksa/örtülse bile sönümlü hızla ilerletilir ve geri gelince şablonla yeniden bulunur. Detector çalışmaz (CPU'da daha hızlı); `models\` boşsa bile sağ tık çalışır. Ayarlar (`config.json`): `point_box` (0.06), `point_refine` (true), `point_min_score` (0.55; yükselirse kayıp daha erken ilan edilir), `point_max_side` (640). Zoom miktarı `+`/`−` (doluluk) ile ayarlanır. Takip edilen noktanın üstünde küçük bir **artı (nişangâh)** gösterilir: tıklar tıklamaz sarı (tıklama alındı), takip programı doğrulayınca beyaz; 2 sn içinde doğrulanmazsa ekranda uyarı çıkar (Python her karede merkezi `track-dot` ile yollar, Lua mpv'nin anlık zoom/pan'ına göre çizer); hedef kayıpsa ya da bırakılınca artı kaybolur — çalışıp çalışmadığını buradan görürsün.
