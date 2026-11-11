@@ -419,8 +419,17 @@ class LiveController:
         if hit is None:
             return None
         i, k = hit
+        cam = None
+        if self.cfg.kp_hold_s > 0 and self.cfg.kp_world:  # B2: kare dışına çıkan parçayı taşı
+            try:
+                from .point import CameraComp
+
+                cam = CameraComp(frame)
+            except Exception:  # cv2 yok: kamera telafisiz sürer
+                cam = None
         return KeypointTracker(self.pose, poses[i], k, self.cfg.kp_box, self.cfg.kp_min_conf,
-                               hold=self.cfg.kp_hold)
+                               hold=self.cfg.kp_hold, hold_s=self.cfg.kp_hold_s, cam=cam,
+                               smooth=self.cfg.kp_filter, reacq_single=self.cfg.kp_reacq_single)
 
     def _step_point(self, frame, t: float, osd: str | None) -> Output:
         fh, fw = frame.shape[:2]

@@ -1,6 +1,8 @@
 """Yumuşatma: dead-zone + EMA (görünüm) ve Kalman + hız yönünde lookahead (hedef kutusu)."""
 from __future__ import annotations
 
+import math
+
 from .geometry import BBox, View
 
 
@@ -199,3 +201,37 @@ def smooth_zero_phase(values: list[float], alpha: float) -> list[float]:
     for i in range(len(out) - 2, -1, -1):
         out[i] = out[i + 1] + alpha * (out[i] - out[i + 1])
     return out
+
+
+class OneEuro:
+    """One-Euro süzgeci (Casiez ve ark.): yavaşken güçlü yumuşatır, hızlanınca gecikmeyi keser.
+    `update(x, t)`: t saniye; `min_cutoff` Hz (küçük = daha yumuşak); `beta` hız katsayısı."""
+
+    def __init__(self, min_cutoff: float = 1.5, beta: float = 2.0, d_cutoff: float = 1.0):
+        self.min_cutoff, self.beta, self.d_cutoff = min_cutoff, beta, d_cutoff
+        self.reset()
+
+    def reset(self) -> None:
+        self._x: float | None = None
+        self._dx = 0.0
+        self._t = 0.0
+
+    @staticmethod
+    def _alpha(cutoff: float, dt: float) -> float:
+        tau = 1.0 / (2.0 * math.pi * cutoff)
+        return 1.0 / (1.0 + tau / max(dt, 1e-6))
+
+    def update(self, x: float, t: float) -> float:
+        if self._x is None:
+            self._x, self._t = x, t
+            return x
+        dt = t - self._t
+        if dt <= 0.0:
+            return self._x
+        a_d = self._alpha(self.d_cutoff, dt)
+        self._dx += a_d * ((x - self._x) / dt - self._dx)
+        cutoff = self.min_cutoff + self.beta * abs(self._dx)
+        a = self._alpha(cutoff, dt)
+        self._x += a * (x - self._x)
+        self._t = t
+        return self._x

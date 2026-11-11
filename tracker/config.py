@@ -70,6 +70,10 @@ class Config:
     kp_box: float = 0.10  # eklem etrafındaki takip kutusu (kişi boyu oranı)
     dot_lead_s: float = 0.08  # sn; artı hız yönünde bu kadar ileri çizilir (0=kapalı)
     kp_hold: int = 6  # eklem/kişi görünmeyince bu kadar adım son konumda tut (0: hemen kayıp)
+    kp_hold_s: float = 1.5  # sn; kayıpken öngörülen konumu bu kadar döndür (0: B2 kapalı)
+    kp_world: bool = True  # eklem takibi: kamera hareketi telafisi (dünya konumu)
+    kp_filter: bool = True  # eklem konumuna One-Euro süzgeci
+    kp_reacq_single: bool = True  # uzun kayıptan sonra karede tek uygun kişi varsa yeniden bağla
     point_max_side: int = 640  # nesne izleyici kareyi en uzun kenarı bu olacak şekilde küçültür
 
     def __post_init__(self) -> None:

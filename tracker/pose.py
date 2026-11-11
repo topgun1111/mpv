@@ -7,6 +7,7 @@ Saf fonksiyonlar (`decode_yolo_pose`, `nearest_keypoint`) model olmadan test edi
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from .detector import (
     resolve_model_path,
 )
 from .geometry import BBox
+from .smooth import OneEuro
 
 KEYPOINT_NAMES = (
     "burun", "sol göz", "sağ göz", "sol kulak", "sağ kulak", "sol omuz", "sağ omuz",
@@ -142,46 +144,130 @@ class KeypointTracker:
 
     Kişi, önceki kutuya en çok benzeyen (IoU / merkez yakınlığı) pozla eşlenir. Eklem güveni
     düşükse ya da kişi bulunamazsa `update` None döner (denetleyici "hedef kayıp" akışına girer).
+
+    B2 (`hold_s` > 0 ile açılır; 0 = eski davranış): kişi kareden çıkınca/kapanınca eklemin
+    (kamera telafili `cam`) dünya konumu sönümlü hızla ilerletilir; `hold_s` sn boyunca bu
+    öngörülen kutu döner (`visible` = öngörülen konum karenin içinde mi), sonra None döner ama
+    izleyici yaşar ve kişi geri girince yeniden bağlar: öngörülen konuma yakın (ya da konumu
+    kutusunda içeren) ve boyu benzer poz; `reacq_single` ile uzun kayıptan sonra uygun tek kişi
+    de bağlanır (ters taraftan girişte; kalabalıkta kimlik karışabilir). `smooth` eklem konumuna
+    One-Euro (kişi boyuna normalize) uygular.
     """
 
     visible = True
 
     def __init__(self, estimator: PoseEstimator, pose: Pose, kp: int, box_frac: float = 0.10,
-                 min_conf: float = 0.35, hold: int = 0) -> None:
+                 min_conf: float = 0.35, hold: int = 0, *, hold_s: float = 0.0, cam=None,
+                 smooth: bool = False, reacq_single: bool = True,
+                 clock=time.monotonic) -> None:
         self.est, self.kp, self.box_frac, self.min_conf = estimator, kp, box_frac, min_conf
         self.hold, self._misses = hold, 0  # hold: tolere edilen ardışık ıska
+        self.hold_s, self.cam, self.reacq_single, self.clock = hold_s, cam, reacq_single, clock
         self.label = KEYPOINT_NAMES[kp]
         self._person = pose.bbox
         self._pos = (float(pose.kpts[kp][0]), float(pose.kpts[kp][1]))
+        self._h = max(pose.bbox.y2 - pose.bbox.y1, 1.0)
+        self._w = self._to_w(*self._pos)  # dünya konumu (cam yoksa kare konumu)
+        self._wv = (0.0, 0.0)  # dünya hızı (px/adım)
+        self._blind_t: float | None = None  # kişi bulunamamaya başladığı an
+        self._fs = (OneEuro(), OneEuro()) if smooth else None
+        self._fw = self._fh = 0
 
     @property
     def bbox(self) -> BBox:
-        half = max(self.box_frac * (self._person.y2 - self._person.y1), 8.0) / 2
+        half = max(self.box_frac * self._h, 8.0) / 2
         return BBox(self._pos[0] - half, self._pos[1] - half,
                     self._pos[0] + half, self._pos[1] + half)
 
+    def _to_w(self, x: float, y: float) -> tuple[float, float]:
+        return self.cam.to_world(x, y) if self.cam is not None else (x, y)
+
+    def _to_f(self, wx: float, wy: float) -> tuple[float, float]:
+        return self.cam.to_frame(wx, wy) if self.cam is not None else (wx, wy)
+
+    def _predicted(self) -> tuple[float, float]:
+        """Eklemin bu kare için kamera telafili konumu (kişi görünürken son konum + kamera)."""
+        return self._to_f(*self._w) if self.cam is not None else self._pos
+
     def update(self, frame_bgr: np.ndarray) -> BBox | None:
-        prev = self._person
-        ph = max(prev.y2 - prev.y1, 1.0)
-        best, best_s = None, 0.0
-        for p in self.est.estimate(frame_bgr):
-            d = float(np.hypot(p.bbox.cx - prev.cx, p.bbox.cy - prev.cy)) / ph
-            s = _iou(prev, p.bbox) + max(0.0, 1.0 - d)  # yakın + örtüşen
-            if (_iou(prev, p.bbox) > 0.1 or d < 0.6) and s > best_s:
-                best, best_s = p, s
-        if best is None:  # kişi bu karede bulunamadı: kısa süre son konumda tut
-            return self._held()
+        self._fh, self._fw = frame_bgr.shape[:2]
+        if self.cam is not None:
+            self.cam.update(frame_bgr)
+        poses = self.est.estimate(frame_bgr)
+        b2 = self.hold_s > 0.0
+        best = self._reacquire(poses) if b2 and self._blind_t is not None else self._match(poses)
+        if best is None:  # kişi bu karede bulunamadı
+            return self._blind() if b2 else self._held()
+        self._blind_t = None
+        self._h = max(best.bbox.y2 - best.bbox.y1, 1.0)
+        prev, self._person = self._person, best.bbox
         if best.kpts[self.kp][2] < self.min_conf:
             # Eklem görünmüyor ama kişi var: eklemi kişinin kayması kadar taşı (tek karelik
             # güven düşüşü hedefi düşürmesin; artı işareti de sönmesin)
-            dx, dy = best.bbox.cx - prev.cx, best.bbox.cy - prev.cy
-            self._person = best.bbox
-            self._pos = (self._pos[0] + dx, self._pos[1] + dy)
+            x, y = self._pos[0] + best.bbox.cx - prev.cx, self._pos[1] + best.bbox.cy - prev.cy
+            self._set(x, y, observed=False)
             return self._held()
         self._misses = 0
-        self._person = best.bbox
-        self._pos = (float(best.kpts[self.kp][0]), float(best.kpts[self.kp][1]))
+        self._set(float(best.kpts[self.kp][0]), float(best.kpts[self.kp][1]), observed=True)
         return self.bbox
+
+    def _set(self, x: float, y: float, observed: bool) -> None:
+        if self._fs is not None and observed:
+            t = self.clock()
+            x = self._fs[0].update(x / self._h, t) * self._h
+            y = self._fs[1].update(y / self._h, t) * self._h
+        self._pos = (x, y)
+        self.visible = True
+        w = self._to_w(x, y)
+        if observed:
+            self._wv = (self._wv[0] + 0.3 * ((w[0] - self._w[0]) - self._wv[0]),
+                        self._wv[1] + 0.3 * ((w[1] - self._w[1]) - self._wv[1]))
+        self._w = w
+
+    def _match(self, poses: list[Pose]) -> Pose | None:
+        prev = self._person
+        ph = max(prev.y2 - prev.y1, 1.0)
+        pred = self._pos if self.hold_s > 0.0 else None
+        best, best_s = None, 0.0
+        for p in poses:
+            d = float(np.hypot(p.bbox.cx - prev.cx, p.bbox.cy - prev.cy)) / ph
+            s = _iou(prev, p.bbox) + max(0.0, 1.0 - d)  # yakın + örtüşen
+            if pred is not None and p.bbox.contains(*pred):
+                s += 0.5  # eklem-kutu içinde (B2): kalabalıkta doğru kişiyi seç
+            if (_iou(prev, p.bbox) > 0.1 or d < 0.6) and s > best_s:
+                best, best_s = p, s
+        return best
+
+    def _reacquire(self, poses: list[Pose]) -> Pose | None:
+        """Kayıptan sonra: öngörülen konuma en yakın benzer boylu poz; yoksa (uzun kayıpta)
+        uygun tek kişi."""
+        px, py = self._predicted()
+        best, best_d = None, 0.0
+        cand = []
+        for p in poses:
+            ph = max(p.bbox.y2 - p.bbox.y1, 1.0)
+            if not 0.5 <= ph / self._h <= 2.0:
+                continue  # boy tutarsız: başka kişi
+            cand.append(p)
+            kx, ky, kc = p.kpts[self.kp]
+            ref = (float(kx), float(ky)) if kc >= self.min_conf else (p.bbox.cx, p.bbox.cy)
+            d = float(np.hypot(ref[0] - px, ref[1] - py)) / ph
+            if (d <= 0.6 or p.bbox.contains(px, py)) and (best is None or d < best_d):
+                best, best_d = p, d
+        if best is None and self.reacq_single and len(cand) == 1 and len(poses) == 1:
+            if self.clock() - (self._blind_t or 0.0) > self.hold_s:
+                best = cand[0]
+        return best
+
+    def _blind(self) -> BBox | None:
+        now = self.clock()
+        if self._blind_t is None:
+            self._blind_t = now
+        self._wv = (self._wv[0] * 0.9, self._wv[1] * 0.9)
+        self._w = (self._w[0] + self._wv[0], self._w[1] + self._wv[1])
+        self._pos = self._to_f(*self._w)
+        self.visible = 0 <= self._pos[0] <= self._fw and 0 <= self._pos[1] <= self._fh
+        return self.bbox if now - self._blind_t <= self.hold_s else None
 
     def _held(self) -> BBox | None:
         self._misses += 1

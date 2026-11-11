@@ -22,7 +22,7 @@ Hedef davranışlar:
 | Kişi + vücut parçası takibi | Kişi: ByteTrack. Parça: yalnız **canlı** modda, YOLOv8s-pose (COCO-17: ayak bileği, diz, bilek…; el/yüz/ayak parmağı yok) | B1–B3 (Faz 2/5), O2 (tüm vücut, Faz 4) |
 | Aynı anda birden çok hedef | Tek hedef | T1 (Faz 5), T2 |
 | Hızlı hareket | Kalman + öngörü; parça kayması yalnız görünüm EMA'sıyla yumuşatılır; gerçek videoda doğrulanmadı | V1 (ölç), B2 (One-Euro, kayıp zinciri) |
-| Kare dışı → geri girişte devam | Nesne/dikdörtgen: kamera telafili `WorldPointTracker` kare dışında ilerletir, geri girince şablonla bulur. Eklem: yalnız `kp_hold` (6 adım) tolerans. Kişi: ByteTrack ID + isteğe bağlı Re-ID. Gerçek videoda doğrulanmadı | B2 (kare dışı süreklilik), G1, G3 |
+| Kare dışı → geri girişte devam | Nesne/dikdörtgen: kamera telafili `WorldPointTracker` kare dışında ilerletir, geri girince şablonla bulur. Eklem (canlı): kamera telafili öngörü `kp_hold_s` (1.5 sn) sürer, kişi geri girince yeniden bağlanır (B2). Kişi: ByteTrack ID + isteğe bağlı Re-ID. Gerçek videoda doğrulanmadı | B2 (kare dışı süreklilik), G1, G3 |
 | Offline: noktayı seç → tara → takip et | Offline tarama yalnız **kişi** içindir (`--target-id` ya da `--click` ile kişi); nokta/dikdörtgen/parça ile offline yok; sonuç `track.json` + `views.json` (mpv'de `o` ile oynar) | A1 (+B1), A2, A3 — Faz 3 |
 | Sonucu **video olarak kaydet** | **Yok** (yalnız görünüm anahtar kareleri) | **E1** (ffmpeg, ses dahil; Faz 3), E2 |
 | Tüm model/uzantılar exe ile | `yolox_s.onnx` + `yolov8s-pose.onnx` pakette. **Re-ID (OSNet), forma numarası modeli pakette değil** (hazır ONNX yok; G3 CI'da dışa aktaracak); YOLO11-pose/tüm vücut pozu planlı | **I1** (hepsini installer'a koy), G3, G2, O2 — Faz 4 |
@@ -139,7 +139,7 @@ python -m tracker bench video.mp4.track.json                          # yalnız 
 Ölçütler: kimlik sayısı, kısa izler, olası ID değişimi, hedefin görülme/kayıp yüzdesi, canlı-benzetimi ile offline görünüm arasındaki sapma ve titreme (`--target-id` yoksa en uzun iz). Diğer ortak bayraklar: `--model`, `--device`, `--fps`. Canlı modda ek bayraklar: `--wait SN` (mpv IPC'sini bekle), `--stats SN` (fps/gecikme satırı).
 
 ### Eklem (vücut parçası) takibi (Parça 22)
-`models/yolov8s-pose.onnx` varsa yüklenir (yoksa sessizce kapalı). Sağ tık bir eklemin (`kp_tol`: kişi boyunun 0.12'si) yakınına yapılırsa o eklem izlenir (HUD: «Hedef: sol ayak bileği»), uzaksa nesne takibi. Ayarlar (`config.json`): `pose_model`, `pose_conf` (0.3), `kp_tol`, `kp_min_conf` (0.35), `kp_box` (0.10), `kp_hold` (6). Yalnız canlı modda; offline/`track.json` eklem içermez.
+`models/yolov8s-pose.onnx` varsa yüklenir (yoksa sessizce kapalı). Sağ tık bir eklemin (`kp_tol`: kişi boyunun 0.12'si) yakınına yapılırsa o eklem izlenir (HUD: «Hedef: sol ayak bileği»), uzaksa nesne takibi. Ayarlar (`config.json`): `pose_model`, `pose_conf` (0.3), `kp_tol`, `kp_min_conf` (0.35), `kp_box` (0.10), `kp_hold` (6), `kp_hold_s` (1.5), `kp_world`, `kp_filter`, `kp_reacq_single`. Canlıda çalışır; offline için `offline VIDEO --pose` eklemleri `track.json`'a (sürüm 2) yazar, `--part "sol ayak bileği"` (ya da 0–16) görünümü o eklemden üretir (B1).
 
 ### Offline oynatma (Parça 10)
 `offline ... --target-id N` (veya `offline-view`) `video.mp4.views.json` dosyasını da yazar. Bu dosya

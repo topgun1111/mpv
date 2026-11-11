@@ -375,3 +375,30 @@ class WorldPointTracker:
         step = np.vstack([A, [0, 0, 1]])
         full = np.linalg.inv(S) @ step @ S
         self.W = self.W @ full
+
+
+class CameraComp(WorldPointTracker):
+    """Yalnız kamera hareketi telafisi (hedefsiz): `WorldPointTracker`'ın kamera kestirimi
+    (`_camera`, kare → dünya `W`) yeniden kullanılır; eklem takibi (B2) kare dışına çıkan parçanın
+    dünya konumunu bununla taşır. Kestirilemeyen karelerde `W` değişmez (kimlik dönüşümü)."""
+
+    def __init__(self, frame_bgr: np.ndarray, cam_side: int = 480):
+        import cv2
+
+        self._cv2 = cv2
+        self.fh, self.fw = frame_bgr.shape[:2]
+        self.cs = min(1.0, cam_side / max(self.fw, self.fh))
+        self.cprev = self._cgray(frame_bgr)
+        self.W = np.eye(3)
+        self.visible = False  # `_camera` hedef kutusunu maskelemesin
+
+    def update(self, frame_bgr: np.ndarray) -> None:  # type: ignore[override]
+        cur = self._cgray(frame_bgr)
+        self._camera(cur)
+        self.cprev = cur
+
+    def to_world(self, x: float, y: float) -> tuple[float, float]:
+        return self._to_world(x, y)
+
+    def to_frame(self, wx: float, wy: float) -> tuple[float, float]:
+        return self._to_frame(wx, wy)
