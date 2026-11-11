@@ -11,6 +11,7 @@ import threading
 import time
 from dataclasses import dataclass
 
+from . import errlog
 from .clicks import (
     DOT_MSG,
     HUD_MSG,
@@ -301,7 +302,8 @@ class LiveController:
         if self.cuts is not None and self._last_t is not None:
             try:
                 cut = bool(self.cuts.step(frame))
-            except Exception:  # algılama asla izlemeyi düşürmesin
+            except Exception as e:  # algılama asla izlemeyi düşürmesin
+                errlog.record("sahne kesimi", e)
                 cut = False
         elif self.cuts is not None:
             self.cuts.step(frame)  # ilk kare: yalnız referans
@@ -434,6 +436,7 @@ class LiveController:
             else:
                 pt = self._point_factory(frame, px, py, self.cfg)
         except Exception as e:  # cv2 yok / kare bozuk: takip döngüsü düşmesin
+            errlog.record("nesne takibi başlatma", e)
             return Output(osd=f"Nesne takibi başlatılamadı: {e}")
         if not self.has_target:
             self.smoother.reset()  # ilk hedef: doğrudan oraya; sonrakilerde kayarak geçilir
@@ -457,7 +460,8 @@ class LiveController:
 
         try:
             poses = self.pose.estimate(frame)
-        except Exception:  # model/kare hatası: eski nesne takibine düş
+        except Exception as e:  # model/kare hatası: eski nesne takibine düş
+            errlog.record("poz tahmini", e)
             return None
         if self.wb is not None:  # O2: yalnız tıklanan kişiyi 133 noktaya genişlet
             poses = [self.wb.refine(frame, p) if p.bbox.contains(px, py) else p for p in poses]
@@ -472,7 +476,8 @@ class LiveController:
                 from .point import CameraComp
 
                 cam = CameraComp(frame)
-            except Exception:  # cv2 yok: kamera telafisiz sürer
+            except Exception as e:  # cv2 yok: kamera telafisiz sürer
+                errlog.record("kamera telafisi", e)
                 cam = None
         app = None
         emb = getattr(self.reid, "emb", None)
@@ -546,6 +551,7 @@ def run_live(
     cuts=None,
 ) -> None:
     """info: sol üst bilgi bloğundaki sabit satırlar (model/cihaz...). None = blok gönderilmez."""
+    errlog.get_video = lambda: mpv.get_property("path")
     ctl = LiveController(pipeline, cfg, reid=reid, cfg_path=cfg_path, pose=pose,
                          wholebody=wholebody, cuts=cuts)
     last_hud: tuple[str, bool, str] = ("", False, "")
@@ -601,12 +607,14 @@ def run_live(
                 mpv.command("show-text", out.osd, 1500)
             except MpvCommandError as e:  # OSD hatası döngüyü durdurmasın
                 log(f"OSD gösterilemedi: {e}")
+                errlog.record("OSD", e)
         if out.view is not None and out.view != last_view:
             try:
                 mpv.set_view(out.view)
                 last_view = out.view
             except MpvCommandError as e:  # mpv reddetti: sonraki karede yeniden dene
                 log(f"görünüm uygulanamadı: {e}")
+                errlog.record("görünüm", e)
         sync_hud()
         sync_dot()
 
@@ -677,3 +685,4 @@ def run_live(
                 sleep(rest)
     except MpvIpcError as e:
         log(f"mpv bağlantısı kesildi: {e}")
+        errlog.record("mpv bağlantısı", e)

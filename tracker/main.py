@@ -5,7 +5,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__
+from . import __version__, errlog
 from .clicks import RESET_MSG, message_name, parse_click
 from .config import Config
 from .geometry import View, pan_for_center
@@ -405,6 +405,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
             pose_det = PoseDetector(cfg.pose_model, cfg.live_det_conf, cfg.pose_conf, cfg.det_iou,
                                     device=args.device or cfg.device)
         except Exception as e:
+            errlog.record("tek-model (poz) yükleme", e)
             print(f"UYARI: tek-model (poz) açılamadı ({e}); ayrı person modeline dönülüyor.",
                   file=sys.stderr)
     try:
@@ -418,6 +419,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
             yolox_decoded=cfg.yolox_decoded,
         )
     except Exception as e:  # model yok/bozuk: sağ tık nesne takibi modelsiz de çalışır
+        errlog.record("person modeli yükleme", e)
         print(f"UYARI: person modeli yüklenemedi ({e}); yalnız sağ tık nesne takibi çalışır "
               "(oyuncu kimliği/Re-ID yok).", file=sys.stderr)
         if explicit_reid:
@@ -439,6 +441,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
         try:
             emb = Embedder(args.reid_model or cfg.reid_model, device=args.device or cfg.device)
         except Exception as e:
+            errlog.record("Re-ID modeli yükleme", e)
             if explicit_reid:
                 raise
             print(f"UYARI: Re-ID modeli yüklenemedi ({e}); Re-ID kapalı.", file=sys.stderr)
@@ -469,6 +472,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
             print(f"Vücut parçası takibi açık: provider={pose.session.get_providers()[0]}")
             info.append(model_line("Poz", cfg.pose_model, pose.session))
     except Exception as e:  # eklem takibi isteğe bağlı: yoksa/bozuksa eski davranış
+        errlog.record("pose modeli yükleme", e)
         print(f"UYARI: pose modeli yüklenemedi ({e}); eklem takibi kapalı.", file=sys.stderr)
     wb = None
     if pose is not None and cfg.wholebody != "off":  # O2: tüm-vücut (el/yüz/ayak parmağı)
@@ -485,6 +489,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
                 print(f"UYARI: {cfg.wholebody_model} yok; el/yüz/ayak parmağı takibi kapalı.",
                       file=sys.stderr)
         except Exception as e:  # isteğe bağlı: yoksa/bozuksa 17 noktalı davranış
+            errlog.record("tüm-vücut modeli yükleme", e)
             print(f"UYARI: tüm-vücut modeli yüklenemedi ({e}); yalnız 17 nokta.", file=sys.stderr)
     # Aynı mpv'yi birden çok takip programı sürmesin (her mpv açılışı yeni süreç başlatır)
     inst = SingleInstance(Path(args.cfg_path).resolve().parent / "tracker.lock")
@@ -718,7 +723,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except (FileNotFoundError, ValueError, ImportError, MpvIpcError) as e:
             print(f"HATA: {e}", file=sys.stderr)
+            errlog.record("canlı mod başlatma", e)
             return 1
+        except Exception as e:  # beklenmeyen çökme de günlüğe girsin
+            errlog.record("canlı mod ÇÖKTÜ", e)
+            raise
     try:
         with MpvIpc(cfg.ipc_path) as mpv:
             if args.cmd == "ping":
