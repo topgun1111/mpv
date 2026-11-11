@@ -117,7 +117,12 @@ class MpvIpc:
         while True:
             line = self._readline()
             assert line is not None
-            msg = json.loads(line)
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue  # bozuk/yarım satır (ör. kanal açılırken) takip programını çökertmesin
+            if not isinstance(msg, dict):
+                continue
             if msg.get("request_id") != rid:
                 if "event" in msg and self.keep_events:
                     self._events.append(msg)  # komut beklerken gelen olayı kaybetme

@@ -71,7 +71,7 @@ class Config:
     lost_zoomout_s: float = 2.0  # sn; bekleme sonrası 1x'e kademeli zoom-out süresi (0: anında)
     point_box: float = 0.06  # sağ tık nesne takibi: başlangıç kutusu (kare yüksekliği oranı)
     point_refine: bool = True  # tıklanan rengin bitişik bölgesinden kutuyu tahmin et
-    point_min_score: float = 0.55  # şablon benzerliği (NCC) alt sınırı; altı = nesne kayıp
+    point_min_score: float = 0.45  # şablon benzerliği (NCC) alt sınırı; altı = nesne kayıp
     pose_model: str = "models/yolov8s-pose.onnx"  # eklem takibi (isteğe bağlı)
     pose_conf: float = 0.3  # kişi (poz) tespit eşiği
     single_pose: bool = False  # G2: poz modeli kişi dedektörü de olsun (tek çıkarım)

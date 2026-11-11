@@ -659,6 +659,36 @@ def _bench_frames(source: str, n: int) -> list:
     return out
 
 
+def _run_live_with_retry(cfg: Config, args: argparse.Namespace, tries: int = 3,
+                         sleep=None) -> int:
+    """Canlı mod başlangıçta geçici bir hatayla (IPC kanalı, bozuk satır...) düşerse birkaç kez
+    yeniden dener: mpv ile birlikte gizli başlatılan süreç tek hatada ölüp takibi bırakmasın.
+    Kalıcı hatalar (model/dosya yok) ve Ctrl+C yeniden denenmez."""
+    import time
+
+    sleep = sleep or time.sleep
+    for i in range(1, tries + 1):
+        try:
+            return run_live_cmd(cfg, args)
+        except KeyboardInterrupt:
+            return 0
+        except (FileNotFoundError, ImportError) as e:
+            print(f"HATA: {e}", file=sys.stderr)
+            errlog.record("canlı mod başlatma", e)
+            return 1
+        except (ValueError, MpvIpcError) as e:
+            print(f"HATA: {e}", file=sys.stderr)
+            errlog.record(f"canlı mod başlatma (deneme {i}/{tries})", e)
+            if i == tries:
+                return 1
+            print("yeniden deneniyor...", file=sys.stderr)
+            sleep(2.0)
+        except Exception as e:  # beklenmeyen çökme de günlüğe girsin
+            errlog.record("canlı mod ÇÖKTÜ", e)
+            raise
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     _utf8_console()
     args = build_parser().parse_args(argv)
@@ -717,17 +747,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     if args.cmd == "live":
         args.headless = _log_if_headless(args.cfg_path) is not None
-        try:
-            return run_live_cmd(cfg, args)
-        except KeyboardInterrupt:
-            return 0
-        except (FileNotFoundError, ValueError, ImportError, MpvIpcError) as e:
-            print(f"HATA: {e}", file=sys.stderr)
-            errlog.record("canlı mod başlatma", e)
-            return 1
-        except Exception as e:  # beklenmeyen çökme de günlüğe girsin
-            errlog.record("canlı mod ÇÖKTÜ", e)
-            raise
+        return _run_live_with_retry(cfg, args)
     try:
         with MpvIpc(cfg.ipc_path) as mpv:
             if args.cmd == "ping":

@@ -29,10 +29,14 @@ from .gmc import CameraMotion, estimate_step
 
 _MIN_WORK_BOX = 20  # çalışma ölçeğinde kutunun en küçük kenarı (px)
 _CORE = 0.6  # köşe noktaları kutunun ortadaki bu oranından seçilir (kenardaki arka planı ele)
-_FB_ERR = 1.0  # ileri-geri akış hatası üst sınırı (px)
+_FB_ERR = 1.0  # ileri-geri akış hatası üst sınırı (px; 10 fps'te hızlı harekette 1 px çok sıkıydı)
 _MIN_PTS = 6  # akışın güvenilir sayılması için en az iyi nokta
 _REFRESH_PTS = 12  # bunun altına inince yeni köşe noktaları aranır
-_UPDATE_SCORE = 0.85  # bunun üstünde şablon yavaşça güncellenir
+_UPDATE_SCORE = 0.75  # bunun üstünde şablon yavaşça güncellenir (görünüm değişince kayıp olmasın)
+_TRUST_PTS = 10  # akış bu kadar tutarlı noktayla destekleniyorsa şablon skoru düşük olsa da güven
+_TRUST_SCORE = 0.3  # ... ama şablon skoru bunun altına inmemeli (arka plana kaymayı önler)
+_TRUST_SPREAD = 1.5  # noktaların kayma vektörleri medyandan en çok bu kadar (px) sapabilir
+_TRUST_MAX = 8  # ardışık en çok bu kadar kare akışa şablon onayı olmadan güvenilir
 _MAX_SCALE_STEP = 1.1  # kare başına en çok ölçek değişimi
 
 
@@ -86,7 +90,7 @@ class PointTracker:
 
     def __init__(self, frame_bgr: np.ndarray, px: float, py: float, *,
                  box_frac: float = 0.06, refine: bool = True, max_side: int = 640,
-                 min_score: float = 0.55, box: tuple[float, ...] | None = None):
+                 min_score: float = 0.45, box: tuple[float, ...] | None = None):
         import cv2
 
         self._cv2 = cv2
@@ -107,9 +111,12 @@ class PointTracker:
         self.cx, self.cy = (x1 + x2) / 2 * s, (y1 + y2) / 2 * s
         self.bw, self.bh = (x2 - x1) * s, (y2 - y1) * s
         self.tmpl = self._crop(gray, self.cx, self.cy, self.bw, self.bh)
+        self.tmpl0 = self.tmpl.copy()  # ilk görünüm: yavaş güncellenen şablon kayarsa yedek
         self.prev = gray
         self.pts = self._detect(gray)
         self.lost = 0  # ardışık kayıp kare sayısı
+        self._spread = 0.0  # son akış kestiriminin tutarsızlığı (px)
+        self._trust = 0  # şablon onayı olmadan kabul edilen ardışık akış kareleri
 
     # --- dış arayüz ---
     @property
@@ -126,8 +133,14 @@ class PointTracker:
             lk = self._lk(cur)
             if lk is not None:
                 score = self._score(cur, *lk[:4])
+                trusted = (score >= _TRUST_SCORE and len(lk[4]) >= _TRUST_PTS
+                           and self._spread <= _TRUST_SPREAD and self._trust < _TRUST_MAX)
                 if score >= self.min_score:
                     res = (*lk[:4], score, lk[4])
+                    self._trust = 0
+                elif trusted:  # akış güçlü ama görünüm değişti (dönme/ışık): şablon kaybolmasın
+                    res = (*lk[:4], score, lk[4])
+                    self._trust += 1
         if res is None:
             found = self._search(cur)
             if found is None:
@@ -196,6 +209,7 @@ class PointTracker:
             return None
         a, b = pts[good].reshape(-1, 2), p1[good].reshape(-1, 2)
         dx, dy = np.median(b - a, axis=0)
+        self._spread = float(np.median(np.linalg.norm((b - a) - np.array([dx, dy]), axis=1)))
         bw, bh = self.bw, self.bh
         if len(a) >= 8:  # ölçek: merkeze uzaklıkların oranı
             d0 = np.linalg.norm(a - a.mean(axis=0), axis=1)
@@ -223,23 +237,30 @@ class PointTracker:
         return v if np.isfinite(v) else 0.0
 
     def _search(self, cur: np.ndarray) -> tuple[float, float, float] | None:
-        """Son konum çevresinde şablon eşleştirme → (cx, cy, skor); eşik altıysa None."""
+        """Son konum çevresinde şablon eşleştirme → (cx, cy, skor); eşik altıysa None.
+        Önce güncel şablon, olmazsa ilk görünüm denenir (en iyi skor kazanır)."""
         cv2 = self._cv2
-        t = self._tmpl_for(max(int(round(self.bw)), 4), max(int(round(self.bh)), 4))
-        th, tw = t.shape[:2]
-        grow = min(1.5 + 0.25 * self.lost, 4.0)
-        rx, ry = tw * grow, th * grow
-        x1, y1 = max(int(self.cx - tw / 2 - rx), 0), max(int(self.cy - th / 2 - ry), 0)
-        x2, y2 = min(int(self.cx + tw / 2 + rx), self.gw), min(int(self.cy + th / 2 + ry), self.gh)
-        region = cur[y1:y2, x1:x2]
-        if region.shape[0] < th or region.shape[1] < tw or t.std() < 2.0:
-            return None
-        res = np.nan_to_num(cv2.matchTemplate(region, t, cv2.TM_CCOEFF_NORMED), nan=0.0)
-        _, score, _, loc = cv2.minMaxLoc(res)
+        best = None
+        for base in (self.tmpl, self.tmpl0):
+            w, h = max(int(round(self.bw)), 4), max(int(round(self.bh)), 4)
+            t = base if (base.shape[1] == w and base.shape[0] == h) else cv2.resize(
+                base, (w, h), interpolation=cv2.INTER_AREA)
+            th, tw = t.shape[:2]
+            grow = min(2.5 + 0.5 * self.lost, 6.0)  # hızlı hareket: ilk aramada da geniş pencere
+            rx, ry = tw * grow, th * grow
+            x1, y1 = max(int(self.cx - tw / 2 - rx), 0), max(int(self.cy - th / 2 - ry), 0)
+            x2, y2 = min(int(self.cx + tw / 2 + rx), self.gw), min(int(self.cy + th / 2 + ry), self.gh)
+            region = cur[y1:y2, x1:x2]
+            if region.shape[0] < th or region.shape[1] < tw or t.std() < 2.0:
+                continue
+            res = np.nan_to_num(cv2.matchTemplate(region, t, cv2.TM_CCOEFF_NORMED), nan=0.0)
+            _, score, _, loc = cv2.minMaxLoc(res)
+            if best is None or score > best[2]:
+                best = (x1 + loc[0] + tw / 2, y1 + loc[1] + th / 2, float(score))
         thr = self.min_score + (0.1 if self.lost else 0.0)
-        if score < thr:
+        if best is None or best[2] < thr:
             return None
-        return x1 + loc[0] + tw / 2, y1 + loc[1] + th / 2, float(score)
+        return best
 
     def _blend(self, cur: np.ndarray) -> None:
         """Şablonu yeni görünümle yavaşça karıştır (ışık/poz değişimine uyum; kayma riskine karşı
