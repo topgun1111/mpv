@@ -27,4 +27,5 @@ ISTEGE BAGLI
                       Agirliklar egitim verisinin lisansina tabidir (Market-1501 vb. ticari olmayabilir).
   jersey_number.onnx  Forma numarasi (girdi [N,C,H,W], cikti [N,101]; bkz. tracker/number.py).
 
-Baslat.bat modelleri otomatik algilar: osnet varsa --reid --team, jersey varsa --number eklenir.
+Offline.bat osnet_x0_25.onnx varsa --reid --team ekler. Canli modda (mpv'nin otomatik baslattigi takip programi)
+Re-ID/takim/numara KAPALIDIR; yalnizca elle: python -m tracker live --reid [--team] [--number]. Baslat.bat sadece mpv'yi acar.

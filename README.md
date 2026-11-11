@@ -14,48 +14,59 @@ Oynatma sırasında seçilen bir nesneyi (ör. futbolcu) takip edip `video-zoom`
 
 ## Mimari
 - **Detector**: YOLOX (Apache-2.0, önerilen) veya YOLOv8/YOLO11 (AGPL-3.0) person modeli, ONNX
-- **Tracker**: ByteTrack / BoT-SORT, kalıcı ID
+- **Tracker**: ByteTrack (kendi uygulaması, `bytetrack.py`; BoT-SORT yok), kalıcı ID
 - **Re-ID**: OSNet embedding ile örtüşme sonrası ID kurtarma
-- **Ek sinyaller**: forma numarası OCR, takım rengi histogramı
+- **Ek sinyaller**: takım rengi (kümeleme), forma numarası (isteğe bağlı sınıflandırıcı model; OCR değil)
+- **Sınıfsız izleyici**: sağ tıkla herhangi bir nesne (Lucas-Kanade + şablon, kamera hareketi telafili); detector gerekmez
+- **Eklem takibi**: YOLOv8s-pose ile ayak bileği/diz/bilek vb. (isteğe bağlı model)
 - **Smoothing**: EMA/Kalman, dead-zone, hız yönünde lookahead
 - **Kayıp yönetimi**: son konumda bekle → kademeli zoom-out
-- **Hedef seçimi**: Lua `mouse_btn0` → `mouse-pos` → tıklanan noktadaki bbox ID'si
+- **Hedef seçimi**: sağ tuş (`MBTN_RIGHT`): tık = nesne/eklem (`track-point`), sürükle = dikdörtgen (`track-rect`); koordinat `osd-dimensions` ile video-normalize edilir. Sol tuş yalnız ekrandaki düğmeler içindir (Parça 21)
 - **Çıkış**: IPC ile `set_property video-zoom/pan-x/pan-y`
 
 ## Çalışma Modları
 - **Offline (önerilen)**: video bir kez taranır → `track.json` (frame → bbox, ID) → Lua `time-pos` ile JSON'dan zoom/pan uygular. A/V senkronu bozulmaz, hedef sonradan düzeltilebilir
-- **Canlı**: Python süreci videoyu okur, `model.track(persist=True, tracker="bytetrack.yaml")`, sonucu IPC ile gönderir. Gecikme `time-pos` ile ileri kare tahminiyle telafi edilir. CPU'da detector her 3–5 karede bir, aralarda KCF/optical flow
+- **Canlı**: mpv açılınca `track.lua` Python süreci `tracker live --wait 30`'u (konsolsuz, `pythonw.exe`) kendiliğinden başlatır. Süreç kareleri mpv'den `screenshot-raw` ile alır (en çok `live_fps`, varsayılan 10), kendi ONNX detector + ByteTrack hattından geçirir, sonucu IPC ile `video-zoom`/`video-pan` olarak yazar. Gecikme Kalman hızıyla ileri tahminle (`lookahead_s`) telafi edilir. Ultralytics kullanılmaz. Sağ tık nesne/eklem takibinde detector çalışmaz (optik akış + şablon)
 
 ## Dosya Yapısı
 ```
 TakipliOynat/
 ├─ mpv/                          # portable mpv (mpv.exe + portable_config/)
 │  └─ portable_config/
-│     ├─ mpv.conf                # input-ipc-server=\\.\pipe\mpv
-│     ├─ input.conf              # t: aç/kapa, r: sıfırla, x: hedefi bırak, F10: menü
+│     ├─ mpv.conf                # input-ipc-server, keep-open, osd-level
+│     ├─ input.conf              # tuş bağları (t, r, x, o, k, +/-, Ctrl+…, F10, Ctrl+O, sağ/çift tık)
 │     ├─ script-modules/trackmenu.lua  # üst menü çubuğu motoru (M1; saf mantık)
 │     ├─ script-modules/trackfiles.lua # Dosya menüsü yardımcıları (M2; saf mantık, PowerShell diyalogları)
-│     └─ scripts/track.lua       # tıklama seçimi, OSD, tuşlar, menü bağlama
+│     └─ scripts/track.lua       # sağ tık/sürükleme seçimi, OSD/HUD, zoom kontrolü, menü bağlama, Python'u başlatma
 ├─ tracker/                      # Python paketi (python -m tracker ...)
-│  ├─ main.py                    # CLI: ping, view, listen, detect, live
-│  ├─ ipc.py, clicks.py, frames.py, geometry.py, smooth.py, config.py
-│  ├─ detector.py                # YOLO ONNX
-│  ├─ point.py                   # sınıfsız nesne izleyici (sağ tık; optik akış + şablon)
-│  ├─ bytetrack.py, pipeline.py  # ByteTrack + birleşim
-│  └─ live.py                    # canlı mod (hedef seçimi dahil)
-├─ models/                       # YOLOX/YOLO ONNX buraya (MODELLER.txt)
-├─ scripts/                      # make_package.py, fetch_deps.ps1
+│  ├─ main.py, __main__.py       # CLI: ping, view, listen, detect, live, offline, offline-view, bench
+│  ├─ ipc.py, clicks.py, frames.py, geometry.py, smooth.py, config.py, settings.py
+│  ├─ detector.py                # YOLOv8/YOLOX ONNX çözücüleri + cihaz seçimi
+│  ├─ bytetrack.py, pipeline.py  # ByteTrack + detector birleşimi
+│  ├─ point.py                   # sınıfsız nesne izleyici (sağ tık; optik akış + şablon + kamera telafisi)
+│  ├─ pose.py                    # eklem (vücut parçası) takibi (YOLOv8-pose)
+│  ├─ reid.py, team.py, number.py  # OSNet Re-ID, takım rengi, forma numarası
+│  ├─ live.py                    # canlı mod (hedef seçimi, kayıp yönetimi, HUD)
+│  ├─ offline.py                 # offline tarama → track.json / views.json
+│  ├─ bench.py                   # kıyaslama aracı (P23)
+│  └─ single.py                  # tek takip programı kilidi (tracker.lock)
+├─ models/                       # ONNX modeller (MODELLER.txt; yolox_s/pose pakette gelir)
+├─ launcher/                     # Baslat.bat (yalnız mpv), Offline.bat (sürükle-bırak offline)
+├─ scripts/                      # make_package.py, build_embedded.py, fetch_deps.ps1, fetch_model.ps1, export_pose.py
+├─ tests/                        # pytest + texlua ile Lua harness testleri
+├─ .github/workflows/            # ci.yml (ruff + pytest, ubuntu/windows), build.yml (paket + installer)
 ├─ installer.iss                 # Inno Setup
+├─ VERSION, requirements.txt, requirements-dev.txt, pyproject.toml
 ├─ THIRD_PARTY_NOTICES.md        # üçüncü taraf lisanslar + GPL kaynak teklifi
-└─ handover.md                   # parça parça ilerleme notu
+└─ handover.md                   # parça parça ilerleme notu + yol haritası
 ```
-(Parça 14: `launcher/`, `scripts/build_embedded.py` da pakete dahildir.)
+(Pakete `tests/`, `scripts/` ve `.github/` girmez; `make_package.py` bkz. `scripts/make_package.py`.)
 
 ## Paketleme
 - **Installer**: Inno Setup / NSIS → tek `setup.exe`, kısayol "Takipli Oynat" (mpv + Python süreci birlikte)
 - **Boyut**: PyTorch ~2–3 GB; ONNX Runtime + ONNX model ~300–500 MB
 - **GPU**: `onnxruntime-directml` (NVIDIA/AMD/Intel evrensel); NVIDIA için `onnxruntime-gpu` (+~1 GB CUDA/cuDNN)
-- **Alternatif**: Python → PyInstaller tek `.exe`, mpv klasörüne
+- **Kullanılan yol**: gömülü Python (`scripts/build_embedded.py`) + Inno Setup; PyInstaller kullanılmıyor
 
 ## Lisans
 Ayrıntılı denetim: **`THIRD_PARTY_NOTICES.md`** (pakete ve Başlat menüsüne de konur; hukuki görüş değildir).
@@ -67,15 +78,10 @@ Ayrıntılı denetim: **`THIRD_PARTY_NOTICES.md`** (pakete ve Başlat menüsüne
 - Takipli Oynat kodunun kendi lisansını proje sahibi seçer (depoda `LICENSE` yoksa tüm haklar saklıdır; `make_package.py` `LICENSE` varsa pakete koyar).
 - Kodda `ultralytics` içe aktarılmaz; çözücüler yalnız ONNX çıktı biçimini okur.
 
-## Kod Tahmini
-- Python tracker (detector + ByteTrack + Re-ID + smoothing + IPC): ~400–600 satır
-- Lua script: ~100–150
-- Offline mod: ~150–250
-- Config/CLI/hata yönetimi: ~100
-- Installer: ~80–120
-- **Toplam**: ~800–1200 satır
-- **Minimum prototip** (YOLO + ByteTrack + EMA + IPC + tıklama): ~150–250 satır
-- Re-ID + forma OCR: +300–500 satır
+## Kod Boyutu (gerçek)
+- `tracker/*.py`: ~4100 satır (en büyükleri `live.py` ~590, `main.py` ~440, `point.py` ~380, `detector.py` ~370, `reid.py` ~340)
+- Lua: `track.lua` + `trackmenu.lua` + `trackfiles.lua`
+- `tests/`: 230 test (Python + `texlua` ile Lua harness; `texlua`/`lua` yoksa Lua testleri atlanır — CI'da şu an yüklü değil)
 
 ## Bilinen Riskler
 - Aynı formalı oyuncuların kesişmesinde ID kayması → Re-ID + renk/numara sinyali
@@ -84,10 +90,10 @@ Ayrıntılı denetim: **`THIRD_PARTY_NOTICES.md`** (pakete ve Başlat menüsüne
 - CPU-only makinelerde canlı mod düşük fps → offline mod
 
 ## Yol Haritası
-Ayrıntılı plan, durum ve sonraki parçalar (M3…O3; P23, M1, M2 yapıldı) "Yol haritası" bölümündedir (`handover.md`). Tamamlanan: **Parça 1–15 (1.0.0)** (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası, canlı ayar tuşları + durum etiketi,  Python + tam installer, lisans denetimi + YOLOX alternatifi + release).
+Ayrıntılı plan, durum ve sonraki parçalar (M3…O3; P23, M1, M2 yapıldı) "Yol haritası" bölümündedir (`handover.md`). Tamamlanan: **Parça 1–15** + ek parçalar 16–22 (düğme paneli, sağ tık/zoom kontrolü, nesne ve eklem takibi, dikdörtgen seçimi) + P23, M1, M2; sürüm dosyaları **1.2.0**. Parça 1–15: (iskelet, tıklama, detector, ByteTrack, canlı mod, hedef seçimi, Kalman + lookahead, kayıp yönetimi, offline mod, Lua offline oynatma, Re-ID, takım rengi + isteğe bağlı forma numarası, canlı ayar tuşları + durum etiketi,  Python + tam installer, lisans denetimi + YOLOX alternatifi + release).
 
 ### Sağ tık: herhangi bir nesneyi takip (Parça 18)
-`tracker/point.py`: sağ tıklanan nokta için kutu çıkarılır (aynı renkteki bitişik bölge; olmazsa karenin %6'sı kadar kare), sonra her karede Lucas-Kanade optik akışı kutuyu taşır, şablon benzerliği (NCC) yanlış şeye kaymayı yakalar, tutmazsa son konum çevresinde şablon aranır; bulunamazsa "hedef kayıp" (bekle → kademeli zoom-out) ve nesne geri gelirse takip sürer. Detector çalışmaz (CPU'da daha hızlı); `models\` boşsa bile sağ tık çalışır. Ayarlar (`config.json`): `point_box` (0.06), `point_refine` (true), `point_min_score` (0.55; yükselirse kayıp daha erken ilan edilir), `point_max_side` (640). Zoom miktarı `+`/`−` (doluluk) ile ayarlanır. Takip edilen noktanın üstünde küçük bir **artı (nişangâh)** gösterilir: tıklar tıklamaz sarı (tıklama alındı), takip programı doğrulayınca beyaz; 2 sn içinde doğrulanmazsa ekranda uyarı çıkar (Python her karede merkezi `track-dot` ile yollar, Lua mpv'nin anlık zoom/pan'ına göre çizer); hedef kayıpsa ya da bırakılınca artı kaybolur — çalışıp çalışmadığını buradan görürsün.
+`tracker/point.py`: sağ tıklanan nokta için kutu çıkarılır (aynı renkteki bitişik bölge; olmazsa karenin %6'sı kadar kare), sonra her karede Lucas-Kanade optik akışı kutuyu taşır, şablon benzerliği (NCC) yanlış şeye kaymayı yakalar, tutmazsa son konum çevresinde şablon aranır; bulunamazsa "hedef kayıp" (bekle → kademeli zoom-out) ve nesne geri gelirse takip sürer. Kamera hareketi telafisi (Parça 19, `WorldPointTracker`): arka plan köşelerinden kareden kareye kamera dönüşümü birikir; hedef dünya koordinatında tutulur, kare dışına çıksa/örtülse bile sönümlü hızla ilerletilir ve geri gelince şablonla yeniden bulunur. Detector çalışmaz (CPU'da daha hızlı); `models\` boşsa bile sağ tık çalışır. Ayarlar (`config.json`): `point_box` (0.06), `point_refine` (true), `point_min_score` (0.55; yükselirse kayıp daha erken ilan edilir), `point_max_side` (640). Zoom miktarı `+`/`−` (doluluk) ile ayarlanır. Takip edilen noktanın üstünde küçük bir **artı (nişangâh)** gösterilir: tıklar tıklamaz sarı (tıklama alındı), takip programı doğrulayınca beyaz; 2 sn içinde doğrulanmazsa ekranda uyarı çıkar (Python her karede merkezi `track-dot` ile yollar, Lua mpv'nin anlık zoom/pan'ına göre çizer); hedef kayıpsa ya da bırakılınca artı kaybolur — çalışıp çalışmadığını buradan görürsün.
 Sınırlar: tek tıklamadan nesnenin boyutu kesin bilinemez (küçük/dokusuz nesnede kutu fazla büyük ya da küçük olabilir → `+`/`−`, `point_box`); çok benzer nesnelerin iç içe geçtiği, nesnenin tamamen örtüldüğü ya da kareyi terk ettiği durumlarda kayıp ilan edilir (yeniden sağ tık). Offline mod (`offline --click`) hâlâ yalnız oyuncu içindir.
 
 **Tek takip programı**: mpv her açılışında takip programını başlatır; aynı anda birden çok süreç kalmaması için `%APPDATA%\\TakipliOynat\\tracker.lock` kullanılır (son başlayan devralır, eskisi ≤ 1 sn'de kapanır). Ek ayarlar (`config.json`): `kp_hold` (6; eklem/kişi görünmeyince tolere edilen adım), `dot_lead_s` (0.08 sn; artıyı hız yönünde ileri çizer, 0 = kapalı). Konsolsuz çalışırken masaüstündeki `takipli-oynat-log.txt` 5 sn'de bir hız/gecikme/hedef satırı yazar.
@@ -101,6 +107,16 @@ python -m tracker offline-view video.mp4.track.json --list
 python -m tracker offline-view video.mp4.track.json --target-id 3   # tespit YOK, saniyeler sürer
 ```
 Şema `tracker/offline.py` başındadır (`views`: `[t, zoom, pan_x, pan_y]`).
+
+### Kıyaslama (Parça 23)
+```
+python -m tracker bench video.mp4 --max-seconds 60 --out rapor.json   # tespit + süre ölçümü (ort/p50/p95/maks ms, fps)
+python -m tracker bench video.mp4.track.json                          # yalnız analiz (tespit yok)
+```
+Ölçütler: kimlik sayısı, kısa izler, olası ID değişimi, hedefin görülme/kayıp yüzdesi, canlı-benzetimi ile offline görünüm arasındaki sapma ve titreme (`--target-id` yoksa en uzun iz). Diğer ortak bayraklar: `--model`, `--device`, `--fps`. Canlı modda ek bayraklar: `--wait SN` (mpv IPC'sini bekle), `--stats SN` (fps/gecikme satırı).
+
+### Eklem (vücut parçası) takibi (Parça 22)
+`models/yolov8s-pose.onnx` varsa yüklenir (yoksa sessizce kapalı). Sağ tık bir eklemin (`kp_tol`: kişi boyunun 0.12'si) yakınına yapılırsa o eklem izlenir (HUD: «Hedef: sol ayak bileği»), uzaksa nesne takibi. Ayarlar (`config.json`): `pose_model`, `pose_conf` (0.3), `kp_tol`, `kp_min_conf` (0.35), `kp_box` (0.10), `kp_hold` (6). Yalnız canlı modda; offline/`track.json` eklem içermez.
 
 ### Offline oynatma (Parça 10)
 `offline ... --target-id N` (veya `offline-view`) `video.mp4.views.json` dosyasını da yazar. Bu dosya
@@ -133,31 +149,32 @@ Canlı mod çalışırken mpv'de: `Ctrl+↑/↓` doluluk, `Ctrl+→/←` tepki h
 Takip açıkken sol üstte küçük harflerle tüm takip bilgisi görünür: durum (`Takip: ID 5`), **model** (`yolox_s.onnx (yolox, 640x640) · DirectML`), Re-ID/takım/numara ve poz modelleri (açıksa), kare hızı ve gecikme, hedef, kişi sayısı, tepki/öngörü/doluluk ayarları, zoom ve döndürme. `Ctrl+H` gizler/gösterir (`hud: false` config ile kalıcı kapatır). **Videoya çift sol tık** oynat/duraklat yapar (mpv'nin varsayılan çift tık = tam ekran yerine; tam ekran `F`).
 
 ### Üst menü çubuğu (M1)
-Fareyi/parmağı oynatınca üstte menü çubuğu görünür (3 sn sonra gizlenir); **F10** de açar. **K** videoyu 90° döndürür (takip için önce 0°'ye getir): **Dosya · Görünüm · Takip · Araçlar · Ayarlar · Yardım**. Çalışan işlevler (takip, bırak, sıfırla, offline, zoom, HUD, tepki/öngörü/doluluk, kaydet, durum, çıkış) menüden de kullanılır; kısayolları yanında yazar, açık olanlar • ile işaretlidir. Henüz yazılmamış öğeler (Video aç, Dışa aktar, Tarama…) gri görünür ve sonraki parçalarda (`yol haritası (handover.md)`) açılır. Açıkken ←/→/↑/↓, Enter, Esc ile gezilir; dışarı tıklamak kapatır.
+Fareyi/parmağı oynatınca üstte menü çubuğu görünür (3 sn sonra gizlenir); **F10** de açar. **K** videoyu 90° döndürür (takip için önce 0°'ye getir): **Dosya · Görünüm · Takip · Araçlar · Ayarlar · Yardım**. Çalışan işlevler (takip, bırak, sıfırla, offline, zoom, HUD, tepki/öngörü/doluluk, kaydet, durum, çıkış) menüden de kullanılır; kısayolları yanında yazar, açık olanlar • ile işaretlidir. Henüz yazılmamış öğeler (Takip kamerası dışa aktar, Tam ekran menü öğesi, Otomatik tarama, Vücut parçası, Araçlar menüsündeki tarama/kıyaslama/modeller, Ayar penceresi, Kısayollar, Hakkında) gri görünür ve sonraki parçalarda (`yol haritası (handover.md)`) açılır; tam ekran şimdilik `F` tuşuyla. Açıkken ←/→/↑/↓, Enter, Esc ile gezilir; dışarı tıklamak kapatır.
 
 ### Dosya menüsü (M2)
 **Dosya** menüsü ya da **Ctrl+O**: **Video aç…** (Windows dosya diyaloğu, son klasörde açılır), **Son açılanlar…** (son 10, listeden çift tık/Enter), **Klasör aç…** (klasör oynatma listesi olur), **Adres (URL) aç…**, **Görünümü kaydet / yükle** (videonun yanına `<video>.view.json`: o anki zoom/pan/döndürme; takip/offline kapalıyken yüklenir), **Videoyu kapat**, **Çıkış**. Dışa aktarma (E1) gridir. Son açılanlar ve son klasör `%APPDATA%\\TakipliOynat\\recent.json`'da tutulur. Diyaloglar PowerShell+WinForms ile açılır (mpv donmaz; gömülü Python'da tkinter yoktur). Yalnız Windows.
 
 ### Ekran üstü düğmeler (Parça 16)
-mpv penceresinde fareyi/parmağı oynatınca sol üstte düğme paneli çıkar (3 sn sonra gizlenir; **Sabit** düğmesi ya da `Ctrl+B` ile sabitlenir): **Takip AÇIK/KAPALI**, **Bırak**, **Sıfırla**, **Offline**, **Zoom -/+**, **Tepki -/+**, **Öngörü -/+**, **Kaydet**, **Durum**. Zoom düğmeleri artık ayrı bir **ekran üstü zoom kontrolüne** taşındı (aşağıda). Takip açıkken düğmelerin dışında bir oyuncuya sol tıklamak da hedef seçer. Klavye kısayolları aynen çalışır.
+Düğme paneli **varsayılan kapalıdır** (`track.lua` içinde `TRACK_SHOW_PANEL=true` ile açılır; kapalıyken menüdeki «Düğme paneli sabit» öğesi gri görünür). Açıkken mpv penceresinde fareyi/parmağı oynatınca sol üstte çıkar (3 sn sonra gizlenir; **Sabit** düğmesi ya da `Ctrl+B` ile sabitlenir): **Takip AÇIK/KAPALI**, **Bırak**, **Sıfırla**, **Offline**, **Zoom -/+**, **Tepki -/+**, **Öngörü -/+**, **Kaydet**, **Durum**. Zoom düğmeleri ayrı bir **ekran üstü zoom kontrolüne** taşındı (aşağıda). Sol tuşla oyuncu seçme Parça 21'de kaldırıldı; sol tuş yalnız imleç ekran üstü düğmenin üzerindeyken yakalanır. Klavye kısayolları aynen çalışır.
 
 ### Sağ tık ile takip noktası ve ekran üstü zoom kontrolü (Parça 17)
-- **Sağ tık**: tıklanan nokta/**nesne** takip edilir — oyuncu olmak zorunda değil (top, araba, tahtadaki bir şekil...); takip kapalıysa kendiliğinden açılır (önce `t` basmak gerekmez). Nesnenin üstüne tekrar sağ tık bırakır, başka yere sağ tık hedefi değiştirir. (mpv'nin sağ tık = duraklat davranışı yerine geçer; duraklatma Boşluk tuşuyla.) Bu mod YOLO'ya ihtiyaç duymaz (bkz. Parça 18); oyuncu kimliği/Re-ID için **sol tık** (takip açıkken) eskisi gibi çalışır.
+- **Sağ tık**: tıklanan nokta/**nesne** takip edilir — oyuncu olmak zorunda değil (top, araba, tahtadaki bir şekil...); takip kapalıysa kendiliğinden açılır (önce `t` basmak gerekmez). Nesnenin üstüne tekrar sağ tık bırakır, başka yere sağ tık hedefi değiştirir. (mpv'nin sağ tık = duraklat davranışı yerine geçer; duraklatma Boşluk tuşuyla.) Bu mod YOLO'ya ihtiyaç duymaz (bkz. Parça 18). **Sağ tuşu basılı tutup sürüklemek** (≥6 px) kırmızı çerçeveli bir **dikdörtgen** seçer (Parça 20): seçimin merkezi takip edilir, ekrandaki +/− seçili alana yakınlaşır; dikdörtgen her zaman nesne takibidir. Eski oyuncu-kimliği seçimi (sol tık, `track-click`) arayüzden kaldırıldı (Parça 21); Python tarafı mesajı hâlâ işler.
 - **Zoom kontrolü**: pencerenin sağ kenarında ortada **+** / anlık zoom (ör. `x1.5`) / **−**. Fare/dokunma hareketinde, takip açıkken ya da zoom yapılmışken görünür (zoom varken panel gizlense de kalır). `+` ve `-` tuşları aynı işi yapar.
   - Hedef kilitliyken +/− hedefin kareyi doldurma oranını ayarlar (zoom'u takip sürer; değer etiketi canlı güncellenir).
   - Hedef yokken ya da takip kapalıyken +/− doğrudan video zoom'unu 1x–16x arasında 0.25 (log2) adımla değiştirir.
   - Offline oynatma açıkken zoom sabittir (uyarı verir).
 
 ### Kurulum ve başlatıcılar (Parça 14)
-Installer (`TakipliOynat-Setup-x.y.z.exe`, Windows 10 1903+) gömülü Python, mpv, DirectML ve **YOLOX-S modeliyle (Apache-2.0)** gelir: kurduktan sonra elle bir şey kurmak ya da kopyalamak gerekmez, kurulum bitince "şimdi başlat" ile çalışır. Eklem (vücut parçası) takibi için `yolov8s-pose.onnx` (AGPL, yalnız kişisel kullanım) de pakete CI'da konur; sağ tık bir eklemin (ayak bileği, diz, bilek...) yakınına yapılırsa o eklem izlenir, uzaksa nesne izlenir. Re-ID/numara modelleri isteğe bağlıdır (`models\MODELLER.txt`).
+Installer (`TakipliOynat-Setup-x.y.z.exe`, Windows 10 1903+) gömülü Python, mpv, DirectML ve **YOLOX-S modeliyle (Apache-2.0)** gelir: kurduktan sonra elle bir şey kurmak ya da kopyalamak gerekmez, kurulum bitince "şimdi başlat" ile çalışır. Eklem (vücut parçası) takibi için `yolov8s-pose.onnx` (AGPL, yalnız kişisel kullanım) de pakete CI'da konur; sağ tık bir eklemin (ayak bileği, diz, bilek...) yakınına yapılırsa o eklem izlenir, uzaksa nesne izlenir. Re-ID/numara modelleri isteğe bağlıdır (`models\MODELLER.txt`); bunlar şimdilik yalnız komut satırından (`live --reid …`) ve `Offline.bat` ile kullanılır — mpv'nin otomatik başlattığı takip programı bayrak vermez.
 
 **Güncelleme**: yeni `setup.exe`'yi çalıştırmak yeter; AppId aynı olduğundan eski kurulumun üstüne (aynı klasör/yetki) sorusuz kurulur, açık mpv/python kapatılır, eski artıklar (`python\`, `tracker\`, Lua betikleri) temizlenip yenisi yazılır. Ayarlar (`%APPDATA%\TakipliOynat\config.json`) ve `models\` içine kendi eklediğin dosyalar korunur. Sessiz: `TakipliOynat-Setup-x.y.z.exe /VERYSILENT /NORESTART`.
-- **Takipli Oynat (canlı)** kısayolu / `Baslat.bat`: mpv'yi ve izleyiciyi birlikte açar (video sürükleyebilirsin). Re-ID/takım/numara modelleri `models\`'te varsa otomatik açılır.
-- **Offline** kısayolu / `Offline.bat`: videoyu üstüne sürükle → işlenir → oyuncu ID'sini yaz → mpv'de `o`.
+- **Takipli Oynat (canlı)** kısayolu (doğrudan `mpv.exe`) / `Baslat.bat` (yalnız mpv'yi açar; video sürükleyebilirsin): takip programını mpv içindeki `track.lua` kendiliğinden başlatır, mpv kapanınca biter; aynı anda tek takip programı çalışır (`tracker.lock`).
+- **Offline** kısayolu / `Offline.bat`: videoyu üstüne sürükle → işlenir (`models\osnet_x0_25.onnx` varsa `--reid --team` ile) → oyuncu ID'sini yaz → mpv'de `o`.
 - Ayarlar `%APPDATA%\TakipliOynat\config.json` dosyasına kaydedilir.
 Paket derleme (CI): `python scripts/make_package.py` → `python scripts/build_embedded.py` → `scripts/fetch_deps.ps1` → `iscc installer.iss`.
 
 ### Release (Parça 15)
+0. `VERSION` ile `tracker/__init__.py::__version__` aynı olmalı (`tests/test_license.py` ikisini de 1.2.0'a sabitler; sürümü yükseltirken testi de güncelle).
 1. `main`'e push → CI (`ci.yml`) ve `build.yml` (ayrı artifact: **TakipliOynat-Setup** = `TakipliOynat-Setup-x.y.z.exe`, **TakipliOynat-Portable** = `TakipliOynat-Portable-x.y.z.zip`).
 2. Derleme günlüğündeki `SHA256 python-...` ve `SHA256 mpv-...` satırlarını doğrulayıp `scripts/build_embedded.py` (`PY_SHA256`) içine yaz; mpv için `fetch_deps.ps1 -Tag <sürüm>` ile sürümü sabitle.
 3. Temiz Windows'ta kur (model pakette gelir) → `Baslat.bat` ile dene. Üzerine yeni sürüm kurup ayarların/kısayolların korunduğunu da dene.

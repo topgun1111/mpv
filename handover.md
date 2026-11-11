@@ -5,10 +5,11 @@ Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. Çıktılar ayrı: çalışmanın sayfasında Artifacts → **TakipliOynat-Setup** (`TakipliOynat-Setup-<sürüm>.exe`) ve **TakipliOynat-Portable** (`TakipliOynat-Portable-<sürüm>.zip`; artifact kendisi de bir zip olduğundan indirince içinde zip çıkar). Release'e de bu iki dosya ayrı eklenir.
 
 ## Durum
-- Tamamlanan: **Parça 15/15 — PLAN BİTTİ** (+ Parça 16: ekran üstü düğme paneli, Parça 17: sağ tık + zoom kontrolü + modelli/otomatik güncellenen installer)
+- Tamamlanan: **Parça 15/15 — PLAN BİTTİ** + ek parçalar 16–22 (16: düğme paneli, 17: sağ tık + zoom kontrolü + modelli/güncellenen installer, 18: sınıfsız nesne takibi, 19: kamera telafili nokta takibi, 20: sağ tuşla dikdörtgen, 21: sol tuş işlevleri kaldırıldı + beyaz nokta, 22: eklem takibi) + P23, M1, M2 (+ çift tık/HUD, tek takip programı, takip günlüğü düzeltmeleri).
 - Yol haritası: bu dosyada, "Yol haritası" bölümü (parça P23…O3; her parça = 1 oturum). Yapıldı: P23, M1, M2. Sıradaki: **M3** (Görünüm + Takip menüleri: zoom ön ayarları, sığdır/doldur, tam ekran, takip modu/hedef eylemleri).
 - Eski sıradaki: yok (yalnız Windows'ta gerçek doğrulama + `v1.0.0` etiketi; bkz. Parça 15 "Doğrulama")
-- Sürüm: 1.3.0 (Parça 19); M1 sürüm numarasını değiştirmedi (VERSION dosyası 1.2.0 — tutarsızlık Parça 19'dan kalma, ilk sürüm etiketinden önce eşitlenmeli)
+- Sürüm: **1.2.0** (`VERSION` ve `tracker/__init__.py`; `tests/test_license.py` ikisini de 1.2.0'a sabitler). Önceki notlardaki «1.3.0» hiçbir dosyada yok; yükseltilecekse `VERSION`, `__version__` ve bu testi birlikte güncelle, ilk sürüm etiketinden (`v*`) önce.
+- Testler: 230 (`pytest -q`; ruff temiz). `texlua`/`lua` yoksa Lua testleri atlanır (CI runner'larında Lua kurulu değil → `test_lua_*` CI'da çalışmıyor).
 
 ## Yol haritası (eski project.md; Parça 22 sonrası, P23…O3)
 Goal: track + zoom on people and their body parts simultaneously, never losing focus. Personal use (AGPL OK).
@@ -390,3 +391,8 @@ P23 → M1 → M2 → M3 → A1 → A2 → M4 → B1 → B2 → E1 → B3 → T1
 - Kasıtlı olarak yapılmayanlar: yazılabilir klasör seçimi (Kaydet diyaloğu; E1'de), son açılanlar alt menüsü (alt menü motoru yok; liste penceresi kullanılır), son açılanları silme, sürükle-bırak.
 - **CI düzeltmesi (M2)**: `ruff check` 8× E501 (satır >100) ile düştü (`tests/test_lua_files.py` ×6, `test_no_conflict_markers.py`, `test_point.py`; son ikisi M1'den kalmaydı). Satırlar bölündü; testlerde yalnız biçim değişti. Push etmeden önce: tüm `.py` dosyalarında 100 karakter sınırı + satır sonu boşluğu kontrol et (ruff bu ortamda yok).
 - **CI düzeltmesi 2**: Windows'ta `tests/test_single.py` 2 test düştü: `SingleInstance.token` = pid+`time_ns` idi; Windows saati kaba olduğundan aynı süreçteki iki nesne AYNI belirteci aldı (üretimde pid farklı, yalnız testte). Belirtece `uuid4` eklendi. Ayrıca ubuntu'da 7, windows'ta 11 test ATLANIYOR (Lua yok → `test_lua_*` dahil M2 testi CI'da çalışmıyor); istenirse `ci.yml`'e Lua kurulumu eklenebilir (denenmedi).
+
+## Doküman senkronu (README / MODELLER / handover ↔ kod)
+- Kodla çelişen yerler düzeltildi: README mimari/canlı mod (Ultralytics `model.track`, BoT-SORT, KCF ifadeleri gerçek kodda yok), dosya yapısı (eksik modüller), «Kod Tahmini» (gerçek ~4100 satır), sol tıkla oyuncu seçimi (Parça 21'de kalktı), düğme paneli (varsayılan kapalı), `Baslat.bat`/kısayollar (yalnız mpv; Python'u `track.lua` başlatır), Re-ID/takım/numara «otomatik açılır» iddiası (canlıda hiçbir yerde bayrak verilmiyor; yalnız elle `live --reid` ve `Offline.bat`), M2 sonrası gri menü öğeleri; sürüm notu 1.2.0 olarak düzeltildi. Eklendi: `bench`, eklem takibi ayarları, dikdörtgen seçimi, kamera telafisi.
+- **Açık nokta (kod, doküman değil)**: canlı modda Re-ID/takım/numara'yı mpv üzerinden açmanın yolu yok (config'te açma anahtarı yok). İstenirse `Config`'e `reid/team/number` bayrakları eklenip `run_live_cmd` ve `track.lua` başlatması buna bağlanmalı.
+- Eski «Parça N» bölümleri tarihçedir; sonraki parçalarca değiştirilen davranışlar (ör. Parça 19'daki «sol bağ her zaman açık», panelin varsayılanı) için güncel durum README'dedir.
