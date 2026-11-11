@@ -118,6 +118,8 @@ def run_detection(frames, pipeline, progress=None, total: int | None = None, ban
             d.append([tr.id, round(b.x1 / w, 4), round(b.y1 / h, 4),
                       round(b.x2 / w, 4), round(b.y2 / h, 4), round(tr.score, 3)])
         smp = {"t": round(t, 3), "d": d}
+        if getattr(pipeline, "cut", False) is True:  # G4: bu örnek bir çekim kesmesiyle başlar
+            smp["cut"] = 1
         if pose is not None:
             kp = {str(i): _kp_row(p, w, h)
                   for i, p in associate_poses(tracks, pose.estimate(frame)).items()}
@@ -144,6 +146,9 @@ def make_doc(path: str, size, fps_src: float, duration: float, sample_fps: float
         from .cache import file_sig
 
         doc["sig"], doc["vsig"] = sig, file_sig(path)
+    cuts = [s["t"] for s in samples if s.get("cut")]
+    if cuts:
+        doc["cuts"] = cuts  # G4: çekim kesmesi anları (sn); örneklerde `"cut": 1` de var
     if emb:
         doc["emb"] = emb  # {id: {"first": [int...], "last": [int...]}} (×100 tamsayı)
     if team:
@@ -257,7 +262,7 @@ def build_views(doc: dict, target_id: int | set[int], cfg: Config) -> list[list[
             if d[0] in ids and d[5] >= best.get(i, -1.0):  # birden çok kimlik: en yüksek skor
                 b = BBox(d[1], d[2], d[3], d[4])
                 boxes[i], best[i] = [b.cx, b.cy, b.w, b.h], d[5]
-    return _views_from_boxes(ts, boxes, cfg)
+    return _views_from_boxes(ts, boxes, cfg, cut_indices(doc))
 
 
 def part_boxes(doc: dict, ids: set[int], part: int, cfg: Config) -> dict[int, list[float]]:
@@ -287,23 +292,43 @@ def build_part_views(doc: dict, ids: int | set[int], part: int,
         raise ValueError(f"eklem indeksi 0..{N_KPT - 1} olmalı: {part}")
     ts = [s["t"] for s in doc["samples"]]
     ids = {ids} if isinstance(ids, int) else set(ids)
-    return _views_from_boxes(ts, part_boxes(doc, ids, part, cfg), cfg)
+    return _views_from_boxes(ts, part_boxes(doc, ids, part, cfg), cfg, cut_indices(doc))
 
 
-def _views_from_boxes(ts: list[float], boxes: dict[int, list[float]],
-                      cfg: Config) -> list[list[float]]:
+def cut_indices(doc: dict) -> set[int]:
+    """G4: çekim kesmesiyle başlayan örneklerin indeksleri (kesme i-1 ile i arasındadır)."""
+    return {i for i, s in enumerate(doc["samples"]) if s.get("cut")}
+
+
+def _views_from_boxes(ts: list[float], boxes: dict[int, list[float]], cfg: Config,
+                      cuts: set[int] | None = None) -> list[list[float]]:
+    """`cuts`: çekim kesmesi indeksleri; doldurma, yumuşatma ve zoom-out/in kesmeyi AŞMAZ."""
     n = len(ts)
+    cuts = cuts or set()
+
+    def cut_between(lo: int, hi: int) -> bool:  # lo..hi (dahil) aralığında kesme var mı
+        return any(lo <= c <= hi for c in cuts)
+
     vis = sorted(boxes)
     # 1) kısa kayıpları doğrusal doldur (ileri-geri bilgi: non-causal)
     for a, b in zip(vis, vis[1:], strict=False):
-        if b - a > 1 and ts[b] - ts[a] <= cfg.offline_interp_s:
+        if b - a > 1 and ts[b] - ts[a] <= cfg.offline_interp_s and not cut_between(a + 1, b):
             for i in range(a + 1, b):
                 f = (ts[i] - ts[a]) / max(ts[b] - ts[a], 1e-9)
                 boxes[i] = [boxes[a][k] + (boxes[b][k] - boxes[a][k]) * f for k in range(4)]
     present = sorted(boxes)
     views: dict[int, View] = {}
     # 2) görünür parçalarda sıfır-faz yumuşatma → compute_view
-    for run in _runs(present):
+    runs: list[list[int]] = []
+    for run in _runs(present):  # kesmede böl: farklı sahneler birlikte yumuşatılmaz
+        cur: list[int] = []
+        for i in run:
+            if cur and i in cuts:
+                runs.append(cur)
+                cur = []
+            cur.append(i)
+        runs.append(cur)
+    for run in runs:
         sm = []
         for k in range(4):
             a = cfg.offline_alpha * (1.0 if k < 2 else 0.4)
@@ -326,14 +351,18 @@ def _views_from_boxes(ts: list[float], boxes: dict[int, list[float]],
         t0, t1 = ts[i], (ts[j] if j < n else None)
         for k in range(i, j):
             t = ts[k]
-            if prev is None:
+            # kesmeden önceki sahnenin görünümü kesmeden sonra, sonraki sahnenin görünümü
+            # kesmeden önce kullanılmaz (aynı sahne içinde eskisi gibi)
+            pv = prev if not cut_between(i, k) else None
+            nv = nxt if not cut_between(k + 1, j) else None
+            if pv is None:
                 v = View()
             else:
                 el = t - t0 - hold
-                v = ease_view(prev, View(), (el / dur) if dur > 0 else (1.0 if el >= 0 else 0.0))
-            if nxt is not None:
+                v = ease_view(pv, View(), (el / dur) if dur > 0 else (1.0 if el >= 0 else 0.0))
+            if nv is not None:
                 q = (t - (t1 - dur)) / dur if dur > 0 else 0.0
-                v = ease_view(v, nxt, q)
+                v = ease_view(v, nv, q)
             views[k] = v
         i = j
     # 4) çıktı: sabit duran yinelenen anahtar kareleri at

@@ -131,7 +131,10 @@ class LiveController:
         point_factory=None,
         pose=None,
         wholebody=None,
+        cuts=None,
     ):
+        self.cuts = cuts  # cuts.CutDetector | None (G4): her işlenen karede çekim kesmesi ara
+        self.cut_count = 0
         self.pose = pose  # PoseEstimator | None: sağ tık eklem yakınındaysa eklem takibi
         self.wb = wholebody  # WholeBodyEstimator | None (O2): el/yüz/ayak parmağı noktaları
         self.pipeline, self.cfg, self.reid = pipeline, cfg, reid  # reid: ReIdManager | None
@@ -294,6 +297,35 @@ class LiveController:
     def step(self, frame, t: float) -> Output:
         if not self.enabled:
             return Output()
+        cut = False
+        if self.cuts is not None and self._last_t is not None:
+            try:
+                cut = bool(self.cuts.step(frame))
+            except Exception:  # algılama asla izlemeyi düşürmesin
+                cut = False
+        elif self.cuts is not None:
+            self.cuts.step(frame)  # ilk kare: yalnız referans
+        had = self.has_target
+        if cut:
+            self._on_cut()
+        out = self._step(frame, t)
+        if cut and had and out.osd is None:
+            out = Output(view=out.view, osd="Çekim kesildi: hedef aranıyor")
+        return out
+
+    def _on_cut(self) -> None:
+        """Çekim kesmesi (G4): eski sahnenin izleri/kamera geçmişi/süzgeç hızı geçersiz. Kişi hedefi
+        yeni kimliklerle Re-ID'den ya da kayıp akışından bulunur; nesne/eklem izleyiciler
+        `on_cut` ile yeniden bulma moduna alınır."""
+        self.cut_count += 1
+        on_cut = getattr(self.pipeline, "on_cut", None)
+        if on_cut is not None:
+            on_cut()
+        self.flt.reset()
+        if self.point is not None and hasattr(self.point, "on_cut"):
+            self.point.on_cut()
+
+    def _step(self, frame, t: float) -> Output:
         fh, fw = frame.shape[:2]
         prev = self._last_t
         if prev is not None and (t < prev - 0.05 or t - prev > self.cfg.seek_jump):
@@ -301,6 +333,8 @@ class LiveController:
             click = self._click
             self._reset_tracking()
             self._click = click
+            if self.cuts is not None:
+                self.cuts.reset()
             if had:
                 self._last_t = t
                 return Output(view=View(), osd="Atlama: hedefi yeniden seç")
@@ -509,10 +543,11 @@ def run_live(
     pose=None,
     info: list[str] | None = None,
     wholebody=None,
+    cuts=None,
 ) -> None:
     """info: sol üst bilgi bloğundaki sabit satırlar (model/cihaz...). None = blok gönderilmez."""
     ctl = LiveController(pipeline, cfg, reid=reid, cfg_path=cfg_path, pose=pose,
-                         wholebody=wholebody)
+                         wholebody=wholebody, cuts=cuts)
     last_hud: tuple[str, bool, str] = ("", False, "")
     perf: tuple[float, float] | None = None  # (kare/sn, gecikme ms): ~1 sn'lik pencere
     pf_n, pf_lag, pf_t = 0, 0.0, clock()

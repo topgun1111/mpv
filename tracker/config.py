@@ -88,6 +88,9 @@ class Config:
     kp_world: bool = True  # eklem takibi: kamera hareketi telafisi (dünya konumu)
     kp_filter: bool = True  # eklem konumuna One-Euro süzgeci
     kp_reacq_single: bool = True  # uzun kayıptan sonra karede tek uygun kişi varsa yeniden bağla
+    cut_detect: bool = True  # G4: çekim kesmesi algıla (canlı + offline); kesmede izler bırakılır
+    cut_hist: float = 0.35  # G4: 2x2 ızgara renk histogramı uzaklığı eşiği (0..1)
+    cut_diff: float = 0.18  # G4: küçük gri önizleme ortalama mutlak fark eşiği (0..1)
     gmc: bool = True  # ByteTrack tahmini kamera hareketiyle telafi edilir (canlı + offline)
     gmc_side: int = 480  # kamera kestirimi için kare en uzun kenarı (px)
     point_max_side: int = 640  # nesne izleyici kareyi en uzun kenarı bu olacak şekilde küçültür

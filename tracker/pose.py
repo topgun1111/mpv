@@ -238,6 +238,7 @@ class KeypointTracker:
         self._w = self._to_w(*self._pos)  # dünya konumu (cam yoksa kare konumu)
         self._wv = (0.0, 0.0)  # dünya hızı (px/adım)
         self._blind_t: float | None = None  # kişi bulunamamaya başladığı an
+        self._cut = False  # G4: kesmeden sonra henüz yeniden bağlanmadı
         self._fs = (OneEuro(), OneEuro()) if smooth else None
         self._fw = self._fh = 0
 
@@ -271,6 +272,7 @@ class KeypointTracker:
             self.app.observe(frame_bgr, best.bbox, [p.bbox for p in poses if p is not best],
                              self.clock())
         self._blind_t = None
+        self._cut = False
         self._h = max(best.bbox.y2 - best.bbox.y1, 1.0)
         prev, self._person = self._person, best.bbox
         if self.kp >= N_KPT and self.refiner is not None and len(best.kpts) <= self.kp:
@@ -327,7 +329,7 @@ class KeypointTracker:
             i = self.app.pick(self._frame, [p.bbox for p in cand])  # G3: görünümle kurtarma
             if i is not None:
                 return cand[i]
-        for p in cand:
+        for p in [] if self._cut else cand:  # kesmeden sonra yakınlık anlamsız
             ph = max(p.bbox.y2 - p.bbox.y1, 1.0)
             kx, ky, kc = p.kpts[self._ck]
             ref = (float(kx), float(ky)) if kc >= self.min_conf else (p.bbox.cx, p.bbox.cy)
@@ -338,6 +340,19 @@ class KeypointTracker:
             if self.clock() - (self._blind_t or 0.0) > self.hold_s:
                 best = cand[0]
         return best
+
+    def on_cut(self) -> None:
+        """Çekim kesmesi (G4): öngörülen konum anlamsız; kamera geçmişi sıfırlanır ve kişi yalnız
+        görünümle (Re-ID) ya da tek uygun kişi kuralıyla yeniden bağlanır (yakınlıkla DEĞİL)."""
+        if self.hold_s <= 0.0:
+            return
+        if self.cam is not None:
+            self.cam.reset()
+        self._w = self._to_w(*self._pos)
+        self._wv = (0.0, 0.0)
+        self._cut = True
+        if self._blind_t is None:
+            self._blind_t = self.clock()
 
     def _blind(self) -> BBox | None:
         now = self.clock()

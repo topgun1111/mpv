@@ -287,8 +287,20 @@ class WorldPointTracker:
         x, y = self._to_frame(self.wx, self.wy)
         return BBox(x - self.bw / 2, y - self.bh / 2, x + self.bw / 2, y + self.bh / 2)
 
+    def on_cut(self) -> None:
+        """Çekim kesmesi (G4): kamera geçmişi/hız geçersiz; son kare konumu yeni sahnede başlangıç
+        olur ve şablon araması orada denenir (benzerlik düşükse nesne kayıp sayılır)."""
+        x, y = self._to_frame(self.wx, self.wy)
+        self._cut = True
+        self.wx, self.wy = x, y
+        self.wvx = self.wvy = 0.0
+
     def update(self, frame_bgr: np.ndarray) -> BBox:
         cur = self._cgray(frame_bgr)
+        if getattr(self, "_cut", False):
+            self._cut = False
+            self.W = np.eye(3)
+            self.cprev = cur  # kamera kestirimi yeni sahnenin ilk karesinden başlar
         self._camera(cur)
         self.cprev = cur
         in_frame = self._inside(*self._to_frame(self.wx, self.wy))

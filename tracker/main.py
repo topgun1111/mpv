@@ -186,7 +186,7 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
     from .cache import cached_doc, scan_sig
     from .detector import Detector, resolve_model_path
     from .offline import VideoSource, make_doc, run_detection
-    from .pipeline import Pipeline, make_gmc
+    from .pipeline import Pipeline, make_cuts, make_gmc
     from .scan import finish_cached, selection_from_args
 
     fps = args.fps or cfg.offline_fps
@@ -258,7 +258,8 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
 
         pest = PoseEstimator(args.pose_model or cfg.pose_model, conf_thres=cfg.pose_conf,
                              device=args.device or cfg.device)
-    pipe = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf), gmc=make_gmc(cfg))
+    pipe = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf), gmc=make_gmc(cfg),
+                    cuts=make_cuts(cfg))
     if sel or args.resume or args.progress:
         from .scan import run_scan
 
@@ -334,7 +335,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     from .bytetrack import ByteTracker
     from .detector import Detector
     from .live import EventListener, model_line, run_live
-    from .pipeline import NullPipeline, Pipeline, make_gmc
+    from .pipeline import NullPipeline, Pipeline, make_cuts, make_gmc
     from .single import SingleInstance
 
     if (args.team or args.number) and not args.reid:
@@ -458,7 +459,8 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     try:
         with MpvIpc(cfg.ipc_path, keep_events=False) as mpv:  # komut bağlantısı olay biriktirmez
             run_live(mpv, events, pipeline, cfg, stats_every=stats, reid=reid,
-                     cfg_path=args.cfg_path, pose=pose, info=info, stop=stop, wholebody=wb)
+                     cfg_path=args.cfg_path, pose=pose, info=info, stop=stop, wholebody=wb,
+                     cuts=make_cuts(cfg))
     finally:
         stop.set()
         listener.stop()

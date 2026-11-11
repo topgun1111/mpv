@@ -194,6 +194,11 @@ class ByteTracker:
         self._tracks = []
         self._next_id = 1
 
+    def clear(self) -> None:
+        """İzleri bırak ama kimlik sayacını KORU (G4: çekim kesmesi; eski kimlikler yeniden
+        verilmez, hedefi sonradan Re-ID/poz ile yeni kimliğe bağlamak mümkün kalır)."""
+        self._tracks = []
+
     @property
     def boxes(self) -> list[BBox]:
         """Canlı izlerin son kutuları (kamera kestirimi köşe seçerken bunları maskeler)."""
