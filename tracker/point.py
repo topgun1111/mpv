@@ -249,7 +249,8 @@ class PointTracker:
             grow = min(2.5 + 0.5 * self.lost, 6.0)  # hızlı hareket: ilk aramada da geniş pencere
             rx, ry = tw * grow, th * grow
             x1, y1 = max(int(self.cx - tw / 2 - rx), 0), max(int(self.cy - th / 2 - ry), 0)
-            x2, y2 = min(int(self.cx + tw / 2 + rx), self.gw), min(int(self.cy + th / 2 + ry), self.gh)
+            x2 = min(int(self.cx + tw / 2 + rx), self.gw)
+            y2 = min(int(self.cy + th / 2 + ry), self.gh)
             region = cur[y1:y2, x1:x2]
             if region.shape[0] < th or region.shape[1] < tw or t.std() < 2.0:
                 continue

@@ -267,7 +267,7 @@ def test_end_to_end_real_tracker_pans_toward_a_moving_object():
 
 def test_config_has_point_defaults():
     cfg = Config(ipc_path="x")
-    assert (cfg.point_box, cfg.point_refine, cfg.point_min_score) == (0.06, True, 0.55)
+    assert (cfg.point_box, cfg.point_refine, cfg.point_min_score) == (0.06, True, 0.45)
     assert BBox(0, 0, 1, 1).contains(0.5, 0.5)
     with pytest.raises(TypeError):
         Config(ipc_path="x", nonexistent=1)
