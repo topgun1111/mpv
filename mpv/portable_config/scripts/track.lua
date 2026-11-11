@@ -353,28 +353,62 @@ mp.register_event("end-file", function()
   end
 end)
 
--- Son döndürme açısı portable_config/rotate.txt'de saklanır; açılışta ve her videoda uygulanır.
+-- Son döndürme GENEL olarak saklanır (videoya özel değil): her videoda ve her açılışta uygulanır.
+-- Dosya: %APPDATA%\\TakipliOynat\\rotate.txt (her zaman yazılabilir; Program Files'ta portable_config
+-- yazılamayabilir). Yedek/eski konum: portable_config/rotate.txt. Döndürme nasıl değişirse değişsin
+-- (K, menü, görünüm yükle) `video-rotate` izlenip kaydedilir.
 local saved_rotate_apply, save_rotate
-local function rotate_path()
+local rotate_ready, last_rot = false, nil
+local function rotate_paths()
+  local list = {}
+  local ad = os.getenv("APPDATA")
+  if ad and ad ~= "" then
+    list[#list + 1] = { dir = ad .. "\\TakipliOynat", file = ad .. "\\TakipliOynat\\rotate.txt" }
+  end
   local p = mp.command_native and mp.command_native({ "expand-path", "~~/rotate.txt" })
-  return type(p) == "string" and p or nil
+  if type(p) == "string" and p ~= "" then list[#list + 1] = { file = p } end
+  return list
+end
+local function write_rotate(path, r)
+  local f = io.open(path, "wb")
+  if not f then return false end
+  f:write(tostring(r)); f:close()
+  return true
 end
 save_rotate = function(r)
-  local p = rotate_path()
-  local f = p and io.open(p, "wb")
-  if f then f:write(tostring(r)); f:close() end
+  if r == last_rot then return true end
+  for _, e in ipairs(rotate_paths()) do
+    local ok = write_rotate(e.file, r)
+    if not ok and e.dir then -- klasör yoksa oluştur, bir kez daha dene
+      mp.command_native({ name = "subprocess", playback_only = false, args = { "cmd", "/c", "mkdir", e.dir } })
+      ok = write_rotate(e.file, r)
+    end
+    if ok then last_rot = r; return true end
+  end
+  osd("döndürme kaydedilemedi", 3)
+  return false
 end
 saved_rotate_apply = function()
-  local p = rotate_path()
-  local f = p and io.open(p, "rb")
-  if not f then return end
-  local t = f:read("*a"); f:close()
-  local r = tonumber(t)
-  if r and r % 90 == 0 and r >= 0 and r < 360 and r ~= (mp.get_property_number("video-rotate", 0) or 0) then
-    mp.set_property_number("video-rotate", r)
+  for _, e in ipairs(rotate_paths()) do
+    local f = io.open(e.file, "rb")
+    if f then
+      local t = f:read("*a"); f:close()
+      local r = tonumber(t)
+      if r and r % 90 == 0 and r >= 0 and r < 360 then
+        last_rot = r
+        if r ~= (mp.get_property_number("video-rotate", 0) or 0) then
+          mp.set_property_number("video-rotate", r)
+        end
+        return
+      end
+    end
   end
 end
 saved_rotate_apply()
+rotate_ready = true
+mp.observe_property("video-rotate", "number", function(_, r)
+  if rotate_ready and r and r % 90 == 0 and r >= 0 and r < 360 then save_rotate(r) end
+end)
 
 local hold_pause = false -- "Hedefle video aç" videoyu bilerek duraklatır; o durumda otomatik oynatma yok
 mp.register_event("file-loaded", function()
