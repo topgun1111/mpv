@@ -353,7 +353,33 @@ mp.register_event("end-file", function()
   end
 end)
 
+-- Son döndürme açısı portable_config/rotate.txt'de saklanır; açılışta ve her videoda uygulanır.
+local saved_rotate_apply, save_rotate
+local function rotate_path()
+  local p = mp.command_native and mp.command_native({ "expand-path", "~~/rotate.txt" })
+  return type(p) == "string" and p or nil
+end
+save_rotate = function(r)
+  local p = rotate_path()
+  local f = p and io.open(p, "wb")
+  if f then f:write(tostring(r)); f:close() end
+end
+saved_rotate_apply = function()
+  local p = rotate_path()
+  local f = p and io.open(p, "rb")
+  if not f then return end
+  local t = f:read("*a"); f:close()
+  local r = tonumber(t)
+  if r and r % 90 == 0 and r >= 0 and r < 360 and r ~= (mp.get_property_number("video-rotate", 0) or 0) then
+    mp.set_property_number("video-rotate", r)
+  end
+end
+saved_rotate_apply()
+
+local hold_pause = false -- "Hedefle video aç" videoyu bilerek duraklatır; o durumda otomatik oynatma yok
 mp.register_event("file-loaded", function()
+  if hold_pause then hold_pause = false else mp.set_property("pause", "no") end -- yeni video otomatik başlar
+  if saved_rotate_apply then saved_rotate_apply() end
   local vpath = video_path()
   if vpath and not off.on and read_file(vpath .. ".views.json") then
     osd("offline takip verisi var - o tuşuyla aç", 3)
@@ -878,6 +904,7 @@ end)
 local function rotate_video()
   local r = ((mp.get_property_number("video-rotate", 0) or 0) + 90) % 360
   mp.set_property_number("video-rotate", r)
+  save_rotate(r)
   osd(string.format("döndürme %d°", r), 1)
 end
 mp.add_key_binding(nil, "rotate", rotate_video)
@@ -1044,6 +1071,7 @@ if TRACK_SHOW_MENU ~= false then
       end
       FILES.open_target = function()
         dialog(TF.open_script(fstate.dir), function(p)
+          hold_pause = true
           open_target(p, false)
           scan.pending = true
           mp.set_property("pause", "yes")
