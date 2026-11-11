@@ -186,6 +186,10 @@ class ByteTracker:
         self._tracks: list[_Internal] = []
         self._next_id = 1
 
+    def set_next_id(self, n: int) -> None:
+        """Taramayı sürdürürken kimlikler önceki örneklerle çakışmasın."""
+        self._next_id = max(self._next_id, int(n))
+
     def reset(self) -> None:
         self._tracks = []
         self._next_id = 1

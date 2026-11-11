@@ -131,6 +131,32 @@ reg.bind.toggle()
 -- Videoyu kapat (7.)
 reg.cmds = {}; pick(7); out("CLOSE", lastcmd())
 
+-- A1: Hedefle video aç + tara (8.): diyalog → loadfile + duraklat; ilk sağ tık taramayı başlatır
+reg.props["video-params"] = { w = 1920, h = 1080 }
+mp.command_native = function(t) reg.spawn = t; return { status = 0 } end
+reg.cmds = {}; reg.bind.pick() -- hedefli açma beklenmiyorken: tarama BAŞLAMAZ
+out("SCAN_NOT_PENDING", tostring(reg.spawn == nil))
+pick(8)
+answer("C:\\Videolar\\hedef.mp4")
+out("SCAN_OPEN", lastcmd(), tostring(reg.set.pause))
+reg.obs["mouse-pos"](nil, { x = 640, y = 400 }) -- fare videonun üstüne geldi (menü sıcak değil)
+local n0 = #reg.timers
+reg.bind.pick() -- sağ tık: canlı takip + arka plan taraması
+local a = reg.spawn.args
+out("SCAN_SPAWN", tostring(reg.spawn.detached), a[1], table.concat({ a[2], a[3], a[4] }, " "), a[6], a[7],
+  tostring(a[8]), tostring(reg.set.pause))
+out("SCAN_ARGS", tostring(tonumber(a[9]) ~= nil and tonumber(a[10]) ~= nil and tonumber(a[11]) ~= nil))
+reg.spawn = nil; reg.bind.pick() -- ikinci tık yeni tarama başlatmaz
+out("SCAN_ONCE", tostring(reg.spawn == nil))
+local pf = os.getenv("VIDEO") .. ".track.json.scan.json"
+local f = io.open(pf, "wb"); f:write('{"state":"running","pct":40,"target":{"id":3}}'); f:close()
+reg.timers[n0 + 2]() -- n0+1: "artı yanıtı yok" zamanlayıcısı, n0+2: tarama yoklaması
+out("SCAN_PROGRESS", reg.osd[#reg.osd])
+f = io.open(pf, "wb"); f:write('{"state":"done","pct":100,"target":{"id":3}}'); f:close()
+reg.timers[#reg.timers]()
+out("SCAN_DONE", reg.osd[#reg.osd])
+os.remove(pf)
+
 -- Saf modül
 out("PURE_QUOTE", TF.ps_quote("a'b"))
 out("PURE_CLEAN", tostring(TF.clean("\239\187\191 C:\\a b.mp4 \r\nfoo")), tostring(TF.clean("  \r\n")))

@@ -18,6 +18,7 @@ local set_offline -- ileri bildirim: canlı mod açılınca offline kapatılır
 local off -- ileri bildirim (offline durumu; HUD okur)
 local sync_click_binding -- ileri bildirim: sol tık bağı (ekran üstü panel + hedef seçimi)
 local refresh_panel -- ileri bildirim: ekran üstü panel yeniden çizimi
+local scan_start -- ileri bildirim (A1): hedefle aç + arka plan taraması (Dosya menüsü bloğunda atanır)
 -- Üst menü çubuğu (M1): motor script-modules/trackmenu.lua (saf mantık); çizim/bağlama aşağıda.
 -- TRACK_SHOW_MENU=false ile kapanır (testler); modül yoksa menü yok, geri kalan çalışır.
 local menu, menu_hot, render_menu = nil, false, nil
@@ -114,6 +115,7 @@ local function on_click(msg)
   local t = mp.get_property_number("time-pos", 0)
   anchor = { nx, ny }
   show_provisional(nx, ny)
+  if msg == "track-point" and scan_start then scan_start("point", t, nx, ny) end
   mp.commandv("script-message", msg or "track-click",
     string.format("%.6f", nx), string.format("%.6f", ny),
     string.format("%d", math.floor(params.w)), string.format("%d", math.floor(params.h)),
@@ -625,6 +627,9 @@ local function finish_drag(pos)
   if not enabled then set_enabled(true) end
   anchor = { (ax + bx) / 2, (ay + by) / 2 }
   show_provisional(anchor[1], anchor[2])
+  if scan_start then
+    scan_start("rect", mp.get_property_number("time-pos", 0), ax, ay, bx, by)
+  end
   mp.commandv("script-message", "track-rect",
     string.format("%.6f", ax), string.format("%.6f", ay),
     string.format("%.6f", bx), string.format("%.6f", by),
@@ -843,6 +848,73 @@ if TRACK_SHOW_MENU ~= false then
       FILES.recent = function()
         if #fstate.recent == 0 then osd("son açılan video yok", 2); return end
         dialog(TF.recent_script(fstate.recent), function(p) open_target(p, false) end)
+      end
+      -- A1: "Hedefle video aç + tara": video açılır ve duraklatılır; ilk hedef seçimi (sağ tık = nokta,
+      -- sağ tuşla sürükle = alan) canlı takibi hemen başlatır ve arka planda
+      -- `tracker offline VIDEO --select-point|--select-rect ...` taramasını başlatır. İlerleme
+      -- `<video>.track.json.scan.json`'dan 2 sn'de bir okunur; bitince `o` tuşu offline takibi açar.
+      local scan = { pending = false, running = false, prog = nil }
+      local function python_exe()
+        local env = os.getenv("TRACK_PYTHON")
+        if env then return env end
+        local exe = mp.command_native and mp.command_native({ "expand-path", "~~exe_dir/" })
+        if type(exe) ~= "string" or exe == "" then return nil end
+        local root = exe:gsub("[/\\]+$", ""):gsub("[/\\][^/\\]*$", "")
+        for _, name in ipairs({ "pythonw.exe", "python.exe" }) do
+          local p = root .. "/python/" .. name
+          if utils.file_info(p) then return p end
+        end
+      end
+      local function poll_scan()
+        if not scan.running then return end
+        local text = read_file(scan.prog)
+        local p = text and utils.parse_json(text)
+        if type(p) == "table" then
+          if p.state == "done" then
+            scan.running = false
+            if p.error and not p.target then osd("tarama bitti ama " .. p.error, 5)
+            else osd("tarama bitti - offline takip için o tuşu", 5) end
+            return
+          elseif p.state == "cancelled" then
+            scan.running = false
+            osd("tarama durduruldu", 3)
+            return
+          end
+          local tgt = p.target and (" · hedef ID " .. tostring(p.target.id)) or ""
+          osd(string.format("tarama %%%s%s", tostring(p.pct or "?"), tgt), 1.5)
+        end
+        mp.add_timeout(2, poll_scan)
+      end
+      scan_start = function(kind, t, a, b, c, d)
+        if not scan.pending or scan.running then return end
+        local vp = video_path()
+        if not vp then osd("hedefli tarama için yerel video gerek", 3); return end
+        local py = python_exe()
+        if not py then osd("tarama başlatılamadı: python/ bulunamadı", 4); return end
+        local function f(v) return string.format("%.6f", v) end
+        local args = { py, "-m", "tracker", "--config",
+          (os.getenv("APPDATA") or ".") .. "/TakipliOynat/config.json", "offline", vp }
+        if kind == "point" then
+          for _, v in ipairs({ "--select-point", string.format("%.3f", t), f(a), f(b) }) do args[#args + 1] = v end
+        else
+          for _, v in ipairs({ "--select-rect", string.format("%.3f", t), f(a), f(b), f(c), f(d) }) do
+            args[#args + 1] = v
+          end
+        end
+        mp.command_native({ name = "subprocess", playback_only = false, detached = true,
+          capture_stdout = false, capture_stderr = false, args = args })
+        scan.pending, scan.running, scan.prog = false, true, vp .. ".track.json.scan.json"
+        mp.set_property("pause", "no")
+        osd("hedef seçildi - arka planda taranıyor", 3)
+        mp.add_timeout(2, poll_scan)
+      end
+      FILES.open_target = function()
+        dialog(TF.open_script(fstate.dir), function(p)
+          open_target(p, false)
+          scan.pending = true
+          mp.set_property("pause", "yes")
+          osd("hedefi sağ tıkla (nokta) ya da sağ tuşla sürükle (alan)", 6)
+        end)
       end
       FILES.open_folder = function() dialog(TF.folder_script(fstate.dir), function(p) open_target(p, true) end) end
       FILES.open_url = function()

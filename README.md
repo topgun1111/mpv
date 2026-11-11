@@ -66,6 +66,7 @@ TakipliOynat/
 │  ├─ detector.py                # YOLOv8/YOLOX ONNX çözücüleri + cihaz seçimi
 │  ├─ bytetrack.py, pipeline.py  # ByteTrack + detector birleşimi
 │  ├─ point.py                   # sınıfsız nesne izleyici (sağ tık; optik akış + şablon + kamera telafisi)
+│  ├─ scan.py                    # hedefle aç + arka plan taraması (seçim çözümü, ilerleme, sürdürme)
 │  ├─ gmc.py                     # kamera hareketi telafisi (LK + RANSAC; ByteTrack, offline, nokta/eklem)
 │  ├─ pose.py                    # eklem (vücut parçası) takibi (YOLOv8-pose)
 │  ├─ reid.py, team.py, number.py  # OSNet Re-ID, takım rengi, forma numarası
@@ -140,6 +141,8 @@ python -m tracker bench video.mp4.track.json                          # yalnız 
 Ölçütler: kimlik sayısı, kısa izler, olası ID değişimi, hedefin görülme/kayıp yüzdesi, canlı-benzetimi ile offline görünüm arasındaki sapma ve titreme (`--target-id` yoksa en uzun iz). Diğer ortak bayraklar: `--model`, `--device`, `--fps`. Canlı modda ek bayraklar: `--wait SN` (mpv IPC'sini bekle), `--stats SN` (fps/gecikme satırı).
 
 ### Eklem (vücut parçası) takibi (Parça 22)
+**Hedefle aç + arka plan taraması (A1)**: Dosya → «Hedefle video aç + tara…» videoyu açıp duraklatır; ilk sağ tık (nokta) ya da sağ tuşla sürükleme (alan) canlı takibi hemen başlatır ve arka planda `python -m tracker offline VIDEO --select-point SN NX NY` (ya da `--select-rect SN NX1 NY1 NX2 NY2`) taramasını başlatır. Hedef tarama o ana varınca çözülür: nokta bir eklemin yakınındaysa **eklem**, değilse noktadaki **kişi**; alan kişiyi büyük ölçüde kapsıyorsa kişi, küçük alan içinde eklem varsa o eklem (pose modeli varsa taramaya otomatik eklenir). Sonuç `<video>.track.json` + `<video>.views.json`; bitince `o` tuşu offline takibi açar. İlerleme `<video>.track.json.scan.json`'a (durum, %, hedef) yazılır, her 100 örnekte `.partial.json` kesinti noktası alınır: `offline VIDEO --resume` kaldığı yerden sürdürür; `<çıktı>.scan.cancel` dosyası oluşturulursa tarama durur. Konsolsuz çalışırken günlük masaüstünde `takipli-tarama-log.txt`. Not: sınıfsız nesneler (kişi/eklem olmayan) offline taranmaz; seçim en yakın kişiye çözülür, yoksa hata.
+
 **Kamera hareketi telafisi (G1)**: `tracker/gmc.py` (`CameraMotion`) arka plan köşelerinden kareden kareye kamera dönüşümünü kestirir; ByteTrack tahmini (Kalman konum/boy/hız) bu dönüşümle kaydırılır, böylece kamera hızlı kayarken kişilerin kimliği kopmaz. Canlıda ve `offline` taramada açıktır; kişi kutuları köşe seçiminden dışlanır, kestirilemezse ya da çekim kesmesinde (kayma > kare genişliğinin %50'si) dönüşüm kimlik sayılır. Ayarlar (`config.json`): `gmc` (true; `false` eski davranış), `gmc_side` (480). Ek maliyet: karede ~birkaç ms (`live --stats` gecikmesine bak).
 
 `models/yolov8s-pose.onnx` varsa yüklenir (yoksa sessizce kapalı). Sağ tık bir eklemin (`kp_tol`: kişi boyunun 0.12'si) yakınına yapılırsa o eklem izlenir (HUD: «Hedef: sol ayak bileği»), uzaksa nesne takibi. Ayarlar (`config.json`): `pose_model`, `pose_conf` (0.3), `kp_tol`, `kp_min_conf` (0.35), `kp_box` (0.10), `kp_hold` (6), `kp_hold_s` (1.5), `kp_world`, `kp_filter`, `kp_reacq_single`. Canlıda çalışır; offline için `offline VIDEO --pose` eklemleri `track.json`'a (sürüm 2) yazar, `--part "sol ayak bileği"` (ya da 0–16) görünümü o eklemden üretir (B1).

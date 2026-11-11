@@ -13,6 +13,7 @@ local mp = {
   get_property_number = function(n, d) return reg.props[n] or d end,
   get_property_native = function(n) return reg.props[n] end,
   set_property_number = function(n, v) reg.set[n] = v; reg.props[n] = v end,
+  set_property = function(n, v) reg.set[n] = v; reg.props[n] = v end,
   osd_message = function(m) reg.osd[#reg.osd + 1] = m end,
   commandv = function(...) reg.cmds[#reg.cmds + 1] = table.concat({ ... }, " ") end,
   add_timeout = function(_, fn)

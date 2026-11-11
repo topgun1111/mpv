@@ -21,7 +21,8 @@ def test_file_menu_flow(tmp_path):
     video.write_bytes(b"x")
     env = {"TRACK_LUA": str(PC / "scripts" / "track.lua"),
            "TRACK_MODULES": str(PC / "script-modules"),
-           "VIDEO": str(video), "DATA_LUA": str(data), "TRACK_STATE_DIR": str(state)}
+           "VIDEO": str(video), "TRACK_PYTHON": "/fake/python.exe",
+           "DATA_LUA": str(data), "TRACK_STATE_DIR": str(state)}
     r = subprocess.run([LUA, str(HARNESS)], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
     d = {ln.split("\t")[0]: ln.split("\t")[1:] for ln in r.stdout.splitlines()}
@@ -51,4 +52,13 @@ def test_file_menu_flow(tmp_path):
     assert d["PURE_CAP"] == ["10", "/v/15.mp4", "/v"]
     assert d["PURE_URL"] == ["true", "false", "nil"]
     assert d["PURE_SNAP"] == ["90", "nil", "nil"]
-    assert d["MENU_COUNT"] == ["8"]
+    assert d["MENU_COUNT"] == ["9"]
+    # A1: hedefli açma
+    assert d["SCAN_NOT_PENDING"] == ["true"]
+    assert d["SCAN_OPEN"] == ["loadfile C:\\Videolar\\hedef.mp4 replace", "yes"]
+    assert d["SCAN_SPAWN"][:2] == ["true", "/fake/python.exe"]
+    assert d["SCAN_SPAWN"][2:] == ["-m tracker --config", "offline", str(video), "--select-point",
+                                   "no"]
+    assert d["SCAN_ARGS"] == ["true"] and d["SCAN_ONCE"] == ["true"]
+    assert "%40" in d["SCAN_PROGRESS"][0] and "ID 3" in d["SCAN_PROGRESS"][0]
+    assert "tarama bitti" in d["SCAN_DONE"][0]

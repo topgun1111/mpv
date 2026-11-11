@@ -60,6 +60,16 @@ def build_parser() -> argparse.ArgumentParser:
     of.add_argument("--pose", action="store_true",
                     help="Eklemleri de kaydet (track.json sürüm 2; --part için gerekir)")
     of.add_argument("--pose-model", help="Poz ONNX yolu (varsayılan: config.pose_model)")
+    of.add_argument("--select-point", nargs=3, type=float, metavar=("SN", "NX", "NY"),
+                    help="Hedef: SN anında NX,NY noktası (kişi ya da yakın eklem); tarama o ana "
+                         "varınca çözülür; ilerleme <çıktı>.scan.json'a yazılır")
+    of.add_argument("--select-rect", nargs=5, type=float,
+                    metavar=("SN", "NX1", "NY1", "NX2", "NY2"),
+                    help="Hedef: SN anında dikdörtgen (kişi ya da küçükse içindeki eklem)")
+    of.add_argument("--resume", action="store_true",
+                    help="Kesilen taramayı <çıktı>.partial.json'dan sürdür")
+    of.add_argument("--progress", action="store_true",
+                    help="İlerleme/kesinti dosyalarını yaz (--select-* ile otomatik)")
     _add_target_args(of)
     bn = sub.add_parser("bench", help="Kıyasla: izleme/görünüm kalitesi + hız")
     bn.add_argument("video", help="Video ya da .track.json (json: tespit yapılmaz)")
@@ -158,6 +168,7 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
     from .detector import Detector
     from .offline import VideoSource, make_doc, run_detection
     from .pipeline import Pipeline, make_gmc
+    from .scan import selection_from_args
 
     fps = args.fps or cfg.offline_fps
     src = VideoSource(args.video, fps)
@@ -188,17 +199,42 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
 
         tbank = TeamBank(cfg)
     pest = None
+    if selection_from_args(args) and not args.pose:  # parça seçimi için model varsa eklem de tara
+        from .detector import resolve_model_path
+
+        args.pose = resolve_model_path(args.pose_model or cfg.pose_model).is_file()
     if args.pose:
         from .pose import PoseEstimator
 
         pest = PoseEstimator(args.pose_model or cfg.pose_model, conf_thres=cfg.pose_conf,
                              device=args.device or cfg.device)
     pipe = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf), gmc=make_gmc(cfg))
-    samples, size = run_detection(src, pipe, progress, total, bank=bank, team=tbank, pose=pest)
+    out = args.out or f"{args.video}.track.json"
+    sel = selection_from_args(args)
+    if sel and (args.target_id is not None or args.click):
+        print("--select-* ile --target-id/--click birlikte verilemez", file=sys.stderr)
+        return 2
+    if sel or args.resume or args.progress:
+        from .scan import run_scan
+
+        samples, size, sc = run_scan(src, pipe, cfg, out, sel, fps, total, resume=args.resume,
+                                     pose=pest, progress=progress)
+        if sc.cancelled:
+            print(f"tarama durduruldu ({len(samples)} örnek); --resume ile sürdür")
+            return 3
+        if sc.target:
+            args.target_id = sc.target["id"]
+            if "part" in sc.target:
+                args.part = str(sc.target["part"])
+        elif sel:
+            print(f"UYARI: {sc.error or 'hedef çözülemedi'}; izler listeleniyor", file=sys.stderr)
+    else:
+        samples, size = run_detection(src, pipe, progress, total, bank=bank, team=tbank,
+                                      pose=pest)
     doc = make_doc(args.video, size, src.src_fps, src.duration, fps, samples,
                    emb=bank.result() if bank else None,
                    team=tbank.result() if tbank else None, pose=pest is not None)
-    _finish_doc(doc, cfg, args, args.out or f"{args.video}.track.json")
+    _finish_doc(doc, cfg, args, out)
     return 0
 
 
@@ -390,14 +426,14 @@ def _log_dir(cfg_path: str) -> Path:
     return Path(cfg_path).resolve().parent
 
 
-def _log_if_headless(cfg_path: str) -> Path | None:
+def _log_if_headless(cfg_path: str, name: str = "takipli-oynat-log.txt") -> Path | None:
     """`pythonw.exe` (mpv'nin otomatik başlattığı gizli süreç) konsolsuzdur: sys.stdout/stderr None
     olur ve her hata sessizce kaybolur. Bu durumda çıktıyı masaüstündeki
     `takipli-oynat-log.txt`'ye yaz (her başlangıçta sıfırlanır): takip çalışmıyorsa neden orada."""
     if sys.stdout is not None and sys.stderr is not None:
         return None
     try:
-        path = _log_dir(cfg_path) / "takipli-oynat-log.txt"
+        path = _log_dir(cfg_path) / name
         path.parent.mkdir(parents=True, exist_ok=True)
         f = open(path, "w", encoding="utf-8", buffering=1)  # noqa: SIM115 (süreç boyunca açık)
     except OSError:
@@ -440,6 +476,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd in ("offline", "offline-view"):
         try:
             fn = run_offline_cmd if args.cmd == "offline" else run_offline_view_cmd
+            if args.cmd == "offline":  # mpv'nin arka planda başlattığı tarama konsolsuzdur
+                _log_if_headless(args.cfg_path, "takipli-tarama-log.txt")
             return fn(cfg, args)
         except KeyboardInterrupt:
             return 130

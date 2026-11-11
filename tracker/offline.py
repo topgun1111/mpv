@@ -40,10 +40,10 @@ SUPPORTED_VERSIONS = (SCHEMA_VERSION, POSE_SCHEMA_VERSION)
 class VideoSource:
     """cv2.VideoCapture ile `fps` hızında örneklenmiş (t, BGR kare); sabit kare hızı varsayılır."""
 
-    def __init__(self, path: str, fps: float = 10.0):
+    def __init__(self, path: str, fps: float = 10.0, start: float = 0.0):
         import cv2
 
-        self.path, self.fps = path, fps
+        self.path, self.fps, self.start = path, fps, start
         self._cv2 = cv2
         self._cap = cv2.VideoCapture(path)
         if not self._cap.isOpened():
@@ -56,6 +56,10 @@ class VideoSource:
 
     def __iter__(self):
         idx, next_t, step = 0, 0.0, 1.0 / max(self.fps, 0.1)
+        if self.start > 0:  # sürdür: bu süreden (dahil değil) sonrasından başla
+            idx = int(self.start * self.src_fps)
+            self._cap.set(self._cv2.CAP_PROP_POS_FRAMES, idx)
+            next_t = self.start + step
         try:
             while self._cap.grab():  # grab ucuzdur; yalnızca örneklenen kare çözülür (retrieve)
                 t = idx / self.src_fps
@@ -91,12 +95,15 @@ def _kp_row(p, w: int, h: int) -> list[float]:
 
 
 def run_detection(frames, pipeline, progress=None, total: int | None = None, bank=None,
-                  team=None, pose=None):
+                  team=None, pose=None, samples: list | None = None, on_sample=None,
+                  should_stop=None):
     """`frames`: (t, kare) üreteci → (örnekler, (w, h)). Kare boyutu ilk kareden alınır.
     `bank` (reid.TrackletBank) verilirse izlerin ilk/son embedding'leri toplanır;
     `team` (team.TeamBank) verilirse izlerin takım rengi toplanır;
-    `pose` (pose.PoseEstimator) verilirse izlere eşlenen eklemler örneğe `kp` olarak yazılır."""
-    samples, size = [], None
+    `pose` (pose.PoseEstimator) verilirse izlere eşlenen eklemler örneğe `kp` olarak yazılır.
+    `samples`: sürdürmede önceden hesaplanmış örnekler (üzerine eklenir); `on_sample(n, samples)`
+    her örnekten sonra; `should_stop()` True dönerse tarama (örnekler korunarak) durur."""
+    samples, size = (samples if samples is not None else []), None
     for n, (t, frame) in enumerate(frames, 1):
         h, w = frame.shape[:2]
         size = size or (w, h)
@@ -117,8 +124,12 @@ def run_detection(frames, pipeline, progress=None, total: int | None = None, ban
             if kp:
                 smp["kp"] = kp
         samples.append(smp)
+        if on_sample:
+            on_sample(n, samples)
         if progress:
             progress(n, total)
+        if should_stop and should_stop():
+            break
     return samples, size or (0, 0)
 
 
