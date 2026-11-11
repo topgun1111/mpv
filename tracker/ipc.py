@@ -134,7 +134,10 @@ class MpvIpc:
             line = self._readline(timeout)
             if line is None:
                 return None
-            msg = json.loads(line)
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue  # bozuk satır olay iş parçacığını sessizce öldürmesin
             if "event" in msg:
                 return msg
             # request_id'li yanıtlar yalnız command() içinde işlenir; burada yok sayılır

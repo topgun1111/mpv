@@ -28,7 +28,8 @@ GET_PIP_SHA256: str | None = None
 
 # site-packages içinde çalışma zamanında gerekmeyen, boyut yapan kalemler
 PRUNE_DIRS = {"__pycache__", "tests", "test", "testing", "_pyinstaller"}
-PRUNE_TOP = ("pip", "setuptools", "wheel", "pkg_resources", "_distutils_hack")
+PRUNE_TOP = ("pip", "setuptools", "wheel", "pkg_resources", "_distutils_hack",
+             "distutils-precedence.pth")
 
 
 def patch_pth(text: str) -> str:

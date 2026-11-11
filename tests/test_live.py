@@ -478,3 +478,23 @@ def test_grab_frame_over_socket_large_payload(tmp_path):
         frame = grab_frame(mpv)
         assert frame.shape == (h, w, 3)
         assert len(mpv._events) == 0
+
+
+def test_grab_frame_falls_back_to_file_when_raw_json_is_broken(monkeypatch):
+    import cv2
+
+    from tracker import frames
+
+    monkeypatch.setattr(frames, "_file_mode", False)
+    calls = []
+
+    class Broken:
+        def command(self, *a):
+            calls.append(a[0])
+            if a[0] == "screenshot-raw":
+                json.loads('{"data":,')  # JSONDecodeError (ValueError)
+            cv2.imwrite(a[1], np.full((20, 30, 3), 128, np.uint8))
+
+    assert frames.grab_frame(Broken()).shape == (20, 30, 3)
+    assert frames.grab_frame(Broken()).shape == (20, 30, 3)
+    assert calls == ["screenshot-raw", "screenshot-to-file", "screenshot-to-file"]
