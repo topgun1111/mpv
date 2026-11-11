@@ -97,6 +97,9 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--ffmpeg", help="ffmpeg yolu (varsayılan: TAKIPLI_FFMPEG, ffmpeg\\, PATH)")
     ex.add_argument("--no-audio", action="store_true", help="Sesi ekleme")
     ex.add_argument("--crf", type=int, default=18, help="x264 kalitesi (düşük = iyi; 18)")
+    up = sub.add_parser("update", help="Güncelleme: check (JSON yazdırır) | install (indir + kur)")
+    up.add_argument("action", choices=["check", "install"])
+    up.add_argument("--progress", help="install: ilerleme JSON dosyası")
     ov = sub.add_parser("offline-view", help="track.json'da hedefi seç/değiştir (tespit yok)")
     ov.add_argument("json")
     ov.add_argument("--out", help="Çıktı (varsayılan: girdinin üzerine yazar)")
@@ -327,6 +330,35 @@ def live_reid_plan(cfg: Config, args, reid_file: bool,
     return reid, team, number
 
 
+def run_update_cmd(cfg: Config, args: argparse.Namespace) -> int:
+    """`update check`: tek satır JSON (Lua okur). `update install`: indir + kurulumu başlat."""
+    import json
+
+    from . import update
+
+    info = update.check(update.resolve_repo(cfg.update_repo), __version__)
+    if args.action == "check":
+        print(json.dumps(info, ensure_ascii=False))
+        return 0
+    if info["state"] != "available":
+        print(json.dumps(info, ensure_ascii=False))
+        return 1
+    res = update.install(info, Path(args.progress) if args.progress else None)
+    print(json.dumps(res, ensure_ascii=False))
+    return 0 if res["state"] == "launched" else 1
+
+
+def _notify_loading(ipc_path: str, on: bool) -> None:
+    """Lua'ya "modeller yükleniyor"/"hazır" bildir (en iyi çaba; hata izlemeyi etkilemez)."""
+    from .clicks import LOADING_MSG
+
+    try:
+        with MpvIpc(ipc_path, keep_events=False) as m:
+            m.command("script-message-to", "track", LOADING_MSG, "1" if on else "0")
+    except Exception:  # noqa: BLE001 - bildirim isteğe bağlı
+        pass
+
+
 def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     """Ağır bağımlılıklar yalnızca bu komutta içe aktarılır."""
     import queue
@@ -357,6 +389,14 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
         if not wait_for_ipc(cfg.ipc_path, args.wait):
             print("HATA: mpv IPC kanalı açılmadı (mpv çalışıyor mu?)", file=sys.stderr)
             return 1
+    # Olay dinleyicisi modellerden ÖNCE bağlanır: modeller (YOLOX, poz, Re-ID, tüm-vücut) exe'de
+    # paketlenince yükleme sn–dakika sürüyor; mpv `script-message`'i biriktirmez, dinleyici yokken
+    # gelen sağ tık kaybolurdu (artı sarı kalır, takip hiç başlamaz). Şimdi kuyruğa girer, modeller
+    # hazır olunca `run_live` işler.
+    events: queue.Queue = queue.Queue()
+    listener = EventListener(cfg.ipc_path, events)
+    listener.start()
+    _notify_loading(cfg.ipc_path, True)
     pose_det = None
     if args.single_pose or cfg.single_pose:  # G2: tek model (poz) hem kişi hem eklem
         from .pose import PoseDetector
@@ -446,7 +486,6 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
                       file=sys.stderr)
         except Exception as e:  # isteğe bağlı: yoksa/bozuksa 17 noktalı davranış
             print(f"UYARI: tüm-vücut modeli yüklenemedi ({e}); yalnız 17 nokta.", file=sys.stderr)
-    events: queue.Queue = queue.Queue()
     # Aynı mpv'yi birden çok takip programı sürmesin (her mpv açılışı yeni süreç başlatır)
     inst = SingleInstance(Path(args.cfg_path).resolve().parent / "tracker.lock")
     stop = threading.Event()
@@ -454,8 +493,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
         inst.watch(stop)
     # Konsolsuz (pythonw) çalışırken log'a 5 sn'de bir hız/gecikme/hedef satırı yaz
     stats = args.stats or (5.0 if getattr(args, "headless", False) else 0.0)
-    listener = EventListener(cfg.ipc_path, events)
-    listener.start()
+    _notify_loading(cfg.ipc_path, False)
     try:
         with MpvIpc(cfg.ipc_path, keep_events=False) as mpv:  # komut bağlantısı olay biriktirmez
             run_live(mpv, events, pipeline, cfg, stats_every=stats, reid=reid,
@@ -650,6 +688,8 @@ def main(argv: list[str] | None = None) -> int:
             save_report(rep, args.out)
             print(f"kaydedildi: {args.out}")
         return 0
+    if args.cmd == "update":
+        return run_update_cmd(cfg, args)
     if args.cmd == "export":
         _log_if_headless(args.cfg_path, "takipli-aktarma-log.txt")
         try:

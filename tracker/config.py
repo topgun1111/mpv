@@ -82,6 +82,7 @@ class Config:
     kp_tol: float = 0.12  # sağ tık eklemin bu kadar (boy oranı) yakınındaysa
     kp_min_conf: float = 0.35  # eklem güveni alt sınırı (altı = eklem kayıp)
     kp_box: float = 0.10  # eklem etrafındaki takip kutusu (kişi boyu oranı)
+    update_repo: str = ""  # "sahip/depo": Yardım → güncelleme denetimi (boşsa update.json)
     dot_lead_s: float = 0.08  # sn; artı hız yönünde bu kadar ileri çizilir (0=kapalı)
     kp_hold: int = 6  # eklem/kişi görünmeyince bu kadar adım son konumda tut (0: hemen kayıp)
     kp_hold_s: float = 1.5  # sn; kayıpken öngörülen konumu bu kadar döndür (0: B2 kapalı)

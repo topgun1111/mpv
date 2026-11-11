@@ -7,6 +7,7 @@ local TM = require("trackmenu")
 local function out(...) print(table.concat({ ... }, "\t")) end
 local W, H = 1280, 720
 reg.props["osd-dimensions"] = { w = W, h = H, ml = 0, mr = 0, mt = 0, mb = 0 }
+reg.obs["osd-dimensions"]("osd-dimensions", reg.props["osd-dimensions"]) -- pencere açıldı: çubuk çizilir
 local function move(x, y)
   reg.props["mouse-pos"] = { x = x, y = y, hover = true }
   reg.obs["mouse-pos"]("mouse-pos", { x = x, y = y, hover = true }) end
@@ -18,6 +19,10 @@ end
 local bar, bh, fs = TM.bar_layout(W, H, TM.MENUS)
 local function hx(i) return bar[i].x + math.floor(bar[i].w / 2) end
 
+-- Pencereli modda çubuk HEP açık (fare yokken de); tam ekranda fare hareketine kadar gizli
+out("WINDOWED", tostring(M():find("Dosya", 1, true) ~= nil), tostring(M():find("Yardım", 1, true) ~= nil))
+reg.props.fullscreen = true
+reg.obs.fullscreen("fullscreen", true)
 out("HIDDEN", tostring(M() == ""), tostring(track_over()))
 move(W / 2, H / 2) -- her fare hareketinde çubuk görünür; ortadaki imleç çubuğun üstünde değil
 out("CENTER", tostring(M() == ""), tostring(track_over()))
@@ -56,6 +61,16 @@ out("OUTSIDE", tostring(M():find("Video aç", 1, true) == nil))
 -- Otomatik gizleme (zamanlayıcı)
 move(hx(2), 5); reg.timers[#reg.timers]()
 out("AUTOHIDE", tostring(M() == ""), tostring(track_over()))
+-- Tam ekrandan çıkınca çubuk geri gelir ve zamanlayıcı gizlemez
+reg.props.fullscreen = false
+reg.obs.fullscreen("fullscreen", false)
+out("EXITFS", tostring(M():find("Dosya", 1, true) ~= nil))
+move(W / 2, H / 2); if reg.timers[#reg.timers] then reg.timers[#reg.timers]() end
+out("STAYS", tostring(M():find("Dosya", 1, true) ~= nil))
+-- Yardım menüsü: güncelleme öğesi var ve etkin
+move(hx(6), 5); click(hx(6), 5)
+out("UPDATE", tostring(M():find("Güncellemeleri denetle", 1, true) ~= nil))
+reg.bind["trackmenu-ESC"]()
 -- K: döndürme 90 → 180 → 270 → 0
 local rots = {}
 for _ = 1, 4 do reg.bind.rotate(); rots[#rots + 1] = tostring(reg.set["video-rotate"]) end

@@ -24,6 +24,8 @@ def test_menu_bar_flow(tmp_path):
     assert r.returncode == 0, r.stderr
     d = {ln.split("\t")[0]: ln.split("\t")[1:] for ln in r.stdout.splitlines()}
 
+    assert d["WINDOWED"] == ["true", "true"]  # pencereli modda çubuk hep açık
+    assert d["EXITFS"] == ["true"] and d["STAYS"] == ["true"] and d["UPDATE"] == ["true"]
     assert d["HIDDEN"] == ["true", "false"]  # fare hareketi yok: çubuk yok
     assert d["CENTER"] == ["false", "false"]  # fare hareketinde çubuk görünür; tık yakalanmaz
     assert d["SHOWN"] == ["true", "true", "true"]  # çubuk üstünde: tık yakalanır, todo gri

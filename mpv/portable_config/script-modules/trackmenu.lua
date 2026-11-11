@@ -29,7 +29,7 @@ M.MENUS = {
     { sep = true },
     { cmd = "hud", label = "Durum etiketi", key = "Ctrl+H" },
     { cmd = "panel", label = "Düğme paneli sabit", key = "Ctrl+B" },
-    { cmd = "fullscreen", label = "Tam ekran", key = "F", todo = true },
+    { cmd = "fullscreen", label = "Tam ekran", key = "F" },
   } },
   { id = "track", label = "Takip", items = {
     { cmd = "toggle", label = "Takip", key = "T" },
@@ -63,6 +63,8 @@ M.MENUS = {
     { cmd = "dialog", label = "Ayar penceresi…", todo = true },
   } },
   { id = "help", label = "Yardım", items = {
+    { cmd = "update", label = "Güncellemeleri denetle…" },
+    { sep = true },
     { cmd = "status", label = "Durum özeti", key = "H" },
     { cmd = "shortcuts", label = "Kısayollar", todo = true },
     { cmd = "about", label = "Hakkında", todo = true },
@@ -112,7 +114,7 @@ function M.drop_layout(W, bh, fs, items, hx, labels, keys)
 end
 
 function M.new(ctx)
-  local e = { visible = false, open = nil, sel = nil, hover = nil, W = 0, H = 0,
+  local e = { visible = true, fullscreen = false, open = nil, sel = nil, hover = nil, W = 0, H = 0,
               hrects = {}, drects = {}, dbox = nil, bh = 0, fs = 0, labels = {}, keys = {} }
 
   local function st(it)
@@ -163,17 +165,28 @@ function M.new(ctx)
   end
 
   function e:close() local was = self.open ~= nil; self.open, self.sel = nil, nil; self:relayout(); return was end
-  function e:hide() if not self.open then self.visible, self.hover = false, nil end end
+  -- Çubuk pencereli modda HEP açık; yalnız tam ekranda fare hareketinde görünür, zamanlayıcıyla gizlenir.
+  function e:hide()
+    if self.fullscreen and not self.open then self.visible, self.hover = false, nil end
+  end
+  function e:set_fullscreen(fs)
+    self.fullscreen = fs and true or false
+    if self.fullscreen then
+      if not self.open then self.visible, self.hover = false, nil end
+    else
+      self.visible = true
+    end
+  end
 
   local function open_menu(self, i)
     self.open, self.sel, self.visible = i, nil, true
     self:relayout()
   end
 
-  -- Fare hareketi. Döner: çizim değişti mi.
+  -- Fare hareketi (tam ekranda çubuğu gösterir). Döner: çizim değişti mi.
   function e:mouse(x, y)
     local ov, oh, os_ = self.visible, self.hover, self.sel
-    self.visible = true -- her fare/dokunma hareketinde çubuk görünür (OSC gibi); zamanlayıcı gizler
+    self.visible = true -- her fare/dokunma hareketinde çubuk görünür; tam ekranda zamanlayıcı gizler
     if not self.visible then return false end
     local hh
     for i, r in ipairs(self.hrects) do if inside(r, x, y) then hh = i end end

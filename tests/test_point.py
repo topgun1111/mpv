@@ -300,6 +300,9 @@ def test_lua_red_dot_overlay(tmp_path):
     assert d["WARN"] == "true"
     assert "\\1c&HFFFFFF&" in d["CONFIRMED"] and "\\pos(491,241)" in d["CONFIRMED"]
     assert d["OUT"] == "" and d["HIDE"] == ""
+    # zoom/pan + kıstırılmış kenar boşlukları: artı yine videonun üstünde (pencereye yapışmaz)
+    assert "\\pos(491,241)" in d["CLAMPED"], d["CLAMPED"]
+    assert d["CLICKCMD"].startswith("script-message track-point 0.250000 0.500000"), d["CLICKCMD"]
 
 
 def test_dot_is_drawn_ahead_of_moving_target_by_dot_lead_and_off_when_zero():
@@ -322,3 +325,65 @@ def test_dot_is_drawn_ahead_of_moving_target_by_dot_lead_and_off_when_zero():
     assert abs(run(0.0)) < 3.0  # kapalı: tam nesnenin üstünde
     ahead = run(0.08)  # nesne ~180 px/sn sağa gider → ~14 px önde, sınırlı
     assert 5.0 < ahead < 0.03 * W
+
+
+def test_event_listener_starts_before_models_load(monkeypatch):
+    """Modeller yüklenirken gelen sağ tık kaybolmasın: dinleyici model yüklemesinden ÖNCE başlar."""
+    import argparse
+
+    from tracker import detector as detector_mod
+    from tracker import live as live_mod
+    from tracker import main as main_mod
+
+    order: list[str] = []
+
+    class FakeListener:
+        def __init__(self, path, out):
+            self.out = out
+
+        def start(self):
+            order.append("listener")
+
+        def stop(self):
+            pass
+
+    def fake_detector(*a, **k):
+        order.append("model")
+        raise RuntimeError("model yok")  # NullPipeline yoluna düşer
+
+    class FakeInst:
+        def __init__(self, *a, **k):
+            pass
+
+        def claim(self):
+            return False
+
+        def release(self):
+            pass
+
+    class FakeIpc:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def command(self, *a):
+            order.append("msg:" + str(a[-1]))
+
+    monkeypatch.setattr(live_mod, "EventListener", FakeListener)
+    monkeypatch.setattr(live_mod, "run_live", lambda mpv, events, *a, **k: order.append("run"))
+    monkeypatch.setattr(detector_mod, "Detector", fake_detector)
+    monkeypatch.setattr(main_mod, "MpvIpc", FakeIpc)
+    monkeypatch.setattr("tracker.single.SingleInstance", FakeInst)
+    cfg = Config(ipc_path="x", pose_model="__yok__.onnx", reid_model="__yok__.onnx",
+                 number_model="__yok__.onnx")
+    args = argparse.Namespace(
+        team=False, number=False, reid=False, reid_model=None, fps=0, wait=0, single_pose=False,
+        model=None, device=None, stats=0.0, cfg_path="x.json", headless=False)
+    assert main_mod.run_live_cmd(cfg, args) == 0
+    assert order.index("listener") < order.index("model") < order.index("run")
+    assert order[1] == "msg:1" and "msg:0" in order  # yükleniyor → hazır bildirimi

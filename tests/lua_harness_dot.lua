@@ -31,3 +31,17 @@ reg.timers[#reg.timers]() -- 2 sn: yanıt gelmedi → OSD uyarısı
 out("WARN", tostring(reg.osd[#reg.osd]:find("yanıt vermiyor", 1, true) ~= nil))
 reg.msgs["track-dot"]("0.5", "0.5")
 out("CONFIRMED", dot())
+-- Gerçek mpv: zoom/pan'da osd-dimensions kenar boşlukları 0'a kıstırılır (video pencereyi
+-- kaplıyor görünür). Artı yine de video üzerinde durmalı: zoom 2x (video-zoom=1), pan-x 0.25
+-- → video sol=0, üst=-250, 2000x1000; (0.25, 0.5) → ekranda (500, 250).
+reg.props["osd-dimensions"] = { w = 1000, h = 500, ml = 0, mr = 0, mt = 0, mb = 0 }
+reg.props["video-params"] = { w = 1000, h = 500, dw = 1000, dh = 500 }
+reg.props["video-zoom"] = 1
+reg.props["video-pan-x"] = 0.25
+reg.props["video-pan-y"] = 0
+reg.msgs["track-dot"]("0.25", "0.5")
+out("CLAMPED", dot())
+-- Aynı koşulda sağ tık: pencerede (500,250) → video (0.25, 0.5)
+reg.props["mouse-pos"] = { x = 500, y = 250, hover = true }
+reg.bind.pick()
+out("CLICKCMD", reg.cmds[#reg.cmds])

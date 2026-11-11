@@ -91,9 +91,26 @@ function M.recent_script(list)
     .. "[void]$f.ShowDialog();if($f.Tag){" .. emit("$f.Tag") .. "}"
 end
 
+-- Evet/Hayır sorusu: "yes" yazdırır (Hayır/kapat = boş çıktı).
+function M.confirm_script(title, text)
+  return "$ErrorActionPreference='Stop';[Console]::OutputEncoding=New-Object Text.UTF8Encoding $false;"
+    .. "Add-Type -AssemblyName System.Windows.Forms;"
+    .. "$o=New-Object Windows.Forms.Form;$o.TopMost=$true;$o.Opacity=0;$o.ShowInTaskbar=$false;$o.StartPosition='CenterScreen';$o.Show();"
+    .. "$r=[Windows.Forms.MessageBox]::Show($o," .. M.ps_quote(text) .. "," .. M.ps_quote(title)
+    .. ",'YesNo','Question');if($r -eq 'Yes'){" .. emit("'yes'") .. "}"
+end
+
 function M.ps_args(script)
   return { "powershell.exe", "-NoProfile", "-NonInteractive", "-STA", "-WindowStyle", "Hidden",
     "-Command", script }
+end
+
+-- Alt sürecin tüm stdout'u (JSON için; BOM atılır, satırlar korunur) ya da nil.
+function M.clean_all(out)
+  if type(out) ~= "string" then return nil end
+  out = out:gsub("^\239\187\191", ""):gsub("^%s+", ""):gsub("%s+$", "")
+  if out == "" then return nil end
+  return out
 end
 
 -- Alt sürecin stdout'u → yol/adres ya da nil (BOM, CR/LF, boşluk atılır; çok satırsa ilk satır)

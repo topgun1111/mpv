@@ -75,17 +75,60 @@ mp.register_script_message("track-hud", function(text, lock, info)
   render_zoom() -- + / - davranışı değişmiş olabilir; değer etiketi aynı kalır
 end)
 
+-- Pencere (OSD) boyutu: döndürülmüş videoda (90°/270°) `osd-dimensions` w/h bazı mpv sürümlerinde
+-- video eksenine göre yer değiştirir → ekran üstü düğmeler yamulur, fare isabeti kayar. Pencere
+-- boyutu için bağımsız `osd-width/osd-height` kullanılır; yoksa/geçersizse osd-dimensions'a düşer.
+-- Kenar boşlukları (ml,mr,mt,mb) olduğu gibi kalır.
+local function osd_dims()
+  local d = mp.get_property_native("osd-dimensions")
+  if not d then return d end
+  local w = mp.get_property_number("osd-width", 0) or 0
+  local h = mp.get_property_number("osd-height", 0) or 0
+  if w > 0 and h > 0 and (w ~= d.w or h ~= d.h) then
+    local c = {}
+    for k, v in pairs(d) do c[k] = v end
+    c.w, c.h = w, h
+    return c
+  end
+  return d
+end
+
 local function osd(msg, sec) mp.osd_message("Takipli Oynat: " .. msg, sec or 2) end
 
+-- Videonun pencere içindeki dikdörtgeni (piksel): sol, üst, genişlik, yükseklik.
+-- `osd-dimensions` kenar boşlukları (ml,mr,mt,mb) zoom/pan'da güvenilmez: mpv bunları 0'a
+-- kıstırıyor, yani yakınlaşınca "video pencereyi tam kaplıyor" gibi görünür → nokta/artı videoya
+-- değil pencereye yapışır, tıklanan nokta da yanlış hesaplanır. Bu yüzden zoom/pan varken dikdörtgen
+-- doğrudan video-zoom/video-pan/video-align ile hesaplanır. Döndürme, panscan ya da keepaspect=no
+-- varsa (hesap farklı) eski davranış: kenar boşlukları.
+local function video_box(d)
+  local vw, vh = d.w - d.ml - d.mr, d.h - d.mt - d.mb
+  local zoom = mp.get_property_number("video-zoom", 0) or 0
+  local px = mp.get_property_number("video-pan-x", 0) or 0
+  local py = mp.get_property_number("video-pan-y", 0) or 0
+  if zoom == 0 and px == 0 and py == 0 then return d.ml, d.mt, vw, vh end
+  local vp = mp.get_property_native("video-params")
+  local dw = vp and (vp.dw or vp.w)
+  local dh = vp and (vp.dh or vp.h)
+  if not (dw and dh and dw > 0 and dh > 0 and d.w > 0 and d.h > 0) then return d.ml, d.mt, vw, vh end
+  if (mp.get_property_number("video-rotate", 0) or 0) % 360 ~= 0 then return d.ml, d.mt, vw, vh end
+  if (mp.get_property_number("panscan", 0) or 0) ~= 0 then return d.ml, d.mt, vw, vh end
+  if mp.get_property("keepaspect") == "no" then return d.ml, d.mt, vw, vh end
+  local s = math.min(d.w / dw, d.h / dh) * 2 ^ zoom
+  local W, H = dw * s, dh * s
+  local ax = mp.get_property_number("video-align-x", 0) or 0
+  local ay = mp.get_property_number("video-align-y", 0) or 0
+  return (d.w - W) * (1 + ax) / 2 + px * W, (d.h - H) * (1 + ay) / 2 + py * H, W, H
+end
+
 -- Pencere pikselini video-normalize (0..1) koordinata çevirir; video dışındaysa nil.
--- tracker/geometry.py::screen_to_video ile aynı formül.
--- d: osd-dimensions (w,h pencere; ml,mr,mt,mb video kenar boşlukları, zoom/pan dahil).
+-- tracker/geometry.py::screen_to_video ile aynı formül (kenar boşlukları video_box'tan gelir).
+-- d: osd-dimensions (w,h pencere boyutu).
 local function screen_to_video(mx, my, d)
-  local vw = d.w - d.ml - d.mr
-  local vh = d.h - d.mt - d.mb
+  local x0, y0, vw, vh = video_box(d)
   if vw <= 0 or vh <= 0 then return nil end
-  local nx = (mx - d.ml) / vw
-  local ny = (my - d.mt) / vh
+  local nx = (mx - x0) / vw
+  local ny = (my - y0) / vh
   if nx < 0 or nx > 1 or ny < 0 or ny > 1 then return nil end
   return nx, ny
 end
@@ -100,7 +143,7 @@ end
 
 -- msg: "track-point" (sağ tık: herhangi bir nesne) | "track-click" (sol tık: oyuncu kimliği)
 local function on_click(msg)
-  local d = mp.get_property_native("osd-dimensions")
+  local d = osd_dims()
   local params = mp.get_property_native("video-params")
   local pos = mouse_xy()
   if not (d and params and params.w and params.h and pos) then
@@ -428,7 +471,7 @@ local function render_panel()
     panel.ov = mp.create_osd_overlay("ass-events")
     panel.ov.z = PANEL_Z
   end
-  local d = mp.get_property_native("osd-dimensions")
+  local d = osd_dims()
   -- Düğme paneli kapalı (yalnız sol sürükleme + ekrandaki +/− zoom); TRACK_SHOW_PANEL=true ile açılır
   if not TRACK_SHOW_PANEL or not panel.visible or not (d and d.w and d.w > 0 and d.h and d.h > 0) then
     panel.rects = {}
@@ -489,7 +532,7 @@ render_zoom = function()
     zoomc.ov = mp.create_osd_overlay("ass-events")
     zoomc.ov.z = ZOOM_Z
   end
-  local d = mp.get_property_native("osd-dimensions")
+  local d = osd_dims()
   local ok = zoom_wanted() and d and d.w and d.w > 0 and d.h and d.h > 0
   if not ok then
     zoomc.rects, zoomc.hover = {}, nil
@@ -531,14 +574,15 @@ local function render_dot()
     dot.ov = mp.create_osd_overlay("ass-events")
     dot.ov.z = DOT_Z
   end
-  local d = mp.get_property_native("osd-dimensions")
+  local d = osd_dims()
   if not (dot.nx and enabled and not (off and off.on) and d and d.w and d.w > 0 and d.h and d.h > 0) then
     dot.ov.data = ""
     dot.ov:update()
     return
   end
-  local x = d.ml + dot.nx * (d.w - d.ml - d.mr)
-  local y = d.mt + dot.ny * (d.h - d.mt - d.mb)
+  local bx0, by0, bw, bh = video_box(d)
+  local x = bx0 + dot.nx * bw
+  local y = by0 + dot.ny * bh
   if x < 0 or x > d.w or y < 0 or y > d.h then -- ekran dışı: çizme
     dot.ov.data = ""
     dot.ov:update()
@@ -561,6 +605,14 @@ local function render_dot()
   dot.ov:update()
 end
 
+-- Python açılışta modelleri yüklerken (birkaç sn–dakika) `track-loading 1`, bitince `0` yollar;
+-- bu sürede sağ tık kuyruğa alınır, "yanıt vermiyor" uyarısı çıkmaz.
+local loading = false
+mp.register_script_message("track-loading", function(v)
+  loading = (v == "1")
+  if loading then osd("modeller yükleniyor… (tıklamalar kuyruğa alınır)", 4) end
+end)
+
 mp.register_script_message("track-dot", function(nx, ny)
   dot.prov = false -- takip programı yanıt verdi
   dot.nx, dot.ny = tonumber(nx), tonumber(ny) -- "off" → nil
@@ -576,7 +628,9 @@ show_provisional = function(nx, ny)
   prov_seq = prov_seq + 1
   local my = prov_seq
   mp.add_timeout(2, function()
-    if dot.prov and my == prov_seq then
+    if dot.prov and my == prov_seq and loading then
+      osd("modeller hâlâ yükleniyor; tıklaman hazır olunca uygulanacak", 3)
+    elseif dot.prov and my == prov_seq then
       osd("takip programı yanıt vermiyor (Python çalışıyor mu? mpv'yi yeniden aç)", 4)
     end
   end)
@@ -619,7 +673,7 @@ local function render_drag(x1, y1)
     drag.ov:update()
     return
   end
-  local d = mp.get_property_native("osd-dimensions")
+  local d = osd_dims()
   if not (d and d.w and d.w > 0) then return end
   local x0, y0 = math.floor(math.min(drag.x0, x1)), math.floor(math.min(drag.y0, y1))
   local x2, y2 = math.floor(math.max(drag.x0, x1)), math.floor(math.max(drag.y0, y1))
@@ -650,14 +704,14 @@ local function finish_drag(pos)
     if drag.btn == "right" then pick_target() elseif enabled then on_click() end
     return
   end
-  local d = mp.get_property_native("osd-dimensions")
+  local d = osd_dims()
   local params = mp.get_property_native("video-params")
   if not (d and params and params.w and params.h) then return end
   local function clampn(v) return math.min(math.max(v, 0), 1) end
-  local vw, vh = d.w - d.ml - d.mr, d.h - d.mt - d.mb
+  local vx, vy, vw, vh = video_box(d)
   if vw <= 0 or vh <= 0 then return end
-  local ax, ay = clampn((x0 - d.ml) / vw), clampn((y0 - d.mt) / vh)
-  local bx, by = clampn((pos.x - d.ml) / vw), clampn((pos.y - d.mt) / vh)
+  local ax, ay = clampn((x0 - vx) / vw), clampn((y0 - vy) / vh)
+  local bx, by = clampn((pos.x - vx) / vw), clampn((pos.y - vy) / vh)
   if not enabled then set_enabled(true) end
   anchor = { (ax + bx) / 2, (ay + by) / 2 }
   show_provisional(anchor[1], anchor[2])
@@ -735,7 +789,7 @@ local MENU_KEYS = { LEFT = "left", RIGHT = "right", UP = "up", DOWN = "down", EN
   KP_ENTER = "enter", ESC = "esc" }
 local MENU_Z = 4
 local function menu_prepare()
-  local d = mp.get_property_native("osd-dimensions")
+  local d = osd_dims()
   if menu and d and d.w and d.w > 0 and d.h and d.h > 0 then menu:resize(d.w, d.h) end
   return d
 end
@@ -827,6 +881,23 @@ local function rotate_video()
   osd(string.format("döndürme %d°", r), 1)
 end
 mp.add_key_binding(nil, "rotate", rotate_video)
+
+-- Ctrl+D: tanı (OSD + mpv günlüğü): pencere/OSD boyutları, kenar boşlukları, fare, döndürme, video
+mp.add_key_binding(nil, "diag", function()
+  local d = mp.get_property_native("osd-dimensions") or {}
+  local p = mp.get_property_native("mouse-pos") or {}
+  local vp = mp.get_property_native("video-params") or {}
+  local msg = string.format(
+    "osd-dim %sx%s ml=%s mr=%s mt=%s mb=%s | osd-wh %sx%s | fare %s,%s | rot %s zoom %s pan %s,%s | video %sx%s dw=%s dh=%s",
+    tostring(d.w), tostring(d.h), tostring(d.ml), tostring(d.mr), tostring(d.mt), tostring(d.mb),
+    tostring(mp.get_property_number("osd-width")), tostring(mp.get_property_number("osd-height")),
+    tostring(p.x), tostring(p.y), tostring(mp.get_property_number("video-rotate")),
+    tostring(mp.get_property_number("video-zoom")), tostring(mp.get_property_number("video-pan-x")),
+    tostring(mp.get_property_number("video-pan-y")), tostring(vp.w), tostring(vp.h),
+    tostring(vp.dw), tostring(vp.dh))
+  mp.msg.info("TANI " .. msg)
+  mp.osd_message(msg, 8)
+end)
 
 if TRACK_SHOW_MENU ~= false then
   local okm, TM = pcall(require, "trackmenu")
@@ -1018,6 +1089,80 @@ if TRACK_SHOW_MENU ~= false then
         osd("dışa aktarma başladı: " .. out, 4)
         mp.add_timeout(2, poll_export)
       end
+      -- Yardım → Güncellemeleri denetle (VLC tarzı): önce yeni sürüm var mı bakılır (`tracker update
+      -- check` → JSON); varsa Evet/Hayır sorulur; Evet → `tracker update install` (indir + doğrula +
+      -- sessiz kurulum) ayrı süreçte çalışır, ilerleme `update.json`'dan okunur, kurulum başlayınca
+      -- mpv kapanır (Inno Setup zaten açık mpv/python'u kapatır).
+      local upd = { running = false }
+      local function cfg_path() return (os.getenv("APPDATA") or ".") .. "/TakipliOynat/config.json" end
+      local function console_python() -- stdout okunacağı için pythonw değil python.exe
+        local p = python_exe()
+        if not p then return nil end
+        local c = p:gsub("pythonw%.exe$", "python.exe")
+        if utils.file_info(c) then return c end
+        return p
+      end
+      local function poll_update()
+        local text = read_file(upd.prog)
+        local p = text and utils.parse_json(text)
+        if type(p) == "table" then
+          if p.state == "launched" then
+            osd("kurulum başlıyor; program kapanacak, bitince yeniden aç", 6)
+            mp.add_timeout(2, function() mp.commandv("quit") end)
+            return
+          elseif p.state == "error" then
+            upd.running = false
+            osd("güncelleme başarısız: " .. tostring(p.error), 8)
+            return
+          end
+          osd(string.format("güncelleme indiriliyor %%%s", tostring(p.pct or 0)), 1.5)
+        end
+        mp.add_timeout(1, poll_update)
+      end
+      local function start_install(info)
+        local py = python_exe()
+        if not py then osd("güncelleme başlatılamadı: python/ bulunamadı", 4); return end
+        local dir = (os.getenv("APPDATA") or ".") .. "/TakipliOynat"
+        upd.prog = dir .. "/update.json"
+        os.remove(upd.prog)
+        mp.command_native({ name = "subprocess", playback_only = false, detached = true,
+          capture_stdout = false, capture_stderr = false,
+          args = { py, "-m", "tracker", "--config", cfg_path(), "update", "install", "--progress", upd.prog } })
+        osd("güncelleme indiriliyor…", 4)
+        mp.add_timeout(1, poll_update)
+      end
+      FILES.update = function()
+        if upd.running then osd("güncelleme sürüyor", 2); return end
+        local py = console_python()
+        if not py then osd("güncelleme denetlenemedi: python/ bulunamadı", 4); return end
+        upd.running = true
+        osd("güncellemeler denetleniyor…", 10)
+        mp.command_native_async({ name = "subprocess", playback_only = false, capture_stdout = true,
+          args = { py, "-m", "tracker", "--config", cfg_path(), "update", "check" } }, function(ok, res)
+          local info = ok and res and res.status == 0 and utils.parse_json(TF.clean_all(res.stdout) or "")
+          if type(info) ~= "table" then
+            upd.running = false
+            osd("güncelleme denetlenemedi", 5)
+            return
+          end
+          if info.state == "uptodate" then
+            upd.running = false
+            osd("Takipli Oynat güncel (" .. tostring(info.current) .. ")", 5)
+          elseif info.state == "available" then
+            local mb = (tonumber(info.size) or 0) / 1048576
+            local text = string.format("Yeni sürüm var: %s (şu an %s)\nİndirme: %.0f MB\n\n%s\n\nİndirip kurulsun mu? Kurulum sırasında program kapanır.",
+              tostring(info.latest), tostring(info.current), mb, tostring(info.notes or ""):sub(1, 400))
+            upd.running = false
+            mp.osd_message("", 0)
+            dialog(TF.confirm_script("Güncelleme", text), function(a)
+              if a == "yes" then upd.running = true; start_install(info) end
+            end)
+          else
+            upd.running = false
+            osd(tostring(info.message or "güncelleme denetlenemedi"), 7)
+          end
+        end)
+      end
       FILES.open_folder = function() dialog(TF.folder_script(fstate.dir), function(p) open_target(p, true) end) end
       FILES.open_url = function()
         dialog(TF.url_script(), function(u)
@@ -1053,6 +1198,7 @@ if TRACK_SHOW_MENU ~= false then
     end
     local ACT = {
       quit = function() mp.commandv("quit") end,
+      fullscreen = function() mp.commandv("cycle", "fullscreen") end,
       zoom_in = function() zoom_step(1) end, zoom_out = function() zoom_step(-1) end,
       reset = do_reset, rotate = rotate_video,
       hud = function() hud.visible = not hud.visible; render_hud() end,
@@ -1076,7 +1222,7 @@ if TRACK_SHOW_MENU ~= false then
       src_live = function() return source == "live" end,
       src_scanned = function() return source == "scanned" end,
       toggle = function() return enabled end, offline = function() return off.on end,
-      hud = function() return hud.visible end, panel = function() return panel.pinned end }
+      hud = function() return hud.visible end, fullscreen = function() return mp.get_property_native("fullscreen") == true end, panel = function() return panel.pinned end }
     menu = TM.new({
       run = function(cmd)
         local f = ACT[cmd]
@@ -1091,6 +1237,17 @@ if TRACK_SHOW_MENU ~= false then
         return s
       end,
     })
+    -- Çubuk pencereli modda hep açık; tam ekranda fare hareketinde görünür, zamanlayıcıyla gizlenir.
+    menu:set_fullscreen(mp.get_property_native("fullscreen") == true)
+    mp.observe_property("fullscreen", "bool", function(_, fs)
+      menu:set_fullscreen(fs == true)
+      menu_hot = false
+      render_menu()
+    end)
+    mp.observe_property("osd-dimensions", "native", function(_, d) -- pencere boyutu değişince çubuğu yeniden yerleştir
+      if d and d.w and (d.w ~= menu.W or d.h ~= menu.H) then render_menu() end
+    end)
+    render_menu()
     mp.add_key_binding(nil, "open", function() -- Ctrl+O: video aç
       if ACT.open then ACT.open() else osd("dosya menüsü yüklenemedi", 3) end
     end)

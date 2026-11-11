@@ -85,6 +85,7 @@ reg.bind.toggle() -- takibi kapat
 
 -- SAĞ TIK: takip kapalıyken açar ve noktayı gönderir
 reg.props["video-params"] = { w = 1920, h = 1080 }
+reg.props["video-zoom"] = 0 -- bu bölüm zoom'suz: kenar boşluklarına göre eşleme
 reg.props["time-pos"] = 12.5
 move(640, 360)
 reg.cmds = {}
