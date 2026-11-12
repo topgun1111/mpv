@@ -296,9 +296,11 @@ local function apply_drag(x)
   end
 end
 
+local sync -- ileri bildirim (aşağıda tanımlı)
+
 local function press(ev)
   local e = ev and ev.event
-  if e == "up" then st.drag = nil; render(); return end
+  if e == "up" then st.drag = nil; render(); sync(); return end
   if e and e ~= "down" and e ~= "press" then return end
   local el = st.hover and st.els[st.hover]
   if not el then return end
@@ -312,7 +314,7 @@ local function press(ev)
 end
 
 local KEYS = { "MBTN_LEFT", "MBTN_LEFT_DBL" }
-local function sync()
+sync = function()
   local want = st.vis and (st.hover ~= nil or st.drag ~= nil)
   if want and not st.bound then
     for _, k in ipairs(KEYS) do mp.add_forced_key_binding(k, "mpcbar-" .. k, press, { complex = true }) end

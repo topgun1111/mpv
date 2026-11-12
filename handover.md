@@ -522,3 +522,8 @@ Done: P23 → M1 → M2.
 - `vlcbar.lua` pakette kalmıştı (mpcbar ile çift çubuk + çift `MBTN_LEFT` bağı riski) → boş kabuğa çevrildi; elle silinebilir. U0 notu eksikti, bu not.
 - Statik denetim (kod okuma): zoom `+/-` dikey ortada sağ kenar, HUD/panel/menü üstte, mpcbar altta → alanlar çakışmıyor. mpcbar `z=0`, zoom `z=2`, menü `z=4`. Sol tık bağları ayrı bölgeler: `mpcbar-MBTN_LEFT` yalnız çubuk üstünde, `track-click-bind` yalnız panel/zoom/menü üstünde. Sağ tık/çift tık/F10/Ctrl+O'ya dokunulmadı.
 - Doğrulama (kullanıcıda, Windows): U1 maddeleri 1–5 (UI_PLAN.md) gerçek mpv'de bakılacak; sorun çıkarsa kısa yaz.
+
+## U2 (UI planı): alt çubuk Lua testi
+- Yeni `tests/lua_harness_bar.lua` + `tests/test_lua_bar.py` (7 test; `texlua` yoksa atlanır): sol tık bağı yalnız düğme üstünde, play/stop komutları, seek oranı + ipucu + dışarı sürükleme, ses sınırı (0..volume-max, mute kalkar), hız düğmeleri, tam ekran gizleme.
+- Test bir hata buldu, düzeltildi (`mpcbar.lua`): sürükleme bırakılınca (`up`) sol tık bağı fare hareketine kadar kalıyordu (çubuk dışında sol tık yutulurdu) → `up`'ta `sync()` çağrılır.
+- Doğrulama: harness `texlua` ile çalıştı, test mantığı elle çalıştırıldı (ortamda pytest yok) — `pytest -q` kullanıcıda/CI'da çalıştırılmalı.
