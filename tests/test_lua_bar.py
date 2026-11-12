@@ -50,6 +50,19 @@ def test_seek_ratio_drag_and_release(d):
 
 
 @needs_lua
+def test_chapter_tooltip(d):
+    assert d["CHAP"] == ["1"]  # 50 sn → «Çözüm» bölümü
+    assert d["CHAP0"] == ["1"]
+    assert d["NOCHAP"] == ["0"]  # bölüm yoksa yalnız zaman
+
+
+@needs_lua
+def test_ab_loop_markers(d):
+    assert d["AB"] == ["true", "true"]  # A işareti, sonra B + aralık çizgisi
+    assert d["AB_OFF"] == ["true"]  # A silinince işaretler kalkar
+
+
+@needs_lua
 def test_volume_slider_bounds_and_unmute(d):
     assert d["VOL_MID"] == ["65", "false"]  # vmax 130 → orta 65; sessiz kalkar
     assert d["VOL_LOW"] == ["0"]
@@ -60,7 +73,26 @@ def test_volume_slider_bounds_and_unmute(d):
 def test_speed_buttons(d):
     assert d["SPD_UP"] == ["1.1", "Hız: 1.1x"]
     assert d["SPD_DN"] == ["1.0"]
-    assert d["SPD_RESET"] == ["1"]
+    assert d["SPD_RESET"] == ["1", "Hız: 1.0x"]  # şeritten 1x
+    assert d["SPD_2X"] == ["2"]
+
+
+@needs_lua
+def test_speed_strip_open_close(d):
+    assert d["STRIP_OPEN"] == ["1.3", "1"]  # hız düğmesi hızı değiştirmez, şerit çizilir
+    assert d["STRIP_HOVER"] == ["1"]  # şerit üstünde sol tık bağı kurulu
+    assert d["STRIP_CLOSE"] == ["0"]  # fare video alanına çıkınca kapanır
+    assert d["STRIP_OTHER"] == ["0"]  # başka düğmeye tık: kapanır
+
+
+@needs_lua
+def test_volume_tip_and_wheel(d):
+    assert d["VOLTIP"] == ["1"]
+    assert d["WHEEL_BOUND"] == ["1"]
+    assert d["WHEEL_UP"] == ["85", "Ses: 85%"]
+    assert d["WHEEL_MIN"] == ["0"]
+    assert d["WHEEL_MAX"] == ["130"]  # volume-max
+    assert d["WHEEL_FREE"] == ["0"]  # fare ayrılınca tekerlek bağı kalkar (mpv tuşları serbest)
 
 
 @needs_lua
@@ -74,5 +106,5 @@ def test_bar_wiring_in_files():
     lua = BAR.read_text(encoding="utf-8")
     conf = (ROOT / "mpv" / "portable_config" / "mpv.conf").read_text(encoding="utf-8")
     assert "osc=no" in conf
-    assert lua.count("add_forced_key_binding") == 1  # tek yerde, hover/sürüklemeye bağlı
+    assert lua.count("add_forced_key_binding") == 2  # yalnız sync() içinde: sol tık + tekerlek (hover/sürükleme)
     assert "MBTN_RIGHT" not in lua  # sağ tık takibine dokunulmaz

@@ -532,3 +532,31 @@ Done: P23 → M1 → M2.
 - `script-modules/trackmenu.lua` yalnız `e:render()` değişti: alt çubukla aynı palet (262626 zemin, mavi D59B5B seçili, 464646 hover), 1px alt çizgi, açılır listede gölge + 1px çerçeve, ayırıcı 555555, onay işareti `✓` (eskiden •), pasif öğe gri (7A7A7A, seçilse de mavi vurgu yok), Tahoma. Menü tablosu/kısayol/durum mantığı ve düzen (`bar_layout`/`drop_layout`) dokunulmadı.
 - `tests/lua_harness_menu.lua`: CHECKED artık `✓` arıyor. Menü/dosya/çubuk/panel Lua testleri `texlua` ile geçti (pytest yok, mantık elle çalıştırıldı).
 - Doğrulama (kullanıcıda): gerçek mpv'de F10 menü görünümü; Tahoma'da `✓` yoksa libass yedek yazı tipi kullanır — kutu görünüyorsa söyle.
+
+## U3 (UI planı): seek çubuğu — bölüm ipucu + A-B döngü işaretleri
+- `mpcbar.lua`: ipucu artık `zaman  Bölüm adı` (`chapter-list`, UTF-8'e duyarlı genişlik; bölüm yoksa yalnız zaman). `ab-loop-a/b` için çubukta accent renkli dikey işaret; ikisi de varsa oluğun altında aralık çizgisi. `ab-loop-a/b` gözlemleniyor (değişimde yeniden çizim). Tıklama/sürükleme mantığına dokunulmadı.
+- Testler: `lua_harness_bar.lua` + `test_lua_bar.py` (+2: bölüm ipucu, A-B işaretleri). `pytest` Lua testleri `texlua` ile yeşil.
+- Doğrulama (kullanıcıda, Windows): bölüm içeren dosyada ipucu; mpv'de `l` (A-B döngü) ile işaretler. Sıradaki UI parçası: **U5** (ses/hız açılır kontrolleri).
+
+## UI planı (özet; ayrıntı `UI_PLAN.md`)
+Hedef: MPC-HC klasik koyu görünüm (üst menü + seek + alt şerit), mpv ASS overlay, yeni bağımlılık yok. uosc vb. alınmaz (fare/menü çakışması). Bozulmaması gerekenler: sağ tık = nesne takibi, sağ sürükle = dikdörtgen; sol tık yalnız düğme üstünde yakalanır; çift sol tık = oynat/duraklat; zoom `+/-` + beyaz nokta/HUD; F10/Ctrl+O/`input.conf`; `osc=no`; ASS olayında yalnız ilk `\pos` geçerli. Kural: 1 parça = 1 oturum, ≤3 dosya, ≤~300 satır.
+
+| Parça | Konu | Durum |
+|---|---|---|
+| U0 | Alt çubuk MPC-HC cilası, `vlcbar.lua` boşaltıldı | ✅ (Windows'ta denenmedi) |
+| U1 | Windows doğrulama + çakışma düzeltmeleri | ✅ statik denetim; gerçek mpv doğrulaması kullanıcıda |
+| U2 | Çubuk Lua testleri | ✅ |
+| U3 | Seek: bölüm ipucu, A-B işaretleri | ✅ |
+| U4 | Üst menü görünümü | ✅ |
+| U5 | Ses `%NN` yazısı, hız hızlı seçim şeridi (0.5/1/1.5/2), tekerlekle ses (tekerlek bağı yalnız fare çubuk üstündeyken) | ✅ |
+| U6 | Oynatma listesi ASS paneli (tıkla=oynat, tekerlek kaydır, Esc; büyükse U6a çizim / U6b tıklama) | **Sırada** |
+| U7 | Oynat menüsü: Ses ► / Altyazı ► / Bölümler ► (`track-list`; `trackmenu.lua` veri + `track.lua` eylem; `test_lua_menu.py` sayıları güncelle) | |
+| U8 | `script-opts/mpcbar.conf`: scale 0.8–2.5, theme, hide_seconds, seek_step, show_title, accent | |
+| U9 | OSD bildirimi (sağ üst ASS), README arayüz bölümü, sürüm (`VERSION` + `tracker/__init__.py` + `tests/test_license.py`), `git grep '<<<<<<<'` boş | |
+
+Sıra: (U5 ✅) U6 → U7 → U8 → U9. Kapsam dışı: küçük resim önizleme, DLNA, ekolayzır, özel pencere kenarlığı, VLC teması. Menü yol haritası parçaları (B3/M3/M4) ayrı: «Yol haritası» bölümü.
+
+## U5 (UI planı): ses ve hız açılır kontrolleri
+- `mpcbar.lua`: (1) ses sürgüsü üstünde/sürüklerken `%NN` ipucu. (2) Hız yazısına (`spd0`) tık artık hızı sıfırlamaz: 0.5/1/1.5/2x şeridi açar (seek çubuğunun üstünde, hız düğmesine hizalı); seçim hızı ayarlar + kapanır; şerit dışına tık, fare video alanına/pencere dışına çıkışı kapatır (seek çubuğundan geçiş serbest). Sıfırlama = şeritte «1x». Şerit öğeleri `st.els` sonuna eklenir (hover indeksleri bozulmaz). (3) Tekerlek: `WHEEL_UP/DOWN` ±5 ses (0..`volume-max`, sessizi açar, OSD «Ses: NN%»); bağ yalnız fare çubuk üstündeyken kurulur, ayrılınca kalkar (`sync()` içinde; mpv/track.lua tekerlek/zoom bağları etkilenmez).
+- Testler: `lua_harness_bar.lua` + `test_lua_bar.py` (+2 test: şerit aç/kapa, ses ipucu + tekerlek; `SPD_RESET` şeritten; bağ sayısı testi 1→2). Tüm testler `texlua` ile yeşil.
+- Doğrulama (kullanıcıda, Windows): şeridin akıllı tahtada konumu/boyutu; tekerleğin yalnız çubukta ses değiştirdiği. Sıradaki UI parçası: **U6** (oynatma listesi paneli).

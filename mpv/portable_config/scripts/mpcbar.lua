@@ -119,8 +119,17 @@ local ACT = {
   cc   = function() mp.command("osd-auto cycle sub") end,
   spdm = function() speed_step(-0.1) end,
   spdp = function() speed_step(0.1) end,
-  spd0 = function() mp.set_property_number("speed", 1); mp.osd_message("Hız: 1.0x", 1.5) end,
+  spd0 = function() st.strip = not st.strip end, -- hızlı seçim şeridini aç/kapa (0.5 / 1 / 1.5 / 2)
 }
+local SPEEDS = { 0.5, 1, 1.5, 2 }
+local VOL_WHEEL = 5
+
+local function volume_step(d)
+  local v = clamp(round((mp.get_property_number("volume", 100) or 100) + d), 0, vmax())
+  mp.set_property_number("volume", v)
+  if mp.get_property_bool("mute", false) then mp.set_property_bool("mute", false) end
+  mp.osd_message(string.format("Ses: %d%%", v), 1.5)
+end
 
 local function layout()
   local W, H = dims()
@@ -172,11 +181,20 @@ local function layout()
   if rx - left_end > need then
     x = left_end + round(18 * u)
     local sw = round(bs * 0.8)
+    local sp0
     add({ id = "spdm", text = "-", x = x, y = by, w = sw, h = bs }); x = x + sw + g
-    add({ id = "spd0", text = string.format("%.1fx", speed()), on = math.abs(speed() - 1) > 0.01,
+    sp0 = add({ id = "spd0", text = string.format("%.1fx", speed()), on = math.abs(speed() - 1) > 0.01,
           x = x, y = by, w = round(bs * 1.6), h = bs }); x = x + round(bs * 1.6) + g
     add({ id = "spdp", text = "+", x = x, y = by, w = sw, h = bs }); x = x + sw + round(10 * u)
     add({ id = "cc", text = "CC", on = sub_on(), off = not sub_on(), x = x, y = by, w = round(bs * 1.2), h = bs })
+    if st.strip then
+      local sx, sy, cw = sp0.x, top - bs - round(6 * u), round(bs * 1.6)
+      L.strip = { x = sx - g, y = sy - g, w = #SPEEDS * (cw + g) + g, h = bs + 2 * g }
+      for i, v in ipairs(SPEEDS) do
+        add({ id = "spq", val = v, text = (v == 1 and "1x" or string.format("%.1fx", v)),
+              on = math.abs(speed() - v) < 0.01, x = sx + (i - 1) * (cw + g), y = sy, w = cw, h = bs })
+      end
+    end
   end
   return W, H, L
 end
@@ -191,6 +209,23 @@ end
 
 -- ---- çizim ----------------------------------------------------------------------
 local function seek_ratio_at(L, x) return clamp((x - L.tx0) / math.max(1, L.tx1 - L.tx0), 0, 1) end
+
+local function nchars(str)
+  local n = 0
+  for _ in tostring(str):gmatch("[^\128-\191]") do n = n + 1 end -- UTF-8 karakter sayısı
+  return n
+end
+
+-- t sn'deki bölümün adı (chapter-list: {time,title}, artan sıra); yoksa nil
+local function chapter_at(t)
+  local list = mp.get_property_native("chapter-list")
+  if type(list) ~= "table" or #list == 0 then return nil end
+  local name
+  for i, c in ipairs(list) do
+    if (c.time or 0) <= t then name = c.title or ("Bölüm " .. i) else break end
+  end
+  return name
+end
 
 local function render()
   if not st.vis then ov:remove(); return end
@@ -216,9 +251,31 @@ local function render()
   o[#o + 1] = rect(L.tx0, ty, L.tx1 - L.tx0, th, C.track, 0, 1, C.trackb)
   local fx = L.tx0 + round(ratio * (L.tx1 - L.tx0))
   if fx > L.tx0 then o[#o + 1] = rect(L.tx0, ty, fx - L.tx0, th, C.fill, 0) end
+  -- A-B döngü işaretleri (ab-loop-a/b; yoksa "no" → sayı değil)
+  local ab_a = mp.get_property_number("ab-loop-a")
+  local ab_b = mp.get_property_number("ab-loop-b")
+  if dur > 0 then
+    local mw = math.max(2, round(2 * u))
+    for _, v in ipairs({ ab_a or -1, ab_b or -1 }) do
+      if v >= 0 then
+        local mx = L.tx0 + round(clamp(v / dur, 0, 1) * (L.tx1 - L.tx0))
+        o[#o + 1] = rect(mx - round(mw / 2), L.top + 1, mw, L.seekh - 2, C.accent or "FFC000", 0)
+      end
+    end
+    if ab_a and ab_b and ab_b > ab_a then
+      local ax = L.tx0 + round(clamp(ab_a / dur, 0, 1) * (L.tx1 - L.tx0))
+      local bx = L.tx0 + round(clamp(ab_b / dur, 0, 1) * (L.tx1 - L.tx0))
+      o[#o + 1] = rect(ax, ty + th, bx - ax, math.max(1, round(u)), C.accent or "FFC000", 0)
+    end
+  end
   local thx = fx - round(L.thw / 2)
   local thy = L.top + round((L.seekh - L.thh) / 2)
   o[#o + 1] = rect(thx, thy, L.thw, L.thh, C.thumb, 0, 1, C.thumbb)
+
+  -- hız şeridi zemini (düğmelerden önce çizilir)
+  if L.strip then
+    o[#o + 1] = rect(L.strip.x, L.strip.y, L.strip.w, L.strip.h, C.panel, 0, 1, C.hovb)
+  end
 
   -- düğmeler
   local paused = mp.get_property_bool("pause", false)
@@ -266,12 +323,30 @@ local function render()
   if dur > 0 and ((he and he.id == "seek") or st.drag == "seek") then
     local r = seek_ratio_at(L, st.mx)
     local s = fmt(r * dur)
+    local ch = chapter_at(r * dur)
+    if ch then s = s .. "  " .. ch end
     local tfs = round(13 * u)
-    local tw, tbh = round(#s * tfs * 0.6) + round(12 * u), tfs + round(8 * u)
+    local tw, tbh = round(nchars(s) * tfs * 0.6) + round(12 * u), tfs + round(8 * u)
     local tx = clamp(st.mx - round(tw / 2), 2, W - tw - 2)
     local tyy = L.top - tbh - round(4 * u)
     o[#o + 1] = rect(tx, tyy, tw, tbh, C.tipbg, 0, 1, "000000")
     o[#o + 1] = label(tx + tw / 2, tyy + tbh / 2, tfs, s, C.tiptx, 5, false)
+  end
+
+  -- ses yüzdesi ipucu (sürgü üstünde ya da sürüklerken)
+  if (he and he.id == "vol") or st.drag == "vol" then
+    local ve
+    for _, e in ipairs(st.els) do if e.id == "vol" then ve = e end end
+    if ve then
+      local vs = string.format("%d%%", round(vol))
+      local tfs = round(13 * u)
+      local tw, tbh = round(#vs * tfs * 0.6) + round(12 * u), tfs + round(8 * u)
+      local vx = ve.x + round(clamp(vol / vmax(), 0, 1) * ve.w)
+      local tx = clamp(vx - round(tw / 2), 2, W - tw - 2)
+      local tyy = L.top - tbh - round(4 * u)
+      o[#o + 1] = rect(tx, tyy, tw, tbh, C.tipbg, 0, 1, "000000")
+      o[#o + 1] = label(tx + tw / 2, tyy + tbh / 2, tfs, vs, C.tiptx, 5, false)
+    end
   end
 
   ov.data = table.concat(o, "\n")
@@ -304,23 +379,34 @@ local function press(ev)
   if e and e ~= "down" and e ~= "press" then return end
   local el = st.hover and st.els[st.hover]
   if not el then return end
-  if el.id == "seek" or el.id == "vol" then
+  if st.strip and not el.val and el.id ~= "spd0" then st.strip = false end -- şerit dışı tık: kapat
+  if el.val then
+    mp.set_property_number("speed", el.val)
+    mp.osd_message(string.format("Hız: %.1fx", el.val), 1.5)
+    st.strip = false
+  elseif el.id == "seek" or el.id == "vol" then
     st.drag = el.id
     apply_drag(st.mx)
   else
     ACT[el.id]()
   end
+  layout(); st.hover = hit(st.mx, st.my) -- şerit açılıp kapanınca öğe dizisi değişir
   render()
 end
 
 local KEYS = { "MBTN_LEFT", "MBTN_LEFT_DBL" }
+local WHEEL = { WHEEL_UP = VOL_WHEEL, WHEEL_DOWN = -VOL_WHEEL } -- yalnız fare çubuk üstündeyken bağlı
 sync = function()
   local want = st.vis and (st.hover ~= nil or st.drag ~= nil)
   if want and not st.bound then
     for _, k in ipairs(KEYS) do mp.add_forced_key_binding(k, "mpcbar-" .. k, press, { complex = true }) end
+    for k, d in pairs(WHEEL) do
+      mp.add_forced_key_binding(k, "mpcbar-" .. k, function() volume_step(d) end)
+    end
     st.bound = true
   elseif not want and st.bound then
     for _, k in ipairs(KEYS) do mp.remove_key_binding("mpcbar-" .. k) end
+    for k in pairs(WHEEL) do mp.remove_key_binding("mpcbar-" .. k) end
     st.bound = false
   end
 end
@@ -334,7 +420,7 @@ timer:kill()
 
 mp.observe_property("mouse-pos", "native", function(_, pos)
   if not pos or not pos.hover then
-    st.hover = nil
+    st.hover = nil; st.strip = false
     if mp.get_property_bool("fullscreen") and not st.drag then st.vis = false end
   else
     st.vis = true
@@ -342,6 +428,12 @@ mp.observe_property("mouse-pos", "native", function(_, pos)
     layout()
     if st.drag then apply_drag(st.mx) end
     st.hover = hit(st.mx, st.my)
+    if st.strip then -- şeritten/hız düğmesinden/seek geçişinden başka yere gidilirse kapat
+      local h = st.hover and st.els[st.hover]
+      if not (h and (h.val or h.id == "spd0" or h.id == "seek")) then
+        st.strip = false; layout(); st.hover = hit(st.mx, st.my)
+      end
+    end
     timer:kill(); timer:resume()
   end
   render(); sync()
@@ -353,7 +445,7 @@ mp.observe_property("time-pos", "number", function(_, t)
   local q = math.floor((t or 0) * 4)
   if q ~= st.lastq then st.lastq = q; render() end
 end)
-for _, p in ipairs({ "duration", "pause", "volume", "mute", "speed", "sid", "osd-width", "osd-height" }) do
+for _, p in ipairs({ "duration", "pause", "volume", "mute", "speed", "sid", "osd-width", "osd-height", "ab-loop-a", "ab-loop-b" }) do
   mp.observe_property(p, "native", function() if st.vis then render() end end)
 end
 mp.observe_property("fullscreen", "native", function(_, fs)
