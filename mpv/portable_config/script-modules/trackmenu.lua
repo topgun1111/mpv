@@ -260,27 +260,32 @@ function M.new(ctx)
         r.x, r.y, col, a, r.w, r.w, r.h, r.h)
     end
     local function text(x, y, an, col, s)
-      ev[#ev + 1] = string.format("{\\an%d\\pos(%d,%d)\\fs%d\\bord0\\shad0\\1c&H%s&}%s", an, x, y, fs, col, s)
+      ev[#ev + 1] = string.format("{\\an%d\\pos(%d,%d)\\fnTahoma\\fs%d\\bord0\\shad0\\1c&H%s&}%s", an, x, y, fs, col, s)
     end
-    box({ x = 0, y = 0, w = self.W, h = bh }, "202020", "10")
+    -- MPC-HC klasik koyu palet (ASS: BBGGRR); alt çubukla (mpcbar.lua) aynı: 262626 zemin, mavi seçili
+    box({ x = 0, y = 0, w = self.W, h = bh }, "262626", "00")
+    box({ x = 0, y = bh - 1, w = self.W, h = 1 }, "555555", "00") -- ince alt çizgi
     for i, m in ipairs(M.MENUS) do
       local r = self.hrects[i]
-      if self.open == i then box(r, "A06020", "10") elseif self.hover == i then box(r, "505050", "10") end
-      text(r.x + math.floor(r.w / 2), math.floor(bh / 2), 5, "FFFFFF", m.label)
+      if self.open == i then box(r, "D59B5B", "00") elseif self.hover == i then box(r, "464646", "00") end
+      text(r.x + math.floor(r.w / 2), math.floor(bh / 2), 5, "E6E6E6", m.label)
     end
     if self.open and self.dbox then
-      box(self.dbox, "282828", "08")
+      local b = self.dbox
+      box({ x = b.x + 3, y = b.y + 3, w = b.w, h = b.h }, "000000", "A0") -- gölge
+      box({ x = b.x - 1, y = b.y - 1, w = b.w + 2, h = b.h + 2 }, "555555", "00") -- çerçeve
+      box(b, "262626", "00")
       for i, it in ipairs(M.MENUS[self.open].items) do
         local r = self.drects[i]
         if it.sep then
-          box({ x = r.x + 8, y = r.y + math.floor(r.h / 2), w = r.w - 16, h = 1 }, "808080", "40")
+          box({ x = r.x + 8, y = r.y + math.floor(r.h / 2), w = r.w - 16, h = 1 }, "555555", "00")
         else
           local en, chk, lab = st(it)
-          if self.sel == i then box(r, "A06020", "10") end
-          local col = en and "FFFFFF" or "808080"
-          if chk then text(r.x + math.floor(bh * 0.2), r.y + math.floor(r.h / 2), 4, col, "•") end
+          if self.sel == i and en then box(r, "D59B5B", "00") end
+          local col = en and "E6E6E6" or "7A7A7A" -- pasif: gri
+          if chk then text(r.x + math.floor(bh * 0.2), r.y + math.floor(r.h / 2), 4, col, "✓") end
           text(r.x + math.floor(bh * 0.6), r.y + math.floor(r.h / 2), 4, col, lab)
-          if it.key then text(r.x + r.w - math.floor(bh * 0.3), r.y + math.floor(r.h / 2), 6, "B0B0B0", it.key) end
+          if it.key then text(r.x + r.w - math.floor(bh * 0.3), r.y + math.floor(r.h / 2), 6, en and "B0B0B0" or "606060", it.key) end
         end
       end
     end

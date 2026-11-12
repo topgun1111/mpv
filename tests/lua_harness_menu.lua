@@ -44,7 +44,7 @@ out("GREY", reg.cmds[1] or "-", tostring(M():find("Hedefi bırak", 1, true) ~= n
 click(item(1)) -- Takip: eylem + kapanır
 out("TOGGLE", reg.cmds[1] or "-", tostring(M():find("Hedefi bırak", 1, true) == nil))
 click(hx(3), 5)
-out("CHECKED", tostring(M():find("•", 1, true) ~= nil)) -- Takip açık: işaretli
+out("CHECKED", tostring(M():find("✓", 1, true) ~= nil)) -- Takip açık: işaretli
 -- Klavye: Esc kapatır; F10 açar; sağ ok sonraki menü; aşağı + Enter eylem çalıştırır
 reg.bind["trackmenu-ESC"]()
 out("ESC", tostring(M():find("Hedefi bırak", 1, true) == nil), tostring(reg.bind["trackmenu-ESC"] == nil))

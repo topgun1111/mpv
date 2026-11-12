@@ -527,3 +527,8 @@ Done: P23 → M1 → M2.
 - Yeni `tests/lua_harness_bar.lua` + `tests/test_lua_bar.py` (7 test; `texlua` yoksa atlanır): sol tık bağı yalnız düğme üstünde, play/stop komutları, seek oranı + ipucu + dışarı sürükleme, ses sınırı (0..volume-max, mute kalkar), hız düğmeleri, tam ekran gizleme.
 - Test bir hata buldu, düzeltildi (`mpcbar.lua`): sürükleme bırakılınca (`up`) sol tık bağı fare hareketine kadar kalıyordu (çubuk dışında sol tık yutulurdu) → `up`'ta `sync()` çağrılır.
 - Doğrulama: harness `texlua` ile çalıştı, test mantığı elle çalıştırıldı (ortamda pytest yok) — `pytest -q` kullanıcıda/CI'da çalıştırılmalı.
+
+## U4 (UI planı): üst menü çubuğu görünümü (yalnız çizim)
+- `script-modules/trackmenu.lua` yalnız `e:render()` değişti: alt çubukla aynı palet (262626 zemin, mavi D59B5B seçili, 464646 hover), 1px alt çizgi, açılır listede gölge + 1px çerçeve, ayırıcı 555555, onay işareti `✓` (eskiden •), pasif öğe gri (7A7A7A, seçilse de mavi vurgu yok), Tahoma. Menü tablosu/kısayol/durum mantığı ve düzen (`bar_layout`/`drop_layout`) dokunulmadı.
+- `tests/lua_harness_menu.lua`: CHECKED artık `✓` arıyor. Menü/dosya/çubuk/panel Lua testleri `texlua` ile geçti (pytest yok, mantık elle çalıştırıldı).
+- Doğrulama (kullanıcıda): gerçek mpv'de F10 menü görünümü; Tahoma'da `✓` yoksa libass yedek yazı tipi kullanır — kutu görünüyorsa söyle.
