@@ -131,11 +131,21 @@ local function volume_step(d)
   mp.osd_message(string.format("Ses: %d%%", v), 1.5)
 end
 
+-- Ölçek: pencere yüksekliğiyle orantılı (H/700). Küçük pencerede (H<700) düğmeler parmakla/fareyle
+-- basılabilir kalsın diye küçülmek yerine büyür (en çok x1.35); ekran ölçeği (hidpi) alt sınırı yükseltir.
+local function ui_scale(W, H)
+  local hd = clamp(mp.get_property_number("display-hidpi-scale", 1) or 1, 1, 3)
+  local b = H / 700
+  local boost = (b >= 1) and 1 or math.min(1 + (1 - b) * 0.5, 1.35)
+  local u = math.max(clamp(b, 0.9, 2.2), boost * hd)
+  return math.max(0.7, math.min(u, W / 300)) -- dar pencerede çekirdek düğmeler sığsın
+end
+
 local function layout()
   local W, H = dims()
   st.els = {}
   if W <= 0 or H <= 0 then return W, H end
-  local u = clamp(H / 700, 0.9, 2.2)
+  local u = ui_scale(W, H)
   local seekh, tbh = round(20 * u), round(40 * u)
   local ph = seekh + tbh
   local top, tby = H - ph, H - ph + seekh
@@ -167,14 +177,20 @@ local function layout()
   rx = rx - bs; add({ id = "full", icon = "full", x = rx, y = by, w = bs, h = bs })
   rx = rx - round(10 * u)
   local vw = round(84 * u)
-  rx = rx - vw; add({ id = "vol", x = rx, y = by, w = vw, h = bs })
-  rx = rx - bs - g; add({ id = "mute", icon = "vol", x = rx, y = by, w = bs, h = bs })
+  if rx - left_end >= vw + bs + g then -- ses sürgüsü yalnız yer varsa
+    rx = rx - vw; add({ id = "vol", x = rx, y = by, w = vw, h = bs })
+    rx = rx - bs - g; add({ id = "mute", icon = "vol", x = rx, y = by, w = bs, h = bs })
+  else
+    rx = rx - bs; add({ id = "mute", icon = "vol", x = rx, y = by, w = bs, h = bs })
+  end
   L.fs = round(14 * u)
   local ts = fmt(mp.get_property_number("time-pos", 0)) .. " / " .. fmt(mp.get_property_number("duration", 0))
   local tw = round(#ts * L.fs * 0.56)
-  rx = rx - round(12 * u)
-  L.time_x, L.time_y, L.time_s = rx, by + round(bs / 2), ts
-  rx = rx - tw
+  if rx - left_end >= round(12 * u) + tw then -- zaman yazısı yalnız yer varsa
+    rx = rx - round(12 * u)
+    L.time_x, L.time_y, L.time_s = rx, by + round(bs / 2), ts
+    rx = rx - tw
+  end
 
   -- ortada: hız ve CC (yer varsa)
   local need = round(250 * u)
@@ -316,7 +332,7 @@ local function render()
   end
 
   -- zaman (sağa dayalı)
-  o[#o + 1] = label(L.time_x, L.time_y, L.fs, L.time_s, C.text, 6, false)
+  if L.time_s then o[#o + 1] = label(L.time_x, L.time_y, L.fs, L.time_s, C.text, 6, false) end
 
   -- arama çubuğu ipucu (fare üstünde ya da sürüklerken)
   local he = st.hover and st.els[st.hover]

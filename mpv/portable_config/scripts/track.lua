@@ -502,9 +502,17 @@ local buttons = {
 
 local function label_of(b) if type(b.label) == "function" then return b.label() end return b.label end
 
+-- Küçük pencerede (H<700) düğme alt sınırı büyür (en çok x1.35), ekran ölçeği (hidpi) ile çarpılır.
+local function ui_floor(H)
+  local ok, hd = pcall(function() return mp.get_property_number("display-hidpi-scale", 1) end)
+  hd = math.max(1, math.min((ok and tonumber(hd)) or 1, 3))
+  local b = H / 700
+  return ((b >= 1) and 1 or math.min(1 + (1 - b) * 0.5, 1.35)) * hd
+end
+
 -- Saf yerleşim: W,H pencere pikseli; labels -> rects {x,y,w,h} (satıra sarar), yazı boyutu.
 local function panel_layout(W, H, labels)
-  local bh = math.max(30, math.floor(H * 0.06))
+  local bh = math.max(math.floor(30 * ui_floor(H)), math.floor(H * 0.06))
   local fs = math.floor(bh * 0.5)
   local gap = math.floor(bh * 0.2)
   local rects, x, y = {}, gap, gap
@@ -562,7 +570,7 @@ end
 -- Ekran üstü zoom kontrolü: sağ kenarda ortada dikey [ + ] / x1.5 / [ - ]. Takip açıkken, zoom
 -- yapılmışken (>1x) ya da fare/dokunma hareketinden sonra görünür. Saf yerleşim `zoom_layout`.
 local function zoom_layout(W, H)
-  local bh = math.max(36, math.floor(H * 0.09))
+  local bh = math.max(math.floor(36 * ui_floor(H)), math.floor(H * 0.09))
   local gap = math.floor(bh * 0.15)
   local x = W - bh - gap
   local rh = math.floor(bh * 0.7) -- değer kutusu yüksekliği
@@ -909,7 +917,11 @@ local MENU_KEYS = { LEFT = "left", RIGHT = "right", UP = "up", DOWN = "down", EN
 local MENU_Z = 4
 local function menu_prepare()
   local d = osd_dims()
-  if menu and d and d.w and d.w > 0 and d.h and d.h > 0 then menu:resize(d.w, d.h) end
+  if menu and d and d.w and d.w > 0 and d.h and d.h > 0 then
+    local hd = math.max(1, math.min(mp.get_property_number("display-hidpi-scale", 1) or 1, 3))
+    if menu.hd ~= hd then menu.hd = hd; menu.W = 0 end -- ekran ölçeği değişti: yerleşimi yenile
+    menu:resize(d.w, d.h)
+  end
   return d
 end
 local function sync_menu_keys()

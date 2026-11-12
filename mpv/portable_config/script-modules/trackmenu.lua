@@ -83,14 +83,26 @@ local function inside(r, x, y)
 end
 
 -- Saf yerleşim: çubuk başlıkları. W,H pencere pikseli. -> rects, bh (çubuk yüksekliği), fs.
-function M.bar_layout(W, H, menus)
-  local bh = math.max(32, math.floor(H * 0.05))
-  local fs = math.floor(bh * 0.5)
-  local rects, x = {}, 0
-  for i, m in ipairs(menus) do
-    local w = math.floor(nchars(m.label) * fs * 0.62 + bh * 0.8)
-    rects[i] = { x = x, y = 0, w = w, h = bh }
-    x = x + w
+-- minh: en küçük çubuk yüksekliği (px). Küçük pencerede (H<700) çubuk küçülmez, biraz büyür; `hd` ekran ölçeği.
+function M.bar_layout(W, H, menus, hd)
+  hd = math.max(1, math.min(hd or 1, 3))
+  local b = H / 700
+  local boost = (b >= 1) and 1 or math.min(1 + (1 - b) * 0.5, 1.35)
+  local function build(bh)
+    local fs = math.floor(bh * 0.5)
+    local rects, x = {}, 0
+    for i, m in ipairs(menus) do
+      local w = math.floor(nchars(m.label) * fs * 0.62 + bh * 0.8)
+      rects[i] = { x = x, y = 0, w = w, h = bh }
+      x = x + w
+    end
+    return rects, fs, x
+  end
+  local bh = math.max(math.floor(32 * boost * hd), math.floor(H * 0.05))
+  local rects, fs, total = build(bh)
+  if total > W and W > 0 then -- başlıklar sığmıyorsa orantılı küçült (en az 24 px)
+    bh = math.max(24, math.floor(bh * W / total))
+    rects, fs = build(bh)
   end
   return rects, bh, fs
 end
@@ -115,7 +127,7 @@ end
 
 function M.new(ctx)
   local e = { visible = true, fullscreen = false, open = nil, sel = nil, hover = nil, W = 0, H = 0,
-              hrects = {}, drects = {}, dbox = nil, bh = 0, fs = 0, labels = {}, keys = {} }
+              hrects = {}, drects = {}, dbox = nil, bh = 0, fs = 0, labels = {}, keys = {}, hd = 1 }
 
   local function st(it)
     local s = (not it.todo and ctx.state and ctx.state(it.cmd)) or {}
@@ -126,7 +138,7 @@ function M.new(ctx)
   function e:resize(W, H)
     if W == self.W and H == self.H and self.hrects[1] then return end
     self.W, self.H = W, H
-    self.hrects, self.bh, self.fs = M.bar_layout(W, H, M.MENUS)
+    self.hrects, self.bh, self.fs = M.bar_layout(W, H, M.MENUS, self.hd)
     self:relayout()
   end
 
