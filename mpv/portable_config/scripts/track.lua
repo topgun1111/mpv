@@ -802,6 +802,65 @@ mp.add_key_binding(nil, "pick", function(ev)
   end
 end, { complex = true })
 
+-- Sol tuş: zoom açıkken (video-zoom > 0) basılı tutup sürükleyerek videoyu serbestçe kaydır (pan).
+-- Ekran üstü düğme/menü üstündeyken başlamaz (orada sol tık düğmeye gider). Canlı takip hedefe
+-- kilitliyken (Python pan'ı sürer) ya da offline açıkken kaydırma kapalıdır; sürükleme başlayınca bir
+-- kez OSD ile söylenir. Pan değerleri video genişliği/yüksekliği kesri (video-pan-x/y); sınır: görüntü
+-- pencereyi boş bırakmayacak kadar (video pencereden küçükse o eksende kaydırma yok).
+local pan = { on = false, x = 0, y = 0, hinted = false }
+local PAN_MIN_ZOOM = 0.01
+
+local function pan_blocked_reason()
+  if off.on then return "offline açıkken görüntü kaydırılamaz; önce offline'ı kapat" end
+  if enabled and locked then return "takip hedefi izliyor; kaydırmak için önce hedefi bırak (X)" end
+  return nil
+end
+
+local function pan_apply(x, y)
+  local d = osd_dims()
+  if not (d and d.w and d.w > 0 and d.h and d.h > 0) then return end
+  local z = mp.get_property_number("video-zoom", 0) or 0
+  local _, _, W, H = video_box(d)
+  if W <= d.w + 0.5 and H <= d.h + 0.5 then -- kenar boşluğu/döndürme yolu: boyutu zoom'dan kestir
+    W, H = d.w * 2 ^ z, d.h * 2 ^ z
+  end
+  local function limit(size, win) return size > win and (size - win) / (2 * size) or 0 end
+  local lx, ly = limit(W, d.w), limit(H, d.h)
+  local function clampn(v, l) return math.min(math.max(v, -l), l) end
+  local px = clampn((mp.get_property_number("video-pan-x", 0) or 0) + (x - pan.x) / W, lx)
+  local py = clampn((mp.get_property_number("video-pan-y", 0) or 0) + (y - pan.y) / H, ly)
+  pan.x, pan.y = x, y
+  mp.set_property_number("video-pan-x", px)
+  mp.set_property_number("video-pan-y", py)
+end
+
+local function pan_move(pos)
+  if not (pan.on and pos and pos.x) then return end
+  if (mp.get_property_number("video-zoom", 0) or 0) <= PAN_MIN_ZOOM then return end
+  local why = pan_blocked_reason()
+  if why then
+    pan.x, pan.y = pos.x, pos.y
+    if not pan.hinted and (pos.x ~= pan.x0 or pos.y ~= pan.y0) then pan.hinted = true; osd(why, 2) end
+    return
+  end
+  pan_apply(pos.x, pos.y)
+end
+
+-- input.conf: MBTN_LEFT script-binding track/pan (zorunlu bağ olmadığından ekran düğmelerinin
+-- "track-click-bind" bağı ve mpcbar bağları önceliklidir).
+mp.add_key_binding(nil, "pan", function(ev)
+  local e = ev and ev.event or "press"
+  if e == "down" then
+    local pos = mouse_xy()
+    if pos and pos.x and not (panel.hover or zoomc.hover or menu_hot)
+        and (mp.get_property_number("video-zoom", 0) or 0) > PAN_MIN_ZOOM then
+      pan.on, pan.x, pan.y, pan.x0, pan.y0, pan.hinted = true, pos.x, pos.y, pos.x, pos.y, false
+    end
+  elseif e == "up" or e == "press" then
+    pan.on = false
+  end
+end, { complex = true })
+
 -- Sol tuş: YALNIZ imleç ekran üstü bir düğmenin (zoom +/−, panel) üstündeyken yakalanır; başka her
 -- yerde bağ kaldırılır, böylece mpv'nin kendi sol tık davranışı (OSC vb.) bozulmaz.
 -- Ekran üstü düğme/menü üstündeki sol tık eylemi (tek tık ve çift tıkın 2. tıkı aynı işi görür:
@@ -898,6 +957,8 @@ end
 
 mp.observe_property("mouse-pos", "native", function(_, pos)
   if drag.x0 and pos and pos.x then render_drag(pos.x, pos.y) end -- sürükleme çerçevesi
+  if pan.on and pos and pos.hover == false then pan.on = false end -- fare pencereden çıktı: bırak
+  if pan.on and pos and pos.x then pan_move(pos) end -- sol tuşla kaydırma
   if pos and pos.hover == false and menu and not menu:is_open() then
     menu:hide(); menu_hot = false; render_menu() -- fare pencereden çıktı
   end

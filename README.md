@@ -43,7 +43,7 @@ Hedef davranışlar:
 - **Eklem takibi**: YOLOv8s-pose ile ayak bileği/diz/bilek vb. (isteğe bağlı model)
 - **Smoothing**: EMA/Kalman, dead-zone, hız yönünde lookahead
 - **Kayıp yönetimi**: son konumda bekle → kademeli zoom-out
-- **Hedef seçimi**: sağ tuş (`MBTN_RIGHT`): tık = nesne/eklem (`track-point`), sürükle = dikdörtgen (`track-rect`); koordinat `osd-dimensions` ile video-normalize edilir. Sol tuş yalnız ekrandaki düğmeler içindir (Parça 21)
+- **Hedef seçimi**: sağ tuş (`MBTN_RIGHT`): tık = nesne/eklem (`track-point`), sürükle = dikdörtgen (`track-rect`); koordinat `osd-dimensions` ile video-normalize edilir. Sol tuş ekrandaki düğmeler içindir; ayrıca zoom açıkken **sol tuşu basılı tutup sürükleyerek videoyu serbestçe kaydırırsın** (pan; hedefe kilitliyken ya da offline açıkken kapalı, önce `X` ile hedefi bırak)
 - **Çıkış**: IPC ile `set_property video-zoom/pan-x/pan-y`
 
 ## Çalışma Modları

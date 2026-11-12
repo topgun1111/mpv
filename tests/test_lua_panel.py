@@ -52,3 +52,26 @@ def test_panel_wiring_in_config_files():
     lua = TRACK_LUA.read_text(encoding="utf-8")
     assert '"mouse-pos"' in lua and "set_mouse_area" not in lua  # OSC ile bağ çakışması yok
     assert lua.count('add_forced_key_binding("MBTN_LEFT"') == 1  # tek yerde, hover/enabled'a bağlı
+
+
+@pytest.mark.skipif(LUA is None, reason="lua/texlua yok")
+def test_left_drag_pans_video_in_zoom_mode(tmp_path):
+    data = tmp_path / "d.lua"
+    data.write_text("return {}", encoding="utf-8")
+    env = {"TRACK_LUA": str(TRACK_LUA), "VIDEO": "", "DATA_LUA": str(data)}
+    harness = Path(__file__).with_name("lua_harness_pan.lua")
+    r = subprocess.run([LUA, str(harness)], env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    d = {ln.split("\t")[0]: ln.split("\t")[1:] for ln in r.stdout.splitlines()}
+    assert d["NOZOOM"] == ["nil"]  # zoom yokken kaydırma yok
+    assert d["DRAG"] == ["-0.0391", "0.0278"]  # x2: 100 px / 2560, 40 px / 1440
+    assert d["DRAG2"] == ["-0.0781"]
+    assert d["RELEASED"] == ["-0.0781"]  # tuş bırakılınca kaymaz
+    assert d["CLAMP"] == ["0.2500"]  # pencere boş kalmaz
+    assert d["OVERBTN"] == ["true", "nil"]  # düğme üstünde başlayan sürükleme kaydırmaz
+    assert d["LOCKED"] == ["nil", "true"]  # kilitliyken kaydırma yok, ipucu var
+
+
+def test_left_drag_pan_wiring():
+    inp = (ROOT / "mpv" / "portable_config" / "input.conf").read_text(encoding="utf-8")
+    assert "MBTN_LEFT script-binding track/pan" in inp

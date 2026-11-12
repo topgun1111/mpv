@@ -11,6 +11,8 @@ Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml
 - Sürüm: **1.2.0** (`VERSION` ve `tracker/__init__.py`; `tests/test_license.py` ikisini de 1.2.0'a sabitler). Önceki notlardaki «1.3.0» hiçbir dosyada yok; yükseltilecekse `VERSION`, `__version__` ve bu testi birlikte güncelle, ilk sürüm etiketinden (`v*`) önce.
 - Testler: 339 (`pytest -q`; ruff temiz; G4 sonrası 14 yeni). `texlua`/`lua` yoksa Lua testleri atlanır; ubuntu CI'da artık `lua5.3` kurulur ve `REQUIRE_LUA=1` ile yokluğu hata sayılır (Windows CI'da Lua yok → orada atlanır).
 
+- Son ek (2026-11-12): zoom açıkken sol tuşu basılı tutup sürükleyerek videoyu kaydırma (`track.lua` `pan` bağı + `input.conf` `MBTN_LEFT script-binding track/pan`; testler `test_lua_panel.py`/`lua_harness_pan.lua`). Hedefe kilitliyken/offline açıkken kapalı; sınır: pencere boş kalmaz.
+
 ## Ürün amacı ve öncelikler (kullanıcı, 2026-11-11 — bağlayıcı)
 **Spor/futbol odaklı değil.** Uygulama genel amaçlıdır: **insanları ve özellikle vücut parçalarını (ayak, bacak, diğer bölgeler ya da kişinin kendisi) aynı anda takip edip yakınlaştırır.**
 1. Kişi/parça **hızlı** hareket edebilir (vücut hareketi dahil); takip kaybolmamalı.
