@@ -46,9 +46,11 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.transformer.Transformer
+import com.takipli.oynat.core.CamPath
 import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.Formats
 import com.takipli.oynat.core.PRESETS
+import com.takipli.oynat.core.StabPlan
 import com.takipli.oynat.core.Target
 import com.takipli.oynat.core.TrackDoc
 import com.takipli.oynat.core.enoughSpaceForExport
@@ -104,6 +106,11 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     var saved by remember { mutableStateOf("") }
     var job by remember { mutableStateOf<Job?>(null) }
     var hevc by remember { mutableStateOf(false) }
+    var stab by remember { mutableStateOf(true) } // EIS-style stabilization of the export (needs one slow pass over every frame)
+    var camPath by remember { mutableStateOf<CamPath?>(null) }
+    var stabBusy by remember { mutableStateOf(false) }
+    var stabP by remember { mutableStateOf(0f) }
+    var stabMsg by remember { mutableStateOf("") }
     var exporter by remember { mutableStateOf<Transformer?>(null) }
     var exportP by remember { mutableStateOf(0f) }
     var exportMsg by remember { mutableStateOf("") }
@@ -113,6 +120,26 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     val view = LocalView.current
     SideEffect { view.keepScreenOn = exporting } // the export runs in this process: keep the screen (and the app) alive
     DisposableEffect(Unit) { onDispose { exporter?.cancel(); view.keepScreenOn = false } }
+    LaunchedEffect(stab) {
+        if (!stab || camPath != null) return@LaunchedEffect
+        stabBusy = true; stabP = 0f; stabMsg = ""
+        try {
+            val camFile = File(file.path.replace(".track.json", ".cam.json"))
+            val sig = DenseCamera.signature(doc)
+            camPath = withContext(Dispatchers.Default) {
+                DenseCamera.load(camFile, sig)
+                    ?: DenseCamera.analyze(ctx, Uri.parse(doc.video.path), doc, sig) { stabP = it }.also { DenseCamera.save(camFile, it) }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            ErrorLog.record(ctx, "stabilize", e)
+            stabMsg = Safety.friendly(ctx, e)
+            stab = false
+        } finally {
+            stabBusy = false
+        }
+    }
     LaunchedEffect(exporter) {
         val t = exporter ?: return@LaunchedEffect
         while (exporter === t) { exportP = Exporter.progress(t); delay(300) }
@@ -208,9 +235,15 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
         FilterChip(selected = !hevc, enabled = !exporting, onClick = { hevc = false }, label = { Text("H.264") })
         FilterChip(selected = hevc, enabled = !exporting, onClick = { hevc = true }, label = { Text("HEVC") })
     }
+    FilterChip(selected = stab, enabled = !exporting && !stabBusy, onClick = { stab = !stab }, label = { Text(stringResource(R.string.stab_chip)) })
+    if (stabBusy) {
+        LinearProgressIndicator(progress = { stabP.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+        Text(stringResource(R.string.stab_working))
+    }
+    if (stabMsg.isNotEmpty()) Text(stabMsg)
     BatteryWarning()
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(enabled = !exporting && views.isNotEmpty() && readable, onClick = {
+        Button(enabled = !exporting && !stabBusy && views.isNotEmpty() && readable, onClick = {
             exportMsg = ""; exportP = 0f
             // preflight: enough storage for the cache file plus the copy in Movies (core `enoughSpaceForExport`)
             val need = exportBytesNeeded(exportBitrate(vw, vh, doc.video.fps, hevc), durMs / 1000.0)
@@ -226,6 +259,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
             fun finish(msg: String) { finished = true; exporter = null; exportMsg = msg }
             val started = try { Exporter.start(
                 ctx, Uri.parse(doc.video.path), views, tmp, vw, vh, doc.video.fps, hevc,
+                plan = if (stab) camPath?.let { StabPlan(it, views, vw, vh) } else null,
                 onDone = {
                     scope.launch {
                         val name = "Takipli_" + java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(java.util.Date()) + ".mp4"

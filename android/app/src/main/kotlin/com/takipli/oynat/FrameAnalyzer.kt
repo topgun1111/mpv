@@ -84,9 +84,9 @@ class FrameAnalysis(
  * check (with `motionOk`); on a cut the camera estimate restarts. The caller clears its tracker on `cut`
  * (`ByteTracker.clear()`).
  */
-class FrameAnalyzer(camSide: Int = 480, histThr: Double = 0.35, diffThr: Double = 0.18) {
+class FrameAnalyzer(camSide: Int = 480, histThr: Double = 0.35, diffThr: Double = 0.18, flow: FlowTracker = OpenCvFlow()) {
     private val camSideLocal = camSide
-    private val motion = CameraMotion(OpenCvFlow(), camSide)
+    private val motion = CameraMotion(flow, camSide)
     private val cuts = CutDetector(histThr, diffThr)
     val world: DoubleArray get() = motion.world
 

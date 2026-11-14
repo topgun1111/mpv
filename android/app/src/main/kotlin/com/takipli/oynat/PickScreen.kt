@@ -58,7 +58,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-private val PICK_FPS = listOf(10, 15, 20)
+private val PICK_FPS = listOf(10, 15, 20, 30, 60)
 
 /**
  * Part 11: open a video -> first frame -> tap a person or a body part (and/or choose a part preset) -> scan in the
@@ -82,7 +82,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     var curStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var free by remember { mutableStateOf(false) } // Part 16: follow the exact tapped spot
     var zoomLog2 by remember { mutableStateOf(1.5f) }
-    var fps by remember { mutableStateOf(PICK_FPS[1]) }
+    var fps by remember { mutableStateOf(PICK_FPS[3]) }
     var npu by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf(true) }
     var model by remember { mutableStateOf(models.firstOrNull { it.contains("v8s") } ?: models.firstOrNull().orEmpty()) }

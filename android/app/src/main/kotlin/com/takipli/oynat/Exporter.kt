@@ -17,6 +17,7 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
+import com.takipli.oynat.core.StabPlan
 import com.takipli.oynat.core.ViewKey
 import com.takipli.oynat.core.exportBitrate
 import com.takipli.oynat.core.exportNdc
@@ -28,18 +29,27 @@ import java.io.File
  * the same crop as `cropRect`, see `exportNdc`), the frame size stays the source size, the encoder is the hardware
  * H.264 (or HEVC) one, and the audio track is passed through untouched. Must be called on the main thread (Transformer's
  * looper); callbacks arrive there too. The file is written to the app cache first, then copied to Movies ([saveToMovies]).
+ *
+ * With a [StabPlan] every frame gets its own matrix (shake and roll removed, see `Stabilize.kt`) instead of the zoom + pan of
+ * the views; the frame size is still the source size (native resolution).
  */
 object Exporter {
     fun start(
         ctx: Context, source: Uri, views: List<ViewKey>, outFile: File,
         w: Int, h: Int, fps: Double, hevc: Boolean,
+        plan: StabPlan? = null,
         onDone: (ExportResult) -> Unit, onError: (ExportException) -> Unit,
     ): Transformer {
         outFile.parentFile?.mkdirs()
         outFile.delete()
         val crop = MatrixTransformation { us ->
-            val n = exportNdc(viewAtSmooth(views, us / 1e6))
-            Matrix().apply { setTranslate(n[1].toFloat(), n[2].toFloat()); postScale(n[0].toFloat(), n[0].toFloat()) }
+            if (plan != null) {
+                val m = plan.ndcMatrix(us) // row-major 3x3 = android.graphics.Matrix.setValues order
+                Matrix().apply { setValues(FloatArray(9) { m[it].toFloat() }) }
+            } else {
+                val n = exportNdc(viewAtSmooth(views, us / 1e6))
+                Matrix().apply { setTranslate(n[1].toFloat(), n[2].toFloat()); postScale(n[0].toFloat(), n[0].toFloat()) }
+            }
         }
         val item = EditedMediaItem.Builder(MediaItem.fromUri(source)).setEffects(Effects(emptyList(), listOf(crop))).build()
         val encoder = DefaultEncoderFactory.Builder(ctx)
