@@ -39,6 +39,16 @@ jobs:
           python scripts/export_pose.py "$d" yolo11m-pose
           ls -l "$d"
           for m in yolov8s-pose yolo11m-pose; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
+      - name: int8 QDQ pose models for the NPU (only if android/calib has frames; optional)
+        continue-on-error: true
+        run: |
+          n=$(ls android/calib/*.jpg android/calib/*.jpeg android/calib/*.png 2>/dev/null | wc -l)
+          if [ "$n" -lt 10 ]; then echo "android/calib has $n frames (<10): skipping int8"; exit 0; fi
+          pip install onnxruntime opencv-python-headless
+          d=android/app/src/main/assets/models
+          python scripts/quantize_android.py "$d/yolov8s-pose.onnx" "$d/yolov8s-pose-int8.onnx" android/calib
+          python scripts/quantize_android.py "$d/yolov8s-pose.onnx" "$d/yolov8s-pose-a16w8.onnx" android/calib --a16
+          ls -l "$d"
       - name: Android SDK (accepts licences)
         uses: android-actions/setup-android@v3
         with:

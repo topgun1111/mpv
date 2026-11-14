@@ -5,9 +5,9 @@
     <string name="home_subtitle">Android build, under development: pick a target, scan the video, export the tracked video.</string>
     <string name="version_label">Version %1$s</string>
     <string name="core_check">Core module: %1$s</string>
-    <string name="open_bench">Pose benchmark (CPU)</string>
+    <string name="open_bench">Pose benchmark (CPU / NPU)</string>
     <string name="back">Back</string>
-    <string name="bench_title">Pose benchmark — ONNX Runtime CPU</string>
+    <string name="bench_title">Pose benchmark — ONNX Runtime CPU / NPU</string>
     <string name="bench_no_models">No .onnx model in the APK. CI exports yolov8s-pose and yolo11m-pose into assets; or copy .onnx files to Android/data/com.takipli.oynat/files/models/.</string>
     <string name="bench_model">Model</string>
     <string name="bench_threads">CPU threads</string>
@@ -21,4 +21,13 @@
     <string name="bench_detect_info">persons: %1$d\npre %2$s ms | infer %3$s ms | decode %4$s ms | total %5$s ms</string>
     <string name="bench_result">mean %1$s | median %2$s | p95 %3$s ms (%4$s fps)\nmedian split: pre %5$s | infer %6$s | decode %7$s ms\npersons found: %8$d | thermal status: %9$d</string>
     <string name="bench_copy">Copy bench line</string>
+    <string name="bench_backend">Backend</string>
+    <string name="bench_npu_fallback">NPU not used, CPU fallback: %1$s</string>
+    <string name="open_decode">Video decode test</string>
+    <string name="decode_title">Video decode and sampling</string>
+    <string name="decode_pick">Open video</string>
+    <string name="decode_fps">Scan fps</string>
+    <string name="decode_from_start">Sample 20 s from start</string>
+    <string name="decode_from_middle">Resume from middle</string>
+    <string name="decode_running">Decoding …</string>
 </resources>

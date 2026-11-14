@@ -98,6 +98,7 @@ fun BenchScreen(onBack: () -> Unit) {
     val models = remember { ModelStore.list(ctx) }
     var model by remember { mutableStateOf(models.firstOrNull()) }
     var threads by remember { mutableIntStateOf(4) }
+    var npu by remember { mutableStateOf(false) }
     var runner by remember { mutableStateOf<PoseRunner?>(null) }
     var image by remember { mutableStateOf<Bitmap?>(null) }
     var poses by remember { mutableStateOf<List<Pose>>(emptyList()) }
@@ -119,20 +120,22 @@ fun BenchScreen(onBack: () -> Unit) {
         }
     }
 
-    LaunchedEffect(model, threads) {
+    LaunchedEffect(model, threads, npu) {
         runner?.close()
         runner = null
         poses = emptyList()
         val m = model ?: return@LaunchedEffect
         status = ctx.getString(R.string.bench_loading, m)
-        val r = withContext(Dispatchers.IO) { runCatching { PoseRunner(ctx, m, threads) } }
+        val r = withContext(Dispatchers.IO) { runCatching { PoseRunner(ctx, m, threads, npu) } }
         if (!isActive) {
             r.getOrNull()?.close()
             return@LaunchedEffect
         }
         r.onSuccess {
             runner = it
-            status = ctx.getString(R.string.bench_ready, it.loadMs, it.modelMb, it.inputW, it.inputH)
+            status = ctx.getString(R.string.bench_ready, it.loadMs, it.modelMb, it.inputW, it.inputH) +
+                "\n" + it.provider +
+                (it.npuFallback?.let { f -> "\n" + ctx.getString(R.string.bench_npu_fallback, f) } ?: "")
         }.onFailure {
             status = ctx.getString(R.string.bench_error, it.message ?: it.javaClass.simpleName)
         }
@@ -202,6 +205,11 @@ fun BenchScreen(onBack: () -> Unit) {
                 models.forEach { m ->
                     FilterChip(selected = m == model, enabled = !busy, onClick = { model = m }, label = { Text(m.removeSuffix(".onnx")) })
                 }
+            }
+            Text(stringResource(R.string.bench_backend), style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !npu, enabled = !busy, onClick = { npu = false }, label = { Text("CPU") })
+                FilterChip(selected = npu, enabled = !busy, onClick = { npu = true }, label = { Text("NPU (QNN)") })
             }
             Text(stringResource(R.string.bench_threads), style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

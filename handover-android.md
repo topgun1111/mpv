@@ -35,8 +35,8 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 | 3 | ByteTrack + Kalman port | ✅ written 2026-11-14 (Kotlin never compiled here: CI run pending) |
 | 4 | Pose model decoding (person box + 17 keypoints) | ✅ written 2026-11-14 (synthetic golden; real-tensor golden pending; CI run pending) |
 | 5 | ONNX Runtime on device (CPU) + bench screen | ✅ written 2026-11-14 (never compiled here; CI run + first bench numbers pending) |
-| 6 | NPU: model prep + QNN provider + CPU/NPU bench + licence decision | ⬜ |
-| 7 | Video decode + frame sampling (configurable fps) | ⬜ |
+| 6 | NPU: model prep + QNN provider + CPU/NPU bench + licence decision | ✅ written 2026-11-14 (never compiled; NPU numbers + keypoint-jitter check pending; licence decision provisional) |
+| 7 | Video decode + frame sampling (configurable fps) | ✅ written 2026-11-14 (never compiled; device check pending) |
 | 8 | Camera-motion compensation + cut detection | ⬜ |
 | 9 | Offline scan engine: pose + tracking + keypoints (resumable) | ⬜ |
 | 10 | Part targets + view building | ⬜ |
@@ -208,12 +208,23 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - Load the pose model from assets, run on a still image, draw boxes + skeleton. Bench screen: ms/frame over 50 runs. Compare yolov8s-pose and yolo11m-pose on CPU.
 - Exit: first real numbers on the phone; record in bench lines.
 
-**Part 6 — NPU (QNN) + licence decision** (~300 Kotlin + ~120 Python)
+**Part 6 — NPU (QNN) + licence decision** (~300 Kotlin + ~120 Python) ✅ written, device numbers pending
+- Files: `app/.../PoseRunner.kt` (`wantNpu`, `createNpuSession`, `createCpuSession`, `npu`/`npuFallback`/`provider`), `BenchScreen.kt` (CPU / NPU chips, provider + fallback reason shown, provider goes into the bench line), `app/build.gradle.kts` + `libs.versions.toml` (**`onnxruntime-android-qnn` 1.22.0 replaces `onnxruntime-android`**; `useLegacyPackaging = true`), manifest (`uses-native-library libcdsprpc.so`), strings en/tr, `scripts/quantize_android.py`, `android.yml` (optional int8 step), `android/calib/README.txt`.
+- **Never compiled; QNN artifact version 1.22.0 NOT verified on Maven Central** (no network when written). If Gradle cannot resolve it, pick the version Maven lists for `com.microsoft.onnxruntime:onnxruntime-android-qnn` and change `onnxruntime` in `libs.versions.toml`.
+- NPU path: `addQnn` with `backend_path=<nativeLibraryDir>/libQnnHtp.so`, `htp_arch=75`, `htp_performance_mode=burst`, `enable_htp_fp16_precision=1` (fp32 models run as fp16 on HTP: step 1 of §6 needs no calibration); `ADSP_LIBRARY_PATH` = nativeLibraryDir. First load compiles and dumps a QNN context model to `files/qnn_ctx/<model>_htp_v75.onnx` (embed mode 1); later loads open it directly. Any failure falls back to CPU and the reason is shown on the bench screen. Delete `qnn_ctx/` (clear app data) after changing the model file.
+- Option names (`htp_arch`, context config keys) follow the ORT QNN docs from memory: if `addQnn` throws "unknown option", the fallback message shows which one.
+- int8: `quantize_android.py SRC DST CALIB [--a16]` (QDQ, MinMax; 8-bit activations by default, `--a16` = 16a8w). CI builds `yolov8s-pose-int8` and `yolov8s-pose-a16w8` only when `android/calib/` has ≥10 frames. 8-bit activations quantize pixel-space keypoints coarsely (~2.5 px steps at 640); prefer a16w8 or fp16 if jitter shows.
+- Exit (open, needs the phone): CPU vs NPU ms/frame per model (fp32→fp16-on-HTP, int8, a16w8) into "Bench lines"; keypoint jitter on a real clip (Part 9 gives a clip pipeline; until then compare overlays on a photo CPU vs NPU); pick the default model/backend and log it in §11. If the NPU is not faster, record why and keep CPU.
 - `scripts/quantize_android.py` (fp16 first, int8 option), QNN provider options (HTP v75), context binary cache, automatic CPU fallback, provider shown on the bench screen, CI step to export the pose model.
 - Exit: CPU vs NPU ms/frame recorded; keypoint jitter checked on a real clip; model choice (v8s vs 11m, fp16 vs int8) and the AGPL decision logged in §11. If the NPU is not faster, record why and keep CPU as default.
 
 ### Phase C — Offline scan
-**Part 7 — Video decode + sampling** (~350)
+**Part 7 — Video decode + sampling** (~350) ✅ written, device check pending
+- Files: `core/.../Sampling.kt` (`SampleSelector`, `normalizeRotation`, `displaySize`, `scaledSize`, `yuv709ToArgb`) + `SamplingTest.kt`; `app/.../VideoDecoder.kt` (`probe`, `sample`), `DecodeScreen.kt` (test screen), `MainActivity.kt` nav, strings en/tr.
+- Sampling rule: grid `startS + k/fps`; the first decoded frame at/after each grid time is taken (≤ one source frame late); `t` = the frame's real PTS, so VFR is correct. Resume = new selector with `startS` (decoder seeks to the previous sync frame, earlier frames are dropped, grid stays aligned). Tests: CFR 30→10, scan fps ≥ source, VFR with a hole, resume = tail of the full run, end time, duplicate/backwards PTS.
+- Decoder: MediaExtractor → MediaCodec → `ImageReader` (YUV_420_888, surface output); only chosen frames are rendered and converted. YUV→ARGB in Kotlin (BT.709 limited), **nearest-neighbour downscale** to `maxSide` (default 960), then rotation by `KEY_ROTATION`. Input via `setDataSource(ctx, uri)` (SAF `content://` works; picker = `OpenDocument`, no storage permission). If scan quality of small parts suffers, upgrade the downscale (area average) or use full-res crops in Part 9/crop-and-refine.
+- Never compiled. Risks: `ImageReader` size vs codec output size mismatch on some devices; BT.601/full-range sources give slightly off colours; HDR/10-bit not handled.
+- Exit (open, on the phone): "Video decode test": open a normal clip, a rotated (portrait) phone clip, and a VFR clip (screen recording); check displayed size/rotation, upright preview, `gap min/max` ≈ grid, first `t` ≥ start for "Resume from middle", record x-realtime per fps here.
 - MediaExtractor/MediaCodec to frames at a **configurable scan fps** (`offline_fps`, and `scan_fps_part` for part mode), correct timestamps for variable frame rate, rotation metadata, seek/resume from a time, Storage Access Framework (file picker) input.
 - Exit: scan-order frames from a real clip with correct `t`; resume from the middle works.
 
@@ -318,12 +329,13 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 | 2026-11-14 | A pose model replaces YOLOX-S as the main detector (person box + keypoints in one pass); the target is {person, part}; part presets use joint groups |
 | 2026-11-14 | Scan fps for part mode is configurable and set after measuring (10 fps is likely too low for fast limbs) |
 | 2026-11-14 | Part 2: kotlinx-serialization-json 1.9.0 in `core`; JSON via `JsonNamingStrategy.SnakeCase` (camelCase Kotlin props = PC snake_case keys); `emb`/`team` kept as raw `JsonElement`; `ViewsDoc.version` always written; rounding in `cropRect` is half-to-even (`Math.rint`) like Python `round` |
+| 2026-11-14 | Part 6: ORT artifact = `onnxruntime-android-qnn` (CPU + QNN in one AAR), 1.22.0, unverified; NPU first via fp16-on-HTP (no calibration), int8/a16w8 optional via calibration frames |
+| 2026-11-14 | **Part 6 licence decision — CONFIRMED by user (2026-11-14): personal use only.** (was provisional:) personal-use builds only. Ultralytics weights/code are AGPL-3.0, so the APK is a CI artifact for the owner, not published/distributed. Revisit before Part 15's release step: either keep releases private or swap in a pose model whose code and weights licences allow distribution (check both). Also add the Qualcomm QNN runtime licence terms to the notices in Part 15 |
 | 2026-11-14 | Part 2: `part_margin` = 0.02 and `scan_fps_part` = 15.0 are **provisional** placeholders, final values by measurement (Parts 9/10/13) |
 
 **Open (decide in the named part)**
-- ONNX Runtime QNN artifact and version — Part 6
+- ONNX Runtime QNN artifact version: 1.22.0 chosen, verify it resolves (CI) — Part 6
 - Pose model: yolov8s-pose vs yolo11m-pose; fp16 vs int8 — Part 5/6
-- AGPL decision (personal builds only, or a distributable pose model) — Part 6
 - Calibration frames for int8 (user's own 50–100 frames with people in motion in `android/calib/`) — Part 6
 - Default scan fps for part mode — Part 9
 - Default `part_margin` and per-preset box sizes — Part 10/13

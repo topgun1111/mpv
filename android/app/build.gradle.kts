@@ -43,6 +43,8 @@ android {
     }
 
     packaging {
+        // QNN/HTP must load its skel libs from disk (ADSP_LIBRARY_PATH = nativeLibraryDir): extract the .so files.
+        jniLibs.useLegacyPackaging = true
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }
@@ -63,6 +65,6 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.onnxruntime.android) // CPU provider (Part 5); QNN artifact replaces it in Part 6
+    implementation(libs.onnxruntime.android.qnn) // ORT with CPU + QNN (Hexagon HTP) providers; pulls com.qualcomm.qti:qnn-runtime
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

@@ -5,9 +5,9 @@
     <string name="home_subtitle">Android sürümü, geliştirme aşamasında: hedefi seç, videoyu tara, takipli videoyu dışa aktar.</string>
     <string name="version_label">Sürüm %1$s</string>
     <string name="core_check">Çekirdek modül: %1$s</string>
-    <string name="open_bench">Poz kıyaslaması (CPU)</string>
+    <string name="open_bench">Poz kıyaslaması (CPU / NPU)</string>
     <string name="back">Geri</string>
-    <string name="bench_title">Poz kıyaslaması — ONNX Runtime CPU</string>
+    <string name="bench_title">Poz kıyaslaması — ONNX Runtime CPU / NPU</string>
     <string name="bench_no_models">APK içinde .onnx model yok. CI yolov8s-pose ve yolo11m-pose modellerini assets içine koyar; ya da .onnx dosyalarını Android/data/com.takipli.oynat/files/models/ klasörüne kopyala.</string>
     <string name="bench_model">Model</string>
     <string name="bench_threads">CPU iş parçacığı</string>
@@ -21,4 +21,13 @@
     <string name="bench_detect_info">kişi: %1$d\nön %2$s ms | çıkarım %3$s ms | çözme %4$s ms | toplam %5$s ms</string>
     <string name="bench_result">ort %1$s | medyan %2$s | p95 %3$s ms (%4$s fps)\nmedyan dağılımı: ön %5$s | çıkarım %6$s | çözme %7$s ms\nbulunan kişi: %8$d | ısı durumu: %9$d</string>
     <string name="bench_copy">Ölçüm satırını kopyala</string>
+    <string name="bench_backend">Arka uç</string>
+    <string name="bench_npu_fallback">NPU kullanılamadı, CPU\'ya düşüldü: %1$s</string>
+    <string name="open_decode">Video çözme testi</string>
+    <string name="decode_title">Video çözme ve örnekleme</string>
+    <string name="decode_pick">Video aç</string>
+    <string name="decode_fps">Tarama fps</string>
+    <string name="decode_from_start">Baştan 20 sn örnekle</string>
+    <string name="decode_from_middle">Ortadan devam et</string>
+    <string name="decode_running">Çözülüyor …</string>
 </resources>

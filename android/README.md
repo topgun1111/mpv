@@ -23,7 +23,7 @@ Needs JDK 17+ and the Android SDK (platform 36). To get a local wrapper once: `g
 `VERSION` at the repo root is shared with the PC app (`versionName`; `versionCode = major*10000 + minor*100 + patch`).
 Only the phone ABI `arm64-v8a` is built.
 
-## Pose benchmark (Part 5)
+## Pose benchmark (Parts 5-6, CPU and NPU)
 
 Home → "Pose benchmark (CPU)". Models come from `app/src/main/assets/models/*.onnx` (CI exports them; the folder is git-ignored)
 or from `Android/data/com.takipli.oynat/files/models/` on the phone. Local build without CI: put `.onnx` files in the assets folder first.

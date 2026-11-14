@@ -6,6 +6,7 @@ import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import android.content.Context
 import android.graphics.Bitmap
+import android.system.Os
 import com.takipli.oynat.core.BenchStats
 import com.takipli.oynat.core.Pose
 import com.takipli.oynat.core.benchStats
@@ -61,13 +62,17 @@ class BenchReport(
 )
 
 /** YOLO-pose through ONNX Runtime (CPU). One instance = one session; calls must not overlap. */
-class PoseRunner(context: Context, val modelName: String, val threads: Int) : AutoCloseable {
+class PoseRunner(context: Context, val modelName: String, val threads: Int, val wantNpu: Boolean = false) : AutoCloseable {
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
     private val session: OrtSession
     private val inputName: String
     val inputH: Int
     val inputW: Int
     val loadMs: Long
+    /** True when the session really runs on the Hexagon NPU (QNN HTP). */
+    val npu: Boolean
+    /** Why the NPU was not used although requested (null = not requested or fine). */
+    val npuFallback: String?
     val modelMb: Double
     private var argb = IntArray(0)
     private val chw: FloatArray
@@ -76,12 +81,18 @@ class PoseRunner(context: Context, val modelName: String, val threads: Int) : Au
         val t0 = System.nanoTime()
         val file = ModelStore.materialize(context, modelName)
         modelMb = file.length() / 1e6
-        session = OrtSession.SessionOptions().use { o ->
-            o.setIntraOpNumThreads(threads)
-            o.setInterOpNumThreads(1)
-            o.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            env.createSession(file.absolutePath, o)
+        var fell: String? = null
+        var s: OrtSession? = null
+        if (wantNpu) {
+            try {
+                s = createNpuSession(context, file)
+            } catch (e: Throwable) { // QNN missing/unsupported ops/compile failure: keep the app usable on CPU
+                fell = (e.message ?: e.javaClass.simpleName).take(160)
+            }
         }
+        session = s ?: createCpuSession(file)
+        npu = s != null
+        npuFallback = fell
         inputName = session.inputNames.first()
         val shape = (session.inputInfo.getValue(inputName).info as TensorInfo).shape // [1,3,H,W]
         inputH = shape.getOrNull(2)?.takeIf { it > 0 }?.toInt() ?: 640
@@ -90,7 +101,49 @@ class PoseRunner(context: Context, val modelName: String, val threads: Int) : Au
         loadMs = (System.nanoTime() - t0) / 1_000_000
     }
 
-    val provider: String get() = "CPU x$threads"
+    val provider: String get() = if (npu) "NPU QNN-HTP v75 fp16" else "CPU x$threads"
+
+    private fun createCpuSession(file: File): OrtSession =
+        OrtSession.SessionOptions().use { o ->
+            o.setIntraOpNumThreads(threads)
+            o.setInterOpNumThreads(1)
+            o.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            env.createSession(file.absolutePath, o)
+        }
+
+    /**
+     * QNN HTP session (Snapdragon 8 Gen 3 = HTP v75). The first load compiles the graph and writes a QNN context
+     * model to app storage; later loads open that file directly (fast). fp32 models run with HTP fp16 precision;
+     * QDQ int8 models (`quantize_android.py`) run natively.
+     */
+    private fun createNpuSession(context: Context, file: File): OrtSession {
+        val libDir = context.applicationInfo.nativeLibraryDir
+        Os.setenv("ADSP_LIBRARY_PATH", libDir, true) // HTP skel libs are loaded from disk by the DSP
+        val ctxFile = File(context.filesDir, "qnn_ctx/${modelName.removeSuffix(".onnx")}_htp_v75.onnx")
+        ctxFile.parentFile?.mkdirs()
+        val cached = ctxFile.isFile && ctxFile.length() > 0
+        return OrtSession.SessionOptions().use { o ->
+            o.setIntraOpNumThreads(threads)
+            o.addConfigEntry("session.disable_cpu_ep_fallback", "0") // unsupported ops may run on CPU
+            if (!cached) {
+                o.addConfigEntry("ep.context_enable", "1")
+                o.addConfigEntry("ep.context_file_path", ctxFile.absolutePath)
+                o.addConfigEntry("ep.context_embed_mode", "1")
+            }
+            o.addQnn(
+                mapOf(
+                    "backend_path" to "$libDir/libQnnHtp.so",
+                    "htp_performance_mode" to "burst",
+                    "htp_arch" to "75",
+                    "enable_htp_fp16_precision" to "1",
+                ),
+            )
+            val src = if (cached) ctxFile else file
+            val sess = env.createSession(src.absolutePath, o)
+            if (!cached && !ctxFile.isFile) ctxFile.delete() // nothing dumped: stay on the plain model next time
+            sess
+        }
+    }
 
     /** `bmp` must be a software bitmap (not HARDWARE). */
     fun detect(bmp: Bitmap, conf: Double = 0.25, iou: Double = 0.45): PoseResult {

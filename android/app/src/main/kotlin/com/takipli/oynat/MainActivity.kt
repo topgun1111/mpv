@@ -30,9 +30,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    var bench by remember { mutableStateOf(false) }
-                    if (bench) BenchScreen(onBack = { bench = false })
-                    else HomeScreen(onBench = { bench = true })
+                    var screen by remember { mutableStateOf("home") }
+                    when (screen) {
+                        "bench" -> BenchScreen(onBack = { screen = "home" })
+                        "decode" -> DecodeScreen(onBack = { screen = "home" })
+                        else -> HomeScreen(onBench = { screen = "bench" }, onDecode = { screen = "decode" })
+                    }
                 }
             }
         }
@@ -40,7 +43,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HomeScreen(onBench: () -> Unit) {
+fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp, alignment = androidx.compose.ui.Alignment.CenterVertically),
@@ -50,5 +53,6 @@ fun HomeScreen(onBench: () -> Unit) {
         Text(stringResource(R.string.version_label, BuildConfig.VERSION_NAME))
         Text(stringResource(R.string.core_check, CoreInfo.label()))
         Button(onClick = onBench) { Text(stringResource(R.string.open_bench)) }
+        Button(onClick = onDecode) { Text(stringResource(R.string.open_decode)) }
     }
 }

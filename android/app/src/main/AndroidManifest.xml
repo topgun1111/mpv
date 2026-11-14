@@ -6,6 +6,8 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        <!-- Android 12+: lets the app load the vendor DSP library the NPU backend needs. -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
