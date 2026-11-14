@@ -9,7 +9,9 @@ import android.media.ImageReader
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import com.takipli.oynat.core.SampleSelector
@@ -20,6 +22,7 @@ import com.takipli.oynat.core.yuv709ToArgb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
@@ -75,12 +78,86 @@ object VideoDecoder {
     }
 
     /**
-     * Decodes in presentation order and hands `onFrame` the frames chosen by [SampleSelector] (grid at `fps`,
+     * Default frame source: [MediaMetadataRetriever] at each grid time (`startS + k/fps`). The framework does the
+     * decoding, colour conversion (also 10-bit/HDR), scaling and rotation itself, so this process never reads `Image`
+     * planes: that path ([sampleImageReader]) killed the app natively on a 4K H.264 clip (vivo, Android 17).
+     * `t` = the grid time (the returned frame is the closest one, at most half a source frame away). Same contract as
+     * before: `onFrame` returns false to stop, cancellable, returns the number of frames delivered.
+     */
+    suspend fun sample(
+        ctx: Context,
+        uri: Uri,
+        fps: Double,
+        startS: Double = 0.0,
+        endS: Double = Double.POSITIVE_INFINITY,
+        maxSide: Int = 960,
+        onFrame: suspend (SampledFrame) -> Boolean,
+    ): Int = withContext(Dispatchers.Default) {
+        Trace.reset(ctx)
+        val info = probe(ctx, uri)
+        val (ow, oh) = scaledSize(info.width, info.height, maxSide)
+        val lastT = minOf(endS, if (info.durationS > 0) info.durationS - 0.001 else Double.POSITIVE_INFINITY)
+        Trace.step(ctx, "retriever ${info.width}x${info.height} rot=${info.rotation} -> ${ow}x$oh fps=$fps startS=$startS dur=${info.durationS}")
+        val r = MediaMetadataRetriever()
+        var delivered = 0
+        try {
+            r.setDataSource(ctx, uri)
+            Trace.step(ctx, "source ok")
+            var swap = false // does the retriever want dst size in coded (not display) orientation? found on the first frame
+            var checked = info.rotation % 180 == 0
+            var misses = 0
+            var k = 0
+            while (true) {
+                ensureActive()
+                val t = startS + k / fps
+                k++
+                if (t > lastT) break
+                val us = (t * 1e6).toLong()
+                var bm = scaledFrame(r, us, ow, oh)
+                if (bm == null) {
+                    if (++misses >= 5) break
+                    continue
+                }
+                misses = 0
+                if (!checked) {
+                    checked = true
+                    val want = ow.toDouble() / oh
+                    val got = bm.width.toDouble() / bm.height
+                    if (abs(got - want) > 0.05 && abs(got * want - 1.0) < 0.05) { // squashed + rotated: dst was meant in coded orientation
+                        swap = true
+                        bm.recycle()
+                        bm = scaledFrame(r, us, oh, ow) ?: continue
+                    }
+                }
+                if (delivered < 3) Trace.step(ctx, "frame t=$t ${bm.width}x${bm.height} swap=$swap")
+                delivered++
+                if (!onFrame(SampledFrame(t, bm))) break
+            }
+        } finally {
+            runCatching { r.release() }
+        }
+        delivered
+    }
+
+    private fun scaledFrame(r: MediaMetadataRetriever, us: Long, w: Int, h: Int): Bitmap? {
+        val bm = if (Build.VERSION.SDK_INT >= 30) {
+            val p = MediaMetadataRetriever.BitmapParams().apply { preferredConfig = Bitmap.Config.ARGB_8888 }
+            r.getScaledFrameAtTime(us, MediaMetadataRetriever.OPTION_CLOSEST, w, h, p)
+        } else {
+            r.getScaledFrameAtTime(us, MediaMetadataRetriever.OPTION_CLOSEST, w, h)
+        }
+        if (bm == null || bm.config == Bitmap.Config.ARGB_8888) return bm
+        return bm.copy(Bitmap.Config.ARGB_8888, false).also { bm.recycle() }
+    }
+
+    /**
+     * LEGACY, unused (crashes natively when reading the first frame on the vivo/Android 17 test phone; kept for a later
+     * sequential-decode retry). Decodes in presentation order and hands `onFrame` the frames chosen by [SampleSelector] (grid at `fps`,
      * starting at `startS`, stopping after `endS`). Only chosen frames are rendered/converted, the rest are
      * decoded and dropped. Seeks to the sync frame before `startS`, so resuming mid-video is cheap.
      * `onFrame` returns false to stop. Cancellable. Returns the number of samples delivered.
      */
-    suspend fun sample(
+    suspend fun sampleImageReader(
         ctx: Context,
         uri: Uri,
         fps: Double,
