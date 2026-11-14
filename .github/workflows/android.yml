@@ -32,9 +32,9 @@ jobs:
       matrix:
         include:
           - flavor: pose
-            Flavor: Pose
+            gradle_task: Pose
           - flavor: sam
-            Flavor: Sam
+            gradle_task: Sam
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -90,7 +90,7 @@ jobs:
           gradle-version: "8.14.3"
       - name: Unit tests + debug APK
         working-directory: android
-        run: gradle --no-daemon --stacktrace :core:test :app:assemble${{ matrix.Flavor }}Debug
+        run: gradle --no-daemon --stacktrace :core:test :app:assemble${{ matrix.gradle_task }}Debug
       - name: Models are inside the APK
         run: |
           unzip -l android/app/build/outputs/apk/${{ matrix.flavor }}/debug/app-${{ matrix.flavor }}-debug.apk | grep -E "assets/models/.*\.onnx"
@@ -113,7 +113,7 @@ jobs:
           fi
           export KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
           echo "$KEYSTORE_B64" | base64 -d > "$KEYSTORE_PATH"
-          (cd android && gradle --no-daemon --stacktrace :app:assemble${{ matrix.Flavor }}Release)
+          (cd android && gradle --no-daemon --stacktrace :app:assemble${{ matrix.gradle_task }}Release)
           rm -f "$KEYSTORE_PATH"
           apk=android/app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk
           test -s "$apk" || { echo "release APK was not produced (unsigned?)"; ls -l android/app/build/outputs/apk/${{ matrix.flavor }}/release; exit 1; }

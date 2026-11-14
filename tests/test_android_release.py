@@ -35,7 +35,7 @@ def test_android_workflow_release_step():
     y = _text(WORKFLOWS / "android.yml")
     for secret in ("KEYSTORE_B64", "KEYSTORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD"):
         assert f"secrets.ANDROID_{secret}" in y
-    assert re.search(r"assemble(\$\{\{ matrix\.Flavor \}\})?Release", y)  # iki derleme (pose/sam) matrix ile
+    assert re.search(r"assemble(\$\{\{ matrix\.gradle_task \}\})?Release", y)  # iki derleme (pose/sam) matrix ile
     assert "matrix.flavor" in y and "- flavor: sam" in y
     # AGPL modelli APK yalnız özel depoda Release'e eklenir
     assert "github.event.repository.private == true" in y
