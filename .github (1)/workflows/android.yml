@@ -1,0 +1,82 @@
+name: Android
+
+# Runs in parallel with the PC "Build" workflow on the same triggers (separate workflow file,
+# so build.yml and its tests stay untouched). Part 15 merges the release step.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["**.md"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Pose models into app assets (explicit list; AGPL-3.0, personal use)
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install ultralytics onnx
+          d=android/app/src/main/assets/models
+          python scripts/export_pose.py "$d" yolov8s-pose
+          python scripts/export_pose.py "$d" yolo11m-pose
+          ls -l "$d"
+          for m in yolov8s-pose yolo11m-pose; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
+      - name: int8 QDQ pose models for the NPU (only if android/calib has frames; optional)
+        continue-on-error: true
+        run: |
+          n=$(ls android/calib/*.jpg android/calib/*.jpeg android/calib/*.png 2>/dev/null | wc -l)
+          if [ "$n" -lt 10 ]; then echo "android/calib has $n frames (<10): skipping int8"; exit 0; fi
+          pip install onnxruntime opencv-python-headless
+          d=android/app/src/main/assets/models
+          python scripts/quantize_android.py "$d/yolov8s-pose.onnx" "$d/yolov8s-pose-int8.onnx" android/calib
+          python scripts/quantize_android.py "$d/yolov8s-pose.onnx" "$d/yolov8s-pose-a16w8.onnx" android/calib --a16
+          ls -l "$d"
+      - name: Android SDK (accepts licences)
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ""  # default `tools platform-tools` fails: package `tools` no longer exists
+      - name: Gradle (installs the pinned version and caches it)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Unit tests + debug APK
+        working-directory: android
+        run: gradle --no-daemon --stacktrace :core:test :app:assembleDebug
+      - name: Models are inside the APK
+        run: |
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/models/.*\.onnx"
+      - name: Name the APK
+        run: |
+          v=$(tr -d "[:space:]" < VERSION)
+          mkdir -p dist-android
+          cp android/app/build/outputs/apk/debug/app-debug.apk "dist-android/TakipliOynat-Android-$v-debug.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TakipliOynat-Android
+          path: dist-android/*.apk
+          if-no-files-found: error
+      - name: Test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: android/**/build/reports
+          if-no-files-found: ignore
