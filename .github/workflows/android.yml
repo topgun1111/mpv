@@ -67,7 +67,10 @@ jobs:
             curl -fL --retry 3 -o "$RUNNER_TEMP/sam.zip" "$SAM_MODELS_URL"
             unzip -o -j "$RUNNER_TEMP/sam.zip" "*.onnx" -d "$d"
           else
-            pip install onnx git+https://github.com/facebookresearch/EdgeTAM.git  # installs the `sam2` package: never next to facebookresearch/sam2
+            # Editable install from a clone: the pip wheel of EdgeTAM leaves out configs/edgetam.yaml (build_sam2 then cannot find it).
+            # It installs a package named `sam2`: never next to facebookresearch/sam2.
+            git clone --depth 1 https://github.com/facebookresearch/EdgeTAM.git "$RUNNER_TEMP/EdgeTAM"
+            pip install onnx -e "$RUNNER_TEMP/EdgeTAM"
             python scripts/export_sam2.py "$d" edgetam
           fi
           ls -l "$d"
