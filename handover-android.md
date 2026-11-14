@@ -31,7 +31,7 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 | # | Part | Status |
 |---|------|--------|
 | 1 | Android skeleton + CI workflow | ✅ written 2026-11-14 (first CI run pending) |
-| 2 | Core data, geometry, formats (incl. keypoints), One-Euro filter + golden tests | ⬜ |
+| 2 | Core data, geometry, formats (incl. keypoints), One-Euro filter + golden tests | ✅ written 2026-11-14 (Kotlin never compiled here: first CI run pending) |
 | 3 | ByteTrack + Kalman port | ⬜ |
 | 4 | Pose model decoding (person box + 17 keypoints) | ⬜ |
 | 5 | ONNX Runtime on device (CPU) + bench screen | ⬜ |
@@ -172,7 +172,10 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - Pinned stack: AGP 8.13.0, Kotlin 2.2.20, Gradle 8.14.3, Compose BOM 2025.09.00, compileSdk/targetSdk 36, minSdk 29, JDK 17. Newer AGP 9 / Kotlin 2.3+ exist (AGP 9 changes the plugin setup); upgrading is a separate optional step.
 - Exit: one push produces the Windows artifacts **and** a debug APK; the APK installs and opens.
 
-**Part 2 — Core data, geometry, formats, filters** (~350)
+**Part 2 — Core data, geometry, formats, filters** (~350) ✅ written, CI run pending
+- Files: `android/core/.../{Config,Geometry,OneEuro,Formats}.kt`, `GoldenTest.kt`, `golden/*.json` (7 fixtures), `scripts/gen_golden.py`, `tests/test_golden.py`, Gradle (serialization plugin + lib).
+- **Never compiled** (no Gradle/Kotlin/network when written). First action: push, open the Android run, paste any Kotlin/Gradle error into the next session. Fixtures were generated and the pytest stale check logic verified by hand (pytest not installed there).
+- Not yet done from the exit list: a *real* PC-made `track.json` v2 (from `offline --pose`) loading; only the synthetic `make_doc` fixture is covered. Do it when a real file exists.
 - Kotlin `Config` (same keys/defaults), `viewAt`, `cropRect`, views.json and track.json v1+v2 read/write (kotlinx.serialization), **One-Euro filter** (for keypoints), `scripts/gen_golden.py`, golden tests, pytest stale check.
 - Exit: Kotlin `viewAt`/`cropRect` match golden values; a PC-made `views.json` and a v2 `track.json` (with `kp`) load.
 
@@ -297,6 +300,8 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 | 2026-11-14 | **Purpose clarified: track the human body and body parts (leg, foot, head) in motion, zoomed.** Body parts move from the backlog into the first 15 parts |
 | 2026-11-14 | A pose model replaces YOLOX-S as the main detector (person box + keypoints in one pass); the target is {person, part}; part presets use joint groups |
 | 2026-11-14 | Scan fps for part mode is configurable and set after measuring (10 fps is likely too low for fast limbs) |
+| 2026-11-14 | Part 2: kotlinx-serialization-json 1.9.0 in `core`; JSON via `JsonNamingStrategy.SnakeCase` (camelCase Kotlin props = PC snake_case keys); `emb`/`team` kept as raw `JsonElement`; `ViewsDoc.version` always written; rounding in `cropRect` is half-to-even (`Math.rint`) like Python `round` |
+| 2026-11-14 | Part 2: `part_margin` = 0.02 and `scan_fps_part` = 15.0 are **provisional** placeholders, final values by measurement (Parts 9/10/13) |
 
 **Open (decide in the named part)**
 - ONNX Runtime QNN artifact and version — Part 6
