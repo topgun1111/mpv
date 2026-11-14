@@ -341,6 +341,26 @@ local function set_source(m)
   elseif m == "live" and off.on then set_offline(false) end
   if m ~= "scanned" or not off.on then osd("kaynak: " .. SOURCE_LABEL[m], 2) end
 end
+-- B3: vücut parçası. Sıra tracker/parts.py CYCLE ile aynı; Python `track-part <ad|next|prev>` alır.
+local PARTS = { "auto", "person", "head", "torso", "left_arm", "right_arm", "left_leg",
+  "right_leg", "legs", "left_foot", "right_foot", "feet", "hands" }
+local PART_LABEL = { auto = "Serbest", person = "Tüm kişi", head = "Baş", torso = "Gövde",
+  left_arm = "Sol kol", right_arm = "Sağ kol", left_leg = "Sol bacak", right_leg = "Sağ bacak",
+  legs = "Bacaklar", left_foot = "Sol ayak", right_foot = "Sağ ayak", feet = "Ayaklar",
+  hands = "Eller" }
+local part = "auto"
+local function set_part(p)
+  part = p
+  if not enabled then set_enabled(true) end -- parça seçmek takibi açar (sağ tık gibi)
+  mp.commandv("script-message", "track-part", p)
+end
+local function next_part()
+  local i = 1
+  for k, v in ipairs(PARTS) do if v == part then i = k end end
+  set_part(PARTS[i % #PARTS + 1])
+end
+mp.add_key_binding(nil, "part", next_part)
+
 mp.register_script_message("track-use-scanned", function(reason)
   if source ~= "auto" or off.on or not video_path() then return end
   set_offline(true, true, reason)
@@ -1342,6 +1362,7 @@ if TRACK_SHOW_MENU ~= false then
       offline = function() set_offline(not off.on) end,
       src_auto = function() set_source("auto") end, src_live = function() set_source("live") end,
       src_scanned = function() set_source("scanned") end,
+      bodypart = next_part, part_next = next_part,
       speed_up = setting("speed", 1), speed_down = setting("speed", -1),
       lead_up = setting("lead", 1), lead_down = setting("lead", -1),
       fill_up = setting("fill", 1), fill_down = setting("fill", -1),
@@ -1349,6 +1370,7 @@ if TRACK_SHOW_MENU ~= false then
       defaults = setting("all", 0),
       status = function() mp.commandv("script-message", "track-status") end,
     }
+    for _, p in ipairs(PARTS) do ACT["part_" .. p] = function() set_part(p) end end
     for k, f in pairs(FILES) do ACT[k] = f end
     local NEED_VIDEO = { close = true, save_view = true, load_view = true } -- video yokken gri
     local LIVE = { release = true, speed_up = true, speed_down = true, lead_up = true,
@@ -1356,7 +1378,8 @@ if TRACK_SHOW_MENU ~= false then
     local CHECK = { src_auto = function() return source == "auto" end,
       src_live = function() return source == "live" end,
       src_scanned = function() return source == "scanned" end,
-      toggle = function() return enabled end, offline = function() return off.on end,
+      toggle = function() return enabled end,
+      offline = function() return off.on end,
       hud = function() return hud.visible end, fullscreen = function() return mp.get_property_native("fullscreen") == true end, panel = function() return panel.pinned end }
     menu = TM.new({
       run = function(cmd)
@@ -1367,6 +1390,8 @@ if TRACK_SHOW_MENU ~= false then
         if not ACT[cmd] then return { enabled = false } end
         local s = { enabled = true, checked = CHECK[cmd] and CHECK[cmd]() or false }
         if LIVE[cmd] and not enabled then s.enabled = false end
+        if cmd:sub(1, 5) == "part_" and cmd ~= "part_next" then s.checked = (part == cmd:sub(6)) end
+        if cmd == "bodypart" then s.label = "Vücut parçası: " .. PART_LABEL[part] end
         if cmd == "panel" and not TRACK_SHOW_PANEL then s.enabled = false end
         if NEED_VIDEO[cmd] and not mp.get_property("path") then s.enabled = false end
         return s

@@ -1,8 +1,9 @@
-"""Android Part 10: vücut parçası hazır ayarları ve grup kutuları (PC ve Android aynı referansı paylaşır).
+"""Vücut parçası hazır ayarları ve grup kutuları (Android Part 10; PC ile aynı referans; B3 canlı).
 
 Hazır ayar = COCO-17 eklem grubu. Kutu = güvenilir eklemlerin birleşimi + `part_margin`, en az
 `kp_box` × kişi boyu (tek eklem de anlamlı kutu alır). Güvenilir eklem yoksa kişi kutusunun ilgili
-bölgesi (alt kutu) kullanılır: kayıp zinciri eklem grubu → kişi alt kutusu → (offline_interp_s dolgusu)
+bölgesi (alt kutu) kullanılır: kayıp zinciri eklem grubu → kişi alt kutusu → (offline_interp_s
+dolgusu)
 → bekle/zoom-out (`offline._views_from_boxes`).
 """
 from __future__ import annotations
@@ -27,6 +28,23 @@ REGION: dict[str, tuple[float, float]] = {
     "left_foot": (0.88, 1.0), "right_foot": (0.88, 1.0), "feet": (0.88, 1.0),
     "hands": (0.35, 0.62),
 }
+
+
+# B3: menü/kısayol sırası ("auto" = parça ayarı yok: tıklanan eklem izlenir) ve Türkçe adlar.
+CYCLE: tuple[str, ...] = ("auto", "person", "head", "torso", "left_arm", "right_arm", "left_leg",
+                          "right_leg", "legs", "left_foot", "right_foot", "feet", "hands")
+LABELS_TR: dict[str, str] = {
+    "auto": "Serbest (tıklanan eklem)", "person": "Tüm kişi", "head": "Baş", "torso": "Gövde",
+    "left_arm": "Sol kol", "right_arm": "Sağ kol", "left_leg": "Sol bacak",
+    "right_leg": "Sağ bacak", "legs": "Bacaklar", "left_foot": "Sol ayak",
+    "right_foot": "Sağ ayak", "feet": "Ayaklar", "hands": "Eller",
+}
+
+
+def next_preset(cur: str, step: int = 1) -> str:
+    """Kısayolla döngü: CYCLE sırasında bir sonraki (step=-1: önceki)."""
+    i = CYCLE.index(cur) if cur in CYCLE else 0
+    return CYCLE[(i + step) % len(CYCLE)]
 
 
 def check_preset(name: str) -> str:
@@ -82,3 +100,28 @@ def preset_boxes(doc: dict, ids: set[int], preset: str, cfg) -> dict[int, list[f
             if q >= best.get(i, -2.0):
                 boxes[i], best[i] = box, q
     return boxes
+
+
+def group_extent(kpts, preset: str, person, min_conf: float, kp_box: float,
+                 margin: float = PART_MARGIN):
+    """Tek karedeki poz için parça kutusu, KARE PİKSELİ: (cx, cy, bw, bh).
+
+    `kpts` [17,3] (x, y, güven); `person` kişi kutusu (`geometry.BBox`). Güvenilir eklem varsa
+    onların birleşimi + `margin`×kişi boyu, en az `kp_box`×kişi boyu; yoksa kişi kutusunun ilgili
+    bölgesi (`REGION`); "person" kişi kutusunun kendisi. `group_box` (offline) ile aynı mantık.
+    """
+    check_preset(preset)
+    ph = max(person.y2 - person.y1, 1.0)
+    if preset == "person":
+        return person.cx, person.cy, person.x2 - person.x1, ph
+    pts = [(float(kpts[j][0]), float(kpts[j][1])) for j in PRESETS[preset]
+           if j < len(kpts) and kpts[j][2] >= min_conf]
+    if pts:
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        side = max(kp_box * ph, 8.0)
+        bw = max(max(xs) - min(xs) + 2 * margin * ph, side)
+        bh = max(max(ys) - min(ys) + 2 * margin * ph, side)
+        return (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2, bw, bh
+    top, bot = REGION[preset]
+    y1, y2 = person.y1 + ph * top, person.y1 + ph * bot
+    return person.cx, (y1 + y2) / 2, person.x2 - person.x1, y2 - y1

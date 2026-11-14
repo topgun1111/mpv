@@ -233,6 +233,7 @@ class KeypointTracker:
 
             self.label, self._ck = WB_NAMES[kp], parent_joint(kp)
         self._person = pose.bbox
+        self.last_pose = pose  # B3: parça ayarına geçişte (`PartTracker`) yeniden kullanılır
         self._pos = (float(pose.kpts[kp][0]), float(pose.kpts[kp][1]))
         self._h = max(pose.bbox.y2 - pose.bbox.y1, 1.0)
         self._w = self._to_w(*self._pos)  # dünya konumu (cam yoksa kare konumu)
@@ -277,15 +278,23 @@ class KeypointTracker:
         prev, self._person = self._person, best.bbox
         if self.kp >= N_KPT and self.refiner is not None and len(best.kpts) <= self.kp:
             best = self.refiner.refine(frame_bgr, best)  # yalnız eşleşen kişi: kare başına 1
-        if len(best.kpts) <= self.kp or best.kpts[self.kp][2] < self.min_conf:
+        self.last_pose = best
+        read = self._read(best)
+        if read is None:
             # Eklem görünmüyor ama kişi var: eklemi kişinin kayması kadar taşı (tek karelik
             # güven düşüşü hedefi düşürmesin; artı işareti de sönmesin)
             x, y = self._pos[0] + best.bbox.cx - prev.cx, self._pos[1] + best.bbox.cy - prev.cy
             self._set(x, y, observed=False)
             return self._held()
         self._misses = 0
-        self._set(float(best.kpts[self.kp][0]), float(best.kpts[self.kp][1]), observed=True)
+        self._set(read[0], read[1], observed=True)
         return self.bbox
+
+    def _read(self, best: Pose) -> tuple[float, float] | None:
+        """Eşleşen kişinin izlenen noktası (kare pikseli) ya da None (güvenilir değil)."""
+        if len(best.kpts) <= self.kp or best.kpts[self.kp][2] < self.min_conf:
+            return None
+        return float(best.kpts[self.kp][0]), float(best.kpts[self.kp][1])
 
     def _set(self, x: float, y: float, observed: bool) -> None:
         if self._fs is not None and observed:
@@ -367,3 +376,54 @@ class KeypointTracker:
     def _held(self) -> BBox | None:
         self._misses += 1
         return self.bbox if self._misses <= self.hold else None
+
+
+class PartTracker(KeypointTracker):
+    """B3: seçilen kişinin bir VÜCUT PARÇASINI (eklem grubu: baş, kol, bacak…) izler.
+
+    Takip kutusu `parts.group_extent`: güvenilir eklemlerin birleşimi (yoksa kişi kutusunun ilgili
+    bölgesi). Eşleme, kayıp/kapanma, yeniden bağlama, kamera telafisi ve süzgeç `KeypointTracker`
+    ile aynıdır; yalnız okunan nokta grubun merkezi ve kutu grubun boyudur. `set_preset` yeniden
+    tarama/yeniden tıklama gerektirmeden parçayı değiştirir (kişi eşlemesi korunur).
+    """
+
+    def __init__(self, estimator: PoseEstimator, pose: Pose, preset: str, *,
+                 kp_box: float = 0.10, min_conf: float = 0.35, margin: float = 0.02, **kw) -> None:
+        from .parts import LABELS_TR, check_preset, group_extent
+
+        self._ge, self._labels = group_extent, LABELS_TR
+        self.preset, self.margin, self.kp_box = check_preset(preset), margin, kp_box
+        super().__init__(estimator, pose, 0, kp_box, min_conf, **kw)
+        self._ext = (1.0, 1.0)
+        self.label = LABELS_TR[preset]
+        self._reset_to(pose)
+
+    def _reset_to(self, pose: Pose) -> None:
+        cx, cy, bw, bh = self._ge(pose.kpts, self.preset, pose.bbox, self.min_conf, self.kp_box,
+                                  self.margin)
+        self._ext = (bw, bh)
+        self._pos = (cx, cy)
+        self._w = self._to_w(cx, cy)
+        self._wv = (0.0, 0.0)
+        if self._fs is not None:  # süzgeç yeni parçanın konumundan başlasın
+            self._fs = (OneEuro(), OneEuro())
+
+    def set_preset(self, preset: str) -> None:
+        """Parçayı değiştir; kişi eşlemesi, kamera geçmişi ve Re-ID galerisi korunur."""
+        from .parts import check_preset
+
+        self.preset = check_preset(preset)
+        self.label = self._labels[preset]
+        self._reset_to(self.last_pose)
+
+    @property
+    def bbox(self) -> BBox:
+        bw, bh = self._ext
+        return BBox(self._pos[0] - bw / 2, self._pos[1] - bh / 2,
+                    self._pos[0] + bw / 2, self._pos[1] + bh / 2)
+
+    def _read(self, best: Pose) -> tuple[float, float] | None:
+        cx, cy, bw, bh = self._ge(best.kpts, self.preset, best.bbox, self.min_conf, self.kp_box,
+                                  self.margin)
+        self._ext = (0.6 * self._ext[0] + 0.4 * bw, 0.6 * self._ext[1] + 0.4 * bh)
+        return cx, cy  # eklem yoksa bile kişi bölgesi: kişi görünürken parça hep okunur

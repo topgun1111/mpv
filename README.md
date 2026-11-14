@@ -19,7 +19,7 @@ Hedef davranışlar:
 ### Hedef ↔ mevcut durum (kodla karşılaştırıldı)
 | Hedef | Şu anki durum | Yol haritası |
 |---|---|---|
-| Kişi + vücut parçası takibi | Kişi: ByteTrack. Parça: yalnız **canlı** modda, YOLOv8s-pose (COCO-17: ayak bileği, diz, bilek…) + **O2: `rtmpose-wholebody.onnx` varsa el/parmak, yüz ve ayak parmağı noktaları da (133 nokta; canlı, sağ tık)** | B1–B3 (Faz 2/5); offline tüm-vücut AÇIK |
+| Kişi + vücut parçası takibi | Kişi: ByteTrack. Parça: yalnız **canlı** modda, YOLOv8s-pose (COCO-17: ayak bileği, diz, bilek…) + **O2: `rtmpose-wholebody.onnx` varsa el/parmak, yüz ve ayak parmağı noktaları da (133 nokta; canlı, sağ tık)** | B1–B3 (Faz 2/5; B3: canlı ön ayarlar — **Parça** menüsü / `G` tuşu: baş, gövde, kollar, bacaklar, ayaklar, eller; kişiye sağ tık seçili parçayı izler, hedefken parça yeniden taramadan değişir); offline tüm-vücut AÇIK |
 | Aynı anda birden çok hedef | Tek hedef | T1 (Faz 5), T2 |
 | Hızlı hareket | Kalman + öngörü; parça kayması yalnız görünüm EMA'sıyla yumuşatılır; gerçek videoda doğrulanmadı | V1 (ölç), B2 (One-Euro, kayıp zinciri) |
 | Kare dışı → geri girişte devam | Nesne/dikdörtgen: kamera telafili `WorldPointTracker` kare dışında ilerletir, geri girince şablonla bulur. Eklem (canlı): kamera telafili öngörü `kp_hold_s` (1.5 sn) sürer, kişi geri girince yeniden bağlanır (B2). Kişi: ByteTrack ID + isteğe bağlı Re-ID. Gerçek videoda doğrulanmadı | B2 (kare dışı süreklilik), G1, G3 |

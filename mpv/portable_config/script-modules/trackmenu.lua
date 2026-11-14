@@ -42,7 +42,27 @@ M.MENUS = {
     { cmd = "src_scanned", label = "Kaynak: Taranmış iz" },
     { sep = true },
     { cmd = "autoscan", label = "Otomatik tarama", todo = true },
-    { cmd = "bodypart", label = "Vücut parçası", todo = true },
+    { cmd = "bodypart", label = "Vücut parçası (değiştir)", key = "G" },
+  } },
+  -- B3: vücut parçası seçimi (Takip menüsünün alt menüsü yerine ayrı başlık: liste uzun, küçük
+  -- pencerede Takip listesine sığmaz). Sıra/adlar tracker/parts.py CYCLE ile aynı (testle denetlenir).
+  { id = "part", label = "Parça", items = {
+    { cmd = "part_auto", label = "Serbest (tıklanan eklem)" },
+    { cmd = "part_person", label = "Tüm kişi" },
+    { sep = true },
+    { cmd = "part_head", label = "Baş" },
+    { cmd = "part_torso", label = "Gövde" },
+    { cmd = "part_left_arm", label = "Sol kol" },
+    { cmd = "part_right_arm", label = "Sağ kol" },
+    { cmd = "part_left_leg", label = "Sol bacak" },
+    { cmd = "part_right_leg", label = "Sağ bacak" },
+    { cmd = "part_legs", label = "Bacaklar" },
+    { cmd = "part_left_foot", label = "Sol ayak" },
+    { cmd = "part_right_foot", label = "Sağ ayak" },
+    { cmd = "part_feet", label = "Ayaklar" },
+    { cmd = "part_hands", label = "Eller" },
+    { sep = true },
+    { cmd = "part_next", label = "Sonraki parça", key = "G" },
   } },
   { id = "tools", label = "Araçlar", items = {
     { cmd = "scan", label = "Offline taramayı başlat", todo = true },

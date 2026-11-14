@@ -67,8 +67,24 @@ reg.obs.fullscreen("fullscreen", false)
 out("EXITFS", tostring(M():find("Dosya", 1, true) ~= nil))
 move(W / 2, H / 2); if reg.timers[#reg.timers] then reg.timers[#reg.timers]() end
 out("STAYS", tostring(M():find("Dosya", 1, true) ~= nil))
+-- B3: Parça menüsü: Sol kol seç → `track-part left_arm`; işaret + Takip menüsündeki etiket güncellenir
+click(hx(4), 5)
+out("PARTMENU", tostring(M():find("Sol kol", 1, true) ~= nil), tostring(M():find("Eller", 1, true) ~= nil))
+do local m = TM.MENUS[4]; local labels, keys = {}, {}
+  for i, it in ipairs(m.items) do labels[i] = it.sep and "" or "    " .. it.label; keys[i] = it.key or "" end
+  local d = (TM.drop_layout(W, bh, fs, m.items, bar[4].x, labels, keys))
+  click(bar[4].x + 20, d[6].y + math.floor(d[6].h / 2)) end -- 6. öğe: Sol kol
+out("PARTSEL", reg.cmds[1] or "-", tostring(M():find("Sol kol", 1, true) == nil))
+click(hx(4), 5)
+out("PARTCHK", tostring(M():find("✓", 1, true) ~= nil))
+reg.bind["trackmenu-ESC"]()
+click(hx(3), 5)
+out("PARTLBL", tostring(M():find("Vücut parçası: Sol kol", 1, true) ~= nil))
+reg.bind["trackmenu-ESC"]()
+reg.cmds = {}; reg.bind.part() -- G: sonraki parça (sol kol → sağ kol)
+out("PARTKEY", reg.cmds[1] or "-")
 -- Yardım menüsü: güncelleme öğesi var ve etkin
-move(hx(6), 5); click(hx(6), 5)
+move(hx(7), 5); click(hx(7), 5)
 out("UPDATE", tostring(M():find("Güncellemeleri denetle", 1, true) ~= nil))
 reg.bind["trackmenu-ESC"]()
 -- K: döndürme 90 → 180 → 270 → 0

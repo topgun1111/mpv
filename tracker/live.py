@@ -15,6 +15,7 @@ from . import errlog
 from .clicks import (
     DOT_MSG,
     HUD_MSG,
+    PART_MSG,
     RELEASE_MSG,
     RESET_MSG,
     SAVE_MSG,
@@ -30,6 +31,7 @@ from .config import Config
 from .frames import grab_frame
 from .geometry import View, compute_view
 from .ipc import MpvCommandError, MpvIpc, MpvIpcError
+from .parts import CYCLE, LABELS_TR, PART_MARGIN, next_preset
 from .quality import SOURCES, QualityWindow, scanned_agrees, views_ready
 from .settings import SETTINGS, adjust, status_text
 from .smooth import BoxFilter, ViewSmoother, ease_view
@@ -142,6 +144,8 @@ class LiveController:
         # (kare, px, py, cfg) -> update(kare) -> BBox | None veren nesne; testte sahtesi verilir
         self._point_factory = point_factory or _default_point_factory
         self.point = None  # sağ tıkla seçilen sınıfsız nesne izleyici (tracker/point.py)
+        self.part = "auto"  # B3: parts.CYCLE adı; "auto" = tıklanan eklem (eski davranış)
+        self._part_req = False  # oyuncu (ByteTrack) hedefi var, parçaya geçiş sonraki karede
         self.cfg_path = cfg_path  # `track-save` ayarları buraya yazar
         self._id_mark = 0  # hedef son görüldüğünde izlerin en büyük ID'si (ID'ler artan)
         self.flt = box_filter or BoxFilter(cfg.kf_accel, cfg.kf_meas)
@@ -227,11 +231,43 @@ class LiveController:
             return self._release()
         if name == SETTING_MSG:
             return self._on_setting(ev.get("args") or [])
+        if name == PART_MSG:
+            return self._on_part(ev.get("args") or [])
         if name == STATUS_MSG:
             return Output(osd=status_text(self.cfg, self.target_id, self.point is not None))
         if name == SAVE_MSG:
             return self._on_save()
         return Output()
+
+    def _on_part(self, args: list) -> Output:
+        """B3: vücut parçası ayarı. Hedef zaten bir kişi/eklemse parça YENİDEN TARAMADAN değişir;
+        hedef yoksa ayar saklanır ve sonraki sağ tık kişiyi bu parçayla izler."""
+        a = str(args[1]) if len(args) > 1 else ""
+        name = next_preset(self.part, -1 if a == "prev" else 1) if a in ("next", "prev") else a
+        if name not in CYCLE:
+            return Output()
+        if name != "auto" and self.pose is None:
+            return Output(osd="Poz modeli yok: vücut parçası takibi kapalı")
+        self.part = name
+        label = LABELS_TR[name]
+        if name == "auto":
+            return Output(osd="Parça: serbest (sağ tık bir eklemi izler)")
+        from .pose import KeypointTracker, PartTracker
+
+        pt = self.point
+        if isinstance(pt, PartTracker):
+            pt.set_preset(name)
+            self.flt.reset()
+            return Output(osd=f"Parça: {label}")
+        if isinstance(pt, KeypointTracker):  # tek eklem → aynı kişide parça
+            cam, app = pt.cam, pt.app
+            self.point = self._new_part(pt.last_pose, name, cam, app)
+            self.flt.reset()
+            return Output(osd=f"Parça: {label}")
+        if self.target_id is not None:
+            self._part_req = True  # oyuncu hedefi: kişi kutusu üstünden parçaya geç (sonraki kare)
+            return Output(osd=f"Parça: {label}")
+        return Output(osd=f"Parça: {label} — sağ tıkla bir kişi seç")
 
     def _on_setting(self, args: list) -> Output:
         try:
@@ -273,6 +309,8 @@ class LiveController:
         lines = list(static)
         if perf is not None:
             lines.append(f"Hız: {perf[0]:.1f} kare/sn · gecikme {perf[1]:.0f} ms")
+        if self.part != "auto":
+            lines.append(f"Parça ayarı: {LABELS_TR[self.part]}")
         if self.point is not None:
             tgt = "nesne: " + getattr(self.point, "label", "nesne")
         elif self.target_id is not None:
@@ -310,6 +348,11 @@ class LiveController:
         had = self.has_target
         if cut:
             self._on_cut()
+        if self._part_req:
+            self._part_req = False
+            out = self._part_from_target(frame, t)
+            if out is not None:
+                return out
         out = self._step(frame, t)
         if cut and had and out.osd is None:
             out = Output(view=out.view, osd="Çekim kesildi: hedef aranıyor")
@@ -428,7 +471,11 @@ class LiveController:
             out = self._release()
             return Output(view=out.view, osd=out.osd)
         try:
-            pt = self._try_keypoint(frame, px, py) if box is None else None
+            pt = None
+            if box is None and self.part != "auto":
+                pt = self._try_part(frame, px, py)  # B3: kişiye tıklama = seçili vücut parçası
+            if pt is None and box is None:
+                pt = self._try_keypoint(frame, px, py)
             if pt is not None:
                 pass
             elif box is not None:
@@ -452,6 +499,25 @@ class LiveController:
         self.flt.reset()
         return self._follow(pt.bbox, fw, fh, t, "Hedef: " + getattr(pt, "label", "nesne"))
 
+    def _cam_app(self, frame):
+        """Eklem/parça izleyicileri için kamera telafisi (B2) ve Re-ID görünümü (G3)."""
+        cam = None
+        if self.cfg.kp_hold_s > 0 and self.cfg.kp_world:  # B2: kare dışına çıkan parçayı taşı
+            try:
+                from .point import CameraComp
+
+                cam = CameraComp(frame)
+            except Exception as e:  # cv2 yok: kamera telafisiz sürer
+                errlog.record("kamera telafisi", e)
+                cam = None
+        app = None
+        emb = getattr(self.reid, "emb", None)
+        if emb is not None and self.cfg.kp_reid:  # G3: kalabalıkta kişiyi görünümle de bul
+            from .reid import PartAppearance
+
+            app = PartAppearance(emb, self.cfg)
+        return cam, app
+
     def _try_keypoint(self, frame, px: float, py: float):
         """Pose modeli varsa ve tıklama bir eklem yakınındaysa o eklemin izleyicisi; yoksa None."""
         if self.pose is None:
@@ -470,21 +536,7 @@ class LiveController:
         if hit is None:
             return None
         i, k = hit
-        cam = None
-        if self.cfg.kp_hold_s > 0 and self.cfg.kp_world:  # B2: kare dışına çıkan parçayı taşı
-            try:
-                from .point import CameraComp
-
-                cam = CameraComp(frame)
-            except Exception as e:  # cv2 yok: kamera telafisiz sürer
-                errlog.record("kamera telafisi", e)
-                cam = None
-        app = None
-        emb = getattr(self.reid, "emb", None)
-        if emb is not None and self.cfg.kp_reid:  # G3: kalabalıkta kişiyi görünümle de bul
-            from .reid import PartAppearance
-
-            app = PartAppearance(emb, self.cfg)
+        cam, app = self._cam_app(frame)
         fine = k >= 17  # tüm-vücut noktası: kendi güven eşiği, daha küçük takip kutusu
         return KeypointTracker(self.pose, poses[i], k,
                                self.cfg.kp_box * (0.5 if fine else 1.0),
@@ -493,6 +545,57 @@ class LiveController:
                                hold_s=self.cfg.kp_hold_s, cam=cam,
                                smooth=self.cfg.kp_filter, reacq_single=self.cfg.kp_reacq_single,
                                appearance=app)
+
+    def _new_part(self, pose, preset: str, cam, app):
+        from .pose import PartTracker
+
+        c = self.cfg
+        return PartTracker(self.pose, pose, preset, kp_box=c.kp_box, min_conf=c.kp_min_conf,
+                           margin=getattr(c, "part_margin", PART_MARGIN), hold=c.kp_hold,
+                           hold_s=c.kp_hold_s, cam=cam, smooth=c.kp_filter,
+                           reacq_single=c.kp_reacq_single, appearance=app)
+
+    def _person_at(self, frame, px: float, py: float):
+        """(pose) tıklama noktasını içeren en küçük kişi kutusu; poz yok/başarısız → None."""
+        if self.pose is None:
+            return None
+        try:
+            poses = self.pose.estimate(frame)
+        except Exception as e:  # model/kare hatası: eski takibe düş
+            errlog.record("poz tahmini", e)
+            return None
+        hits = [p for p in poses if p.bbox.contains(px, py)]
+        def area(p):
+            return (p.bbox.x2 - p.bbox.x1) * (p.bbox.y2 - p.bbox.y1)
+
+        return min(hits, key=area) if hits else None
+
+    def _try_part(self, frame, px: float, py: float):
+        """B3: (px, py) bir kişinin üstündeyse o kişinin `self.part` parçasının izleyicisi."""
+        p = self._person_at(frame, px, py)
+        if p is None:
+            return None
+        cam, app = self._cam_app(frame)
+        return self._new_part(p, self.part, cam, app)
+
+    def _part_from_target(self, frame, t: float) -> Output | None:
+        """Oyuncu (ByteTrack) hedefi varken parça seçildi: kutusunun merkezindeki kişiyi bul."""
+        cur = next((x for x in self.last_tracks if x.id == self.target_id), None)
+        if cur is None:
+            return None
+        fh, fw = frame.shape[:2]
+        pt = self._try_part(frame, cur.bbox.cx, cur.bbox.cy)
+        if pt is None:
+            return None
+        self.target_id = None
+        self.last_tracks = []
+        self.pipeline.reset()
+        if self.reid:
+            self.reid.reset()
+        self.point = pt
+        self._clear_lost()
+        self.flt.reset()
+        return self._follow(pt.bbox, fw, fh, t, "Hedef: " + pt.label)
 
     def _step_point(self, frame, t: float, osd: str | None) -> Output:
         fh, fw = frame.shape[:2]
