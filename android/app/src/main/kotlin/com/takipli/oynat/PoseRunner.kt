@@ -19,7 +19,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.FloatBuffer
 
-/** Models available to the bench: APK assets `models/*.onnx` plus side-loaded `files/models/*.onnx`. */
+/** Models available to the bench: APK assets `models/NAME.onnx` plus side-loaded `files/models/NAME.onnx`. */
 object ModelStore {
     private const val DIR = "models"
 
