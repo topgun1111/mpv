@@ -89,24 +89,44 @@ object VideoDecoder {
         maxSide: Int = 960,
         onFrame: suspend (SampledFrame) -> Boolean,
     ): Int = withContext(Dispatchers.Default) {
+        Trace.reset(ctx)
+        Trace.step(ctx, "sample start fps=$fps startS=$startS")
         val (ex, track) = openExtractor(ctx, uri)
         val format = ex.getTrackFormat(track)
         val mime = format.getString(MediaFormat.KEY_MIME)!!
         val rotation = normalizeRotation(format.intOr(MediaFormat.KEY_ROTATION, 0))
+        Trace.step(ctx, "extractor ok: $format")
+        // 10-bit / HDR output cannot go through the 8-bit YUV_420_888 reader (and can kill the process on some phones): refuse clearly.
+        val profile = format.intOr(MediaFormat.KEY_PROFILE, -1)
+        val tenBit = (mime == MediaFormat.MIMETYPE_VIDEO_HEVC && (profile == 2 || profile >= 4096)) ||
+            (mime == MediaFormat.MIMETYPE_VIDEO_AVC && profile == 16)
+        if (tenBit) {
+            ex.release()
+            throw IllegalArgumentException("10-bit/HDR video is not supported yet (profile $profile). Use an 8-bit H.264 or HEVC clip.")
+        }
         val thread = HandlerThread("frame-reader").also { it.start() }
         val queue = LinkedBlockingQueue<Image>()
+        Trace.step(ctx, "imagereader")
         val reader = ImageReader.newInstance(
             format.getInteger(MediaFormat.KEY_WIDTH), format.getInteger(MediaFormat.KEY_HEIGHT),
             ImageFormat.YUV_420_888, 4,
         )
-        reader.setOnImageAvailableListener({ r -> r.acquireNextImage()?.let { queue.offer(it) } }, Handler(thread.looper))
+        reader.setOnImageAvailableListener({ r ->
+            try { r.acquireNextImage()?.let { queue.offer(it) } } catch (e: Throwable) { Trace.step(ctx, "listener error: $e") }
+        }, Handler(thread.looper))
+        Trace.step(ctx, "codec create $mime")
         val codec = MediaCodec.createDecoderByType(mime)
+        Trace.step(ctx, "codec ${codec.name}")
         var delivered = 0
         try {
             ex.selectTrack(track)
             if (startS > 0.0) ex.seekTo((startS * 1e6).toLong(), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            Trace.step(ctx, "configure")
             codec.configure(format, reader.surface, null, 0)
+            Trace.step(ctx, "start")
             codec.start()
+            Trace.step(ctx, "loop")
+            var seen = 0
             val sel = SampleSelector(fps, startS, endS)
             val info = MediaCodec.BufferInfo()
             var inputDone = false
@@ -128,14 +148,18 @@ object VideoDecoder {
                 }
                 val oi = codec.dequeueOutputBuffer(info, 10_000)
                 if (oi < 0) continue // try-again / format or buffers changed: nothing to do
+                if (seen++ < 3) Trace.step(ctx, "out size=${info.size} us=${info.presentationTimeUs} flags=${info.flags}")
                 val t = info.presentationTimeUs / 1e6
                 val eos = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                 val take = info.size > 0 && sel.accept(t)
                 codec.releaseOutputBuffer(oi, take) // render only the frames we keep
                 var go = !eos && !(info.size > 0 && sel.isPastEnd(t))
                 if (take) {
+                    if (delivered < 3) Trace.step(ctx, "take t=$t")
                     val img = queue.poll(3, TimeUnit.SECONDS) ?: error("decoder delivered no image")
+                    if (delivered < 3) Trace.step(ctx, "image ${img.width}x${img.height} crop=${img.cropRect}")
                     val bmp = try { toBitmap(img, rotation, maxSide) } finally { img.close() }
+                    if (delivered < 3) Trace.step(ctx, "bitmap ${bmp.width}x${bmp.height}")
                     delivered++
                     if (!onFrame(SampledFrame(t, bmp))) go = false
                 }

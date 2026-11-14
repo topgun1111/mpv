@@ -68,9 +68,11 @@ object ErrorLog {
     fun clear(ctx: Context) { runCatching { synchronized(lock) { file(ctx).delete() } } }
 
     /** Version and device on the first line, then the end of the log: what to paste into the next session. */
-    fun report(ctx: Context): String =
-        "Takipli Oynat ${BuildConfig.VERSION_NAME} | ${Build.MANUFACTURER} ${Build.MODEL} | Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n" +
-            trimLog(read(ctx), SHARE_CHARS)
+    fun report(ctx: Context): String {
+        val tr = Trace.read(ctx).takeLast(4000)
+        return "Takipli Oynat ${BuildConfig.VERSION_NAME} | ${Build.MANUFACTURER} ${Build.MODEL} | Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n" +
+            trimLog(read(ctx), SHARE_CHARS) + if (tr.isBlank()) "" else "\n--- last video trace ---\n$tr"
+    }
 
     fun installCrashHandler(app: Application) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
@@ -79,6 +81,16 @@ object ErrorLog {
             previous?.uncaughtException(th, e)
         }
     }
+}
+
+/** Breadcrumbs for native crashes: every line is appended and closed at once, so the last line survives a killed process. */
+object Trace {
+    private fun file(ctx: Context) = File(ctx.filesDir, "logs/trace.log")
+    fun reset(ctx: Context) { runCatching { file(ctx).apply { parentFile?.mkdirs(); writeText("") } } }
+    fun step(ctx: Context, msg: String) {
+        runCatching { val f = file(ctx); f.parentFile?.mkdirs(); f.appendText("${System.currentTimeMillis() % 100_000_000L} $msg\n") }
+    }
+    fun read(ctx: Context): String = runCatching { file(ctx).takeIf { it.isFile }?.readText().orEmpty() }.getOrDefault("")
 }
 
 /** Preflight checks and user-facing messages. */
@@ -135,7 +147,7 @@ fun AboutSection() {
     Text(stringResource(R.string.about_licences), style = MaterialTheme.typography.bodySmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = {
-            if (ErrorLog.read(ctx).isBlank()) msg = ctx.getString(R.string.log_empty) else { msg = ""; Safety.shareLog(ctx) }
+            if (ErrorLog.read(ctx).isBlank() && Trace.read(ctx).isBlank()) msg = ctx.getString(R.string.log_empty) else { msg = ""; Safety.shareLog(ctx) }
         }) { Text(stringResource(R.string.log_share)) }
         OutlinedButton(onClick = { ErrorLog.clear(ctx); msg = ctx.getString(R.string.log_cleared) }) { Text(stringResource(R.string.log_clear)) }
     }
