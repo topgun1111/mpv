@@ -1,0 +1,55 @@
+name: Android
+
+# Runs in parallel with the PC "Build" workflow on the same triggers (separate workflow file,
+# so build.yml and its tests stay untouched). Part 15 merges the release step.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["**.md"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Android SDK (accepts licences)
+        uses: android-actions/setup-android@v3
+      - name: Gradle (installs the pinned version and caches it)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Unit tests + debug APK
+        working-directory: android
+        run: gradle --no-daemon --stacktrace :core:test :app:assembleDebug
+      - name: Name the APK
+        run: |
+          v=$(tr -d "[:space:]" < VERSION)
+          mkdir -p dist-android
+          cp android/app/build/outputs/apk/debug/app-debug.apk "dist-android/TakipliOynat-Android-$v-debug.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TakipliOynat-Android
+          path: dist-android/*.apk
+          if-no-files-found: error
+      - name: Test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: android/**/build/reports
+          if-no-files-found: ignore
