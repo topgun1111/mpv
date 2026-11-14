@@ -31,4 +31,9 @@
     <string name="decode_from_middle">Resume from middle</string>
     <string name="decode_running">Decoding …</string>
     <string name="decode_analyze">Camera motion + cut detection</string>
+    <string name="open_scan">Scan test (pose + tracking)</string>
+    <string name="scan_title">Scan video to track.json</string>
+    <string name="scan_start">Scan / resume</string>
+    <string name="scan_cancel">Cancel</string>
+    <string name="scan_cancelled">Cancelled. The partial scan is saved; Scan / resume continues from it.</string>
 </resources>

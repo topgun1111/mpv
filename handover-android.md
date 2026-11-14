@@ -38,8 +38,9 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 | 6 | NPU: model prep + QNN provider + CPU/NPU bench + licence decision | ✅ written 2026-11-14 (never compiled; NPU numbers + keypoint-jitter check pending; licence decision provisional) |
 | 7 | Video decode + frame sampling (configurable fps) | ✅ written 2026-11-14 (never compiled; device check pending) |
 | 8 | Camera-motion compensation + cut detection | ✅ written 2026-11-14 (never compiled; phone pan check pending) |
-| 9 | Offline scan engine: pose + tracking + keypoints (resumable) | ⬜ |
-| 10 | Part targets + view building | ⬜ |
+| 9 | Offline scan engine: pose + tracking + keypoints (resumable) | ✅ written 2026-11-14 (never compiled; Part 8 test fix needed first; device scan check pending) |
+| 10a | Part presets, group boxes, view building (Python-first + Kotlin port, golden) | ✅ written 2026-11-14 (never compiled; CI run pending) |
+| 10b | Per-keypoint One-Euro, off-screen propagation (camera-compensated), parent-joint inference, rectangle selection | ⬜ |
 | 11 | Scan service + scan UI (choose person/part) | ⬜ |
 | 12 | Live scan preview (low fps, skeleton + part box) | ⬜ |
 | 13 | Result preview player + tuning sliders | ⬜ |
@@ -237,11 +238,31 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - OpenCV Android dependency, port `gmc.py` (LK + RANSAC) and the cut detection (`cuts.py`); feed ByteTrack prediction and the world position used when a part leaves the frame.
 - Exit: unit tests on synthetic shifts; one real clip with a camera pan checked on the phone.
 
-**Part 9 — Scan engine (pose + tracking)** (~350)
+**Part 9 — Scan engine (pose + tracking)** (~350) ✅ written, CI run + device check pending
+- Files: `core/.../Scan.kt` (`associatePoses`, `kpRow`, `ScanPipeline` = `run_detection` + `Pipeline.step` without video, `buildScanDoc`, `scanSig`), `ScanTest.kt`, new golden `scan.json` (`gen_golden.py::_scan` runs the real Python `run_detection` + `ByteTracker` + `associate_poses` on 30 synthetic steps: 2 people, one vanishing 3 samples, flickering ankles, a sub-threshold pose, camera motion steps, one cut), `tests/test_scan_fixture.py` (PC `load_doc`/`list_tracks` accept the scan shape); app: `Scanner.kt` (decode -> pose -> `FrameAnalyzer` -> `ScanPipeline`, progress callback, cache, resume, cancel), `ScanScreen.kt` (test screen: pick video, model, fps 5/10/15, NPU chip, Scan/resume, Cancel, report line), `MainActivity.kt` (home button), strings en/tr.
+- Behaviour: poses are decoded at `live_det_conf` (0.1; ByteTrack low stage); `pose_conf` (0.3) filters the poses that get `kp`. Cut -> `tracker.clear()`, no motion that sample, `"cut": 1` + `cuts` list. A failed camera estimate never stops tracking (same as `Pipeline.step`); without OpenCV the scan runs without motion/cuts. Frames are the Part 7 bitmaps (longer side 960); normalized coordinates make the size irrelevant.
+- Cache/resume: signature = SHA-1 of `videoId|fps|model[:npu]`, 16 hex (`scanSig`; `videoId` = uri + size + modified time, so it does not match the PC's path-based id). Files in `files/scans/<id>.track.json` (finished, v2, `sig`) and `<id>.track.json.partial` (saved every 30 s and on cancel/error). A finished file with the same signature is returned without work. Resume continues at `last t + 0.5/fps`, keeps the old samples and starts new IDs after the highest used. **Tracker state is not stored**: people on screen at the resume point get new IDs (like after a cut); Part 10/11 must treat the resume point like a cut when linking targets.
+- Tolerances: golden compares to 1e-9 after the same rounding (t 3 decimals, boxes 4, score 3, keypoints 4/4/2). The tracker is only ~1e-12 away from Python, so a value that lands exactly on a rounding boundary could differ by one last digit; if `scanMatchesPython` ever fails on 1e-4, look there first.
+- Never compiled. Likeliest failures: Kotlin inference in `Scan.kt` (`ifEmpty { null }`), Compose `LinearProgressIndicator(progress = { })` (needs the BOM already pinned), `PoseRunner.use`.
+- Exit (open, on the phone): scan a real clip with the Scan test screen, copy the report line into "Bench lines", pull `files/scans/*.track.json` (adb or Device Explorer) and run `python -m tracker` (`offline` loader / `list_tracks`) on it: it must load. Decide the default `scan_fps_part` from the measured x-realtime and keypoint quality (provisional 15).
 - Pipeline: decode → pose model → GMC/cuts → ByteTrack → pose↔track association (`associate_poses`, IoU) → samples with `kp` → track doc v2. Progress as a Flow, resume from the last sample, cache signature (video path+size+mtime, fps, model), cancel. Scan fps configurable; default decided from the Part 6 bench.
 - Exit: a real clip scans into a valid v2 `track.json` that the PC `offline` code can load (cross-test). Record scan x-realtime and the fps used.
 
-**Part 10 — Part targets + view building** (~400, may split)
+**Part 10a — Presets + view building** (~400) ✅ written, CI run pending
+- Files: `tracker/parts.py` (NEW, PC gets it too: `PRESETS`, `group_box`, `preset_boxes`), `tracker/offline.py` (`build_preset_views`, `apply_target(preset=...)`, target gets `"preset"` next to `"part"`; at most one of them), `scripts/gen_golden.py` (`kp_tol` added to shared keys; new fixture `target_views.json`: 20 cases = person / joint / 5 presets on the scan doc, a variant where person 2 vanishes for 12 samples (hold, zoom-out, zoom-in, cut), 2 configs, + 5 tap cases), `tests/test_parts.py`; Kotlin `core/.../Views.kt` (`PRESETS`, `zoomForBbox`, `computeView`, `easeView`, `smoothZeroPhase`, `viewsFromBoxes`, `personBoxes`, `jointBoxes`, `presetBoxes`, `buildTargetViews`, `pickTrack`, `resolveTap`), `ViewsTest.kt`; `Config.kpTol` (0.12); `Target.preset`.
+- Presets: head 0-4, torso 5,6,11,12, left/right arm, left/right leg, legs, left/right foot (ankle only), feet, hands (wrists), person (box). Group box = union of joints with conf >= `kp_min_conf` + `part_margin` (0.02 x frame height each side), never smaller than `kp_box` x person height (>= 8 px). Chain: confident joints of the group -> person-box slice for that part (`REGION` table, e.g. legs = lower half) -> (<= `offline_interp_s` gap fill) -> hold `lost_hold_s` -> zoom-out. Joint-based candidates always beat slices when several linked IDs compete.
+- Old single-joint targets (`part` = joint index) keep their exact PC behaviour (no margin). The preset format is an addition (`target.preset`); PC `views.json` readers ignore it.
+- Tap: `resolveTap` = `scan.py::resolve_selection` point case (nearest joint within `kp_tol` x person height -> {id, part joint}; else person under/near the tap with `pick_tol`). Rectangle selection is NOT ported yet (10b). A tapped joint maps to a single-joint target; mapping it to a preset (e.g. ankle -> foot) is a UI decision for Part 11/13.
+- Never compiled. Rounding: views are rounded to 4 decimals in both languages (`-0.0` normalized); a value exactly on a rounding boundary could differ by one digit (see Part 9 note).
+- Exit still open: the same doc + target gives Python views (golden: done in tests, not run) and a real clip: a foot target that leaves and re-enters.
+
+**Part 10b — Smoothing, off-screen propagation, rectangle selection** (~300, NEXT)
+- Per-keypoint One-Euro (`kp_filter`) before boxes are built (core has `OneEuro`; Python `smooth.OneEuro`), seconds-based hold `kp_hold_s`.
+- Off-screen propagation (`kp_world`): needs the camera motion per sample, which Part 9 does not store. Add `"cam": [a,b,tx,ty]` (full-res previous->this similarity, only when motion ok) to the samples in the scan (`ScanPipeline.step` already receives `motion`), write it in `gen_golden`/`offline.py` too, then propagate the last joint with damped velocity in world coordinates and re-acquire when the person re-enters. Test: synthetic exit and re-entry on the same and the opposite side.
+- Parent-joint inference (ankle missing -> knee + limb ratio) between the joint group and the person slice.
+- Rectangle selection (`resolve_selection` rect branch) and its golden cases.
+
+**Part 10 (original text, kept for reference)** (~400, may split)
 - `tracker/parts.py` (presets and group boxes, also usable on the PC) + Kotlin port; **target = {person ID, part}**; pick by tap (nearest keypoint within tolerance → part, else person); `part_boxes` for joint groups; per-keypoint One-Euro; gap fill; occlusion fallback chain (neighbouring joints → person sub-box → person → zoom-out); hold `kp_hold_s` and camera-compensated propagation when the part leaves the frame; zero-phase smoothing; hold then zoom-out on long loss; `target_fill`, zoom limits; cut handling.
 - Exit: golden test: same track doc + target + part → same views as Python (within tolerance); test of a part that exits and re-enters the frame.
 
@@ -336,6 +357,8 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 | 2026-11-14 | Part 2: kotlinx-serialization-json 1.9.0 in `core`; JSON via `JsonNamingStrategy.SnakeCase` (camelCase Kotlin props = PC snake_case keys); `emb`/`team` kept as raw `JsonElement`; `ViewsDoc.version` always written; rounding in `cropRect` is half-to-even (`Math.rint`) like Python `round` |
 | 2026-11-14 | Part 6: ORT artifact = `onnxruntime-android-qnn` (CPU + QNN in one AAR), 1.22.0, unverified; NPU first via fp16-on-HTP (no calibration), int8/a16w8 optional via calibration frames |
 | 2026-11-14 | **Part 6 licence decision — CONFIRMED by user (2026-11-14): personal use only.** (was provisional:) personal-use builds only. Ultralytics weights/code are AGPL-3.0, so the APK is a CI artifact for the owner, not published/distributed. Revisit before Part 15's release step: either keep releases private or swap in a pose model whose code and weights licences allow distribution (check both). Also add the Qualcomm QNN runtime licence terms to the notices in Part 15 |
+| 2026-11-14 | Part 9: scan files live in `files/scans/` (finished `.track.json` + `.partial`), signature = SHA-1(video id, fps, model[:npu]); resume restarts the tracker (new IDs), no tracker state on disk |
+| 2026-11-14 | Part 10: split into 10a (presets, group boxes, view building, tap resolve) and 10b (filters, off-screen propagation, rect selection); `target.preset` added beside `target.part`; `kp_tol` is now a shared config key |
 | 2026-11-14 | Part 2: `part_margin` = 0.02 and `scan_fps_part` = 15.0 are **provisional** placeholders, final values by measurement (Parts 9/10/13) |
 
 **Open (decide in the named part)**

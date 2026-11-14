@@ -18,9 +18,12 @@ data class VideoInfo(
     val duration: Double = 0.0,
 )
 
-/** `part` = COCO joint index (null = whole person); `linked` = Re-ID chained IDs (PC only). */
+/**
+ * `part` = COCO joint index (null = whole person); `preset` = body-part group name (`PRESETS`, Part 10; at most one of
+ * `part`/`preset`); `linked` = Re-ID chained IDs (PC only).
+ */
 @Serializable
-data class Target(val id: Int, val part: Int? = null, val linked: List<Int> = emptyList())
+data class Target(val id: Int, val part: Int? = null, val linked: List<Int> = emptyList(), val preset: String? = null)
 
 /** `d` rows: `[id, x1, y1, x2, y2, score]` (normalized); `kp`: track ID (string) -> 51 numbers. */
 @Serializable

@@ -34,7 +34,8 @@ class MainActivity : ComponentActivity() {
                     when (screen) {
                         "bench" -> BenchScreen(onBack = { screen = "home" })
                         "decode" -> DecodeScreen(onBack = { screen = "home" })
-                        else -> HomeScreen(onBench = { screen = "bench" }, onDecode = { screen = "decode" })
+                        "scan" -> ScanScreen(onBack = { screen = "home" })
+                        else -> HomeScreen(onBench = { screen = "bench" }, onDecode = { screen = "decode" }, onScan = { screen = "scan" })
                     }
                 }
             }
@@ -43,7 +44,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit) {
+fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit, onScan: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp, alignment = androidx.compose.ui.Alignment.CenterVertically),
@@ -54,5 +55,6 @@ fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit) {
         Text(stringResource(R.string.core_check, CoreInfo.label()))
         Button(onClick = onBench) { Text(stringResource(R.string.open_bench)) }
         Button(onClick = onDecode) { Text(stringResource(R.string.open_decode)) }
+        Button(onClick = onScan) { Text(stringResource(R.string.open_scan)) }
     }
 }

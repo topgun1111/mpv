@@ -35,6 +35,7 @@ data class Config(
     val pickTol: Double = 0.03,
     val poseConf: Double = 0.3,
     val kpMinConf: Double = 0.35,
+    val kpTol: Double = 0.12,
     val kpBox: Double = 0.10,
     val kpHoldS: Double = 1.5,
     val kpFilter: Boolean = true,

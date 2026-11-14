@@ -31,4 +31,9 @@
     <string name="decode_from_middle">Ortadan devam et</string>
     <string name="decode_running">Çözülüyor …</string>
     <string name="decode_analyze">Kamera hareketi + kesme algılama</string>
+    <string name="open_scan">Tarama testi (poz + izleme)</string>
+    <string name="scan_title">Videoyu track.json\'a tara</string>
+    <string name="scan_start">Tara / devam et</string>
+    <string name="scan_cancel">İptal</string>
+    <string name="scan_cancelled">İptal edildi. Kısmi tarama kaydedildi; Tara / devam et buradan sürdürür.</string>
 </resources>

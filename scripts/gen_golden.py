@@ -22,8 +22,17 @@ from tracker.cuts import CutDetector  # noqa: E402
 from tracker.detector import LetterboxInfo, letterbox  # noqa: E402
 from tracker.export import crop_rect  # noqa: E402
 from tracker.geometry import BBox  # noqa: E402
-from tracker.offline import make_doc, save_views, view_at  # noqa: E402
-from tracker.pose import decode_yolo_pose, nearest_keypoint  # noqa: E402
+from tracker.offline import (  # noqa: E402
+    apply_target,
+    build_part_views,
+    build_views,
+    make_doc,
+    run_detection,
+    save_views,
+    view_at,
+)
+from tracker.scan import Selection, resolve_selection  # noqa: E402
+from tracker.pose import Pose, decode_yolo_pose, nearest_keypoint  # noqa: E402
 from tracker.smooth import BoxFilter, Kalman1D, OneEuro  # noqa: E402
 
 OUT = ROOT / "android" / "core" / "src" / "test" / "resources" / "golden"
@@ -33,7 +42,7 @@ SHARED_KEYS = (
     "det_conf det_iou det_size live_det_conf offline_fps offline_interp_s offline_alpha "
     "target_fill min_zoom max_zoom alpha_pos alpha_zoom dead_zone_pos dead_zone_zoom "
     "lost_hold_s lost_zoomout_s kf_accel kf_meas gmc gmc_side cut_detect cut_hist cut_diff "
-    "pick_tol pose_conf kp_min_conf kp_box kp_hold_s kp_filter kp_world"
+    "pick_tol pose_conf kp_min_conf kp_tol kp_box kp_hold_s kp_filter kp_world"
 ).split()
 
 VIEWS = [[0.0, 0.0, 0.0, 0.0], [1.0, 1.0, 0.1, -0.05], [2.5, 2.0, -0.2, 0.15], [4.0, 0.5, 0.0, 0.0]]
@@ -271,6 +280,119 @@ def _cuts() -> dict:
     return {"w": w, "h": h, "hist_thr": 0.35, "diff_thr": 0.18, "relax": 0.7, "steps": steps}
 
 
+def _scan() -> dict:
+    """Part 9: `offline.run_detection` (real ByteTracker + `associate_poses` + `_kp_row`) on synthetic poses.
+
+    The pipeline stub mirrors `Pipeline.step`: on a cut the tracks are cleared and no motion is applied. Poses
+    below `live_det_conf` are ignored; poses between it and `pose_conf` are tracked but get no `kp`.
+    """
+    cfg = Config()
+    w, h = 640, 360
+    rng = random.Random(21)
+    # (x0, y0, vx, vy, bw, bh, first, last, score)
+    people = [(60, 80, 5, 0, 50, 140, 0, 29, 0.9), (400, 90, -4, 1, 48, 150, 0, 29, 0.8),
+              (250, 60, 2, 2, 46, 130, 8, 29, 0.2)]
+    steps = []
+    for i in range(30):
+        poses = []
+        for k, (x0, y0, vx, vy, bw, bh, a, b, sc) in enumerate(people):
+            if not a <= i <= b or (k == 1 and 14 <= i <= 16):  # person 1 vanishes 3 samples
+                continue
+            x = round(x0 + vx * i + rng.uniform(-1, 1), 3)
+            y = round(y0 + vy * i + rng.uniform(-1, 1), 3)
+            kp = []
+            for j in range(17):
+                conf = 0.2 if j in (15, 16) and i % 4 == 0 else 0.9  # ankles flicker below kp_min_conf
+                kp += [round(x + bw * (0.2 + 0.035 * j), 3), round(y + bh * (0.05 + 0.055 * j), 3), conf]
+            poses.append({"bbox": [x, y, x + bw, y + bh], "score": sc, "kpts": kp})
+        poses.append({"bbox": [5.0, 5.0, 30.0, 60.0], "score": 0.05, "kpts": [0.0] * 51})  # ignored
+        motion = None
+        if 20 <= i <= 23:
+            motion = [[1, 0, -5.0], [0, 1, 2.0], [0, 0, 1]]
+        steps.append({"t": round(i * 0.1 + 0.0004 * i, 4), "poses": poses, "motion": motion, "cut": i == 24})
+
+    def to_pose(d):
+        return Pose(BBox(*d["bbox"]), d["score"], np.array(d["kpts"], float).reshape(17, 3))
+
+    class _FakePipeline:
+        def __init__(self):
+            self.tracker, self.i, self.cut = ByteTracker(low_thr=cfg.live_det_conf), 0, False
+
+        def step(self, frame):
+            st = steps[self.i]
+            self.i += 1
+            self.cut = bool(st["cut"])
+            m = None if (self.cut or st["motion"] is None) else np.array(st["motion"], float)
+            if self.cut:
+                self.tracker.clear()
+            dets = [_Det(p["bbox"], p["score"]) for p in st["poses"] if p["score"] >= cfg.live_det_conf]
+            return self.tracker.update(dets, m)
+
+    class _FakePose:
+        def __init__(self):
+            self.i = 0
+
+        def estimate(self, frame):
+            st = steps[self.i]
+            self.i += 1
+            return [to_pose(p) for p in st["poses"] if p["score"] >= cfg.pose_conf]
+
+    frame = np.zeros((h, w, 3), np.uint8)
+    samples, size = run_detection(((st["t"], frame) for st in steps), _FakePipeline(), pose=_FakePose())
+    doc = make_doc("clip.mp4", size, 30.0, 3.0, 10.0, samples, pose=True)
+    return {"w": w, "h": h, "steps": steps, "samples": samples, "cuts": doc["cuts"], "version": doc["version"]}
+
+
+def _target_views() -> dict:
+    """Part 10: views for person / joint / preset targets (Python `offline` + `parts`) on the scan fixture doc,
+    plus a variant where person 2 is gone for 12 samples (hold -> zoom-out -> zoom-in) and tap resolution."""
+    base = _scan()
+    video = {"w": base["w"], "h": base["h"]}
+    gap = json.loads(json.dumps(base["samples"]))
+    for s in gap[6:18]:
+        s["d"] = [d for d in s["d"] if d[0] != 2]
+        s["kp"] = {k: v for k, v in (s.get("kp") or {}).items() if k != "2"}
+        if not s["kp"]:
+            s.pop("kp")
+    docs = {"base": {"video": video, "samples": base["samples"]}, "gap": {"video": video, "samples": gap}}
+    custom = {"target_fill": 0.8, "max_zoom": 3.5, "lost_hold_s": 0.5, "lost_zoomout_s": 1.0,
+              "offline_alpha": 0.5, "kp_box": 0.15}
+    cfgs = {"default": {}, "custom": custom}
+    cases = []
+
+    def add(doc, cfg, kind, tid, arg=None):
+        c = Config(**cfgs[cfg])
+        d = docs[doc]
+        if kind == "person":
+            views = build_views(d, tid, c)
+        elif kind == "joint":
+            views = build_part_views(d, tid, arg, c)
+        else:
+            views = apply_target({**d, "target": None, "views": []}, tid, c, link=False, preset=arg)["views"]
+        cases.append({"doc": doc, "cfg": cfg, "kind": kind, "id": tid, "arg": arg, "views": views})
+
+    for cfg in cfgs:
+        add("base", cfg, "person", 1)
+        add("gap", cfg, "person", 2)
+        add("base", cfg, "joint", 2, 15)
+        add("base", cfg, "preset", 2, "left_leg")
+        add("gap", cfg, "preset", 2, "left_leg")
+        add("base", cfg, "preset", 1, "head")
+        add("base", cfg, "preset", 1, "feet")
+        add("base", cfg, "preset", 2, "torso")
+        add("gap", cfg, "preset", 2, "person")
+        add("base", cfg, "preset", 1, "hands")
+    taps = []
+    s3 = base["samples"][3]
+    wr = s3["kp"]["1"]
+    pts = [(s3["t"], wr[27], wr[28]), (s3["t"], wr[27] + 0.01, wr[28] - 0.01), (s3["t"], 0.02, 0.95),
+           (s3["t"], s3["d"][1][1] + 0.002, s3["d"][1][2] + 0.002), (base["samples"][20]["t"], 0.5, 0.5)]
+    for tt, nx, ny in pts:
+        r = resolve_selection(docs["base"], Selection.point(tt, nx, ny), Config())
+        taps.append({"t": tt, "x": nx, "y": ny, "result": None if r is None else list(r)})
+    return {"docs": {"gap_ids": [6, 18, 2]}, "cfgs": cfgs, "cases": cases, "taps": taps}
+
+
 def _docs() -> dict:
     kp = [round(0.01 * i, 4) if j < 2 else 0.9 for i in range(17) for j in range(3)]
     samples = [
@@ -295,7 +417,7 @@ def build() -> dict[str, str]:
     parts = {"view_at": _view_at(), "crop_rect": _crop_rect(), "one_euro": _one_euro(),
              "config": _config(), "assignment": _assignment(), "kalman_box": _kalman_box(),
              "kalman_1d": _kalman_1d(), "box_filter": _box_filter(), "bytetrack": _bytetrack(),
-             "letterbox": _letterbox(), "pose": _pose(), "cuts": _cuts(),
+             "letterbox": _letterbox(), "pose": _pose(), "cuts": _cuts(), "scan": _scan(), "target_views": _target_views(),
              **_docs()}
     return {f"{k}.json": json.dumps(v, indent=1, sort_keys=True) + "\n" for k, v in parts.items()}
 

@@ -295,6 +295,16 @@ def build_part_views(doc: dict, ids: int | set[int], part: int,
     return _views_from_boxes(ts, part_boxes(doc, ids, part, cfg), cfg, cut_indices(doc))
 
 
+def build_preset_views(doc: dict, ids: int | set[int], preset: str,
+                       cfg: Config) -> list[list[float]]:
+    """Kimlik(ler)in hazır ayar (`parts.PRESETS`) grubunu izleyen görünüm anahtar kareleri."""
+    from .parts import preset_boxes
+
+    ts = [s["t"] for s in doc["samples"]]
+    ids = {ids} if isinstance(ids, int) else set(ids)
+    return _views_from_boxes(ts, preset_boxes(doc, ids, preset, cfg), cfg, cut_indices(doc))
+
+
 def cut_indices(doc: dict) -> set[int]:
     """G4: çekim kesmesiyle başlayan örneklerin indeksleri (kesme i-1 ile i arasındadır)."""
     return {i for i, s in enumerate(doc["samples"]) if s.get("cut")}
@@ -377,10 +387,13 @@ def _views_from_boxes(ts: list[float], boxes: dict[int, list[float]], cfg: Confi
 
 
 def apply_target(doc: dict, target_id: int, cfg: Config, link: bool = True,
-                 part: int | None = None) -> dict:
+                 part: int | None = None, preset: str | None = None) -> dict:
     """Hedefi ayarla. `doc['emb']` varsa ve `link` ise Re-ID ile ID değişimlerini zincirler.
     `part` (eklem indeksi) verilirse görünüm kişiyi değil o eklemi izler (`kp` gerekir)."""
-    if part is not None and not any(s.get("kp") for s in doc["samples"]):
+    if preset is not None and part is not None:
+        raise ValueError("`part` ve `preset` birlikte verilemez")
+    if (part is not None or preset not in (None, "person")) and not any(
+            s.get("kp") for s in doc["samples"]):
         raise ValueError("track.json'da eklem verisi yok; `offline --pose` ile yeniden tara")
     linked: list[int] = []
     if link and doc.get("emb"):
@@ -388,8 +401,12 @@ def apply_target(doc: dict, target_id: int, cfg: Config, link: bool = True,
 
         linked = link_ids(doc, target_id, cfg)
     doc["target"] = {"id": target_id, **({"part": part} if part is not None else {}),
+                     **({"preset": preset} if preset is not None else {}),
                      **({"linked": linked} if linked else {})}
     ids = {target_id, *linked}
-    doc["views"] = (build_views(doc, ids, cfg) if part is None
-                    else build_part_views(doc, ids, part, cfg))
+    if preset is not None:
+        doc["views"] = build_preset_views(doc, ids, preset, cfg)
+    else:
+        doc["views"] = (build_views(doc, ids, cfg) if part is None
+                        else build_part_views(doc, ids, part, cfg))
     return doc
