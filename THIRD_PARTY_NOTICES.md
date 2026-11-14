@@ -72,3 +72,21 @@ belge (lisansıyla) güncellenir.
 - AGPL bileşen (Ultralytics modeli) yalnız kullanıcının kendi sağladığı dosyadır; ağ üzerinden
   hizmet olarak sunulmaz.
 - Üçüncü taraf ticari markalar (mpv, Python, OpenCV, ONNX, YOLO) ilgili sahiplerine aittir.
+
+## 5. Android sürümü (`android/`)
+
+Android uygulaması (`com.takipli.oynat`) Windows paketinden ayrı bir APK'dır; `make_package.py` `android/` klasörünü
+Windows paketine **koymaz**. APK'ya giren bileşenler:
+
+| Bileşen | Lisans | Not |
+|---|---|---|
+| **ONNX Runtime Android, QNN sürümü** (`com.microsoft.onnxruntime:onnxruntime-android-qnn`) | MIT | CPU + Qualcomm Hexagon (HTP) sağlayıcısı |
+| **Qualcomm QNN çalışma zamanı** (`com.qualcomm.qti:qnn-runtime`, ORT-QNN ile gelir) | **Qualcomm'un kendi lisans koşulları** (açık kaynak değil) | Dağıtmadan önce Qualcomm AI Stack lisans metnini oku; yalnız kişisel kullanımda sorun çıkarmaz |
+| **OpenCV Android** (`org.opencv:opencv`) | Apache-2.0 | Kamera hareketi (optik akış) için |
+| **AndroidX Media3** (ExoPlayer, Transformer, Effect) | Apache-2.0 | Önizleme oynatıcısı ve dışa aktarma (donanım kodlayıcı) |
+| **Jetpack Compose, AndroidX core/activity** | Apache-2.0 | Arayüz |
+| **Kotlin standart kitaplığı, kotlinx.coroutines, kotlinx.serialization** | Apache-2.0 | |
+| **YOLOv8s-pose / YOLO11m-pose** (`assets/models/*.onnx`, Ultralytics; CI'da `scripts/export_pose.py` ile üretilir) | **AGPL-3.0** | **Kişisel kullanım** (karar: `handover-android.md`, Karar günlüğü). APK bu modelleri içerdiği için **herkese açık dağıtılmaz**: CI imzalı APK'yı Release'e yalnız **özel (private)** depoda ekler; herkese açık depoda yalnız workflow artifact olarak kalır. Dağıtmak istersen önce lisansı uygun bir pose modeline geç (kod **ve** ağırlık lisansını doğrula) |
+
+Not: Android sürümü yalnız `arm64-v8a` içindir. Sürüm numarası PC ile ortak `VERSION` dosyasından gelir.
+Android arayüzünde (Ana ekran) kısa bir lisans özeti vardır; ayrıntı bu belgededir.

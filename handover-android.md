@@ -45,7 +45,7 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 | 12 | Live scan preview (low fps, skeleton + part box) | ✅ written 2026-11-14 (never compiled; CI run + phone check pending) |
 | 13 | Result preview player + tuning sliders | ✅ written 2026-11-14 (never compiled; CI run + phone check pending) |
 | 14 | Export (Media3 Transformer) | ✅ written 2026-11-14 (never compiled; CI run + phone export check pending) |
-| 15 | Hardening + release build | ⬜ |
+| 15 | Hardening + release build | ✅ written 2026-11-14 (never compiled; CI run + phone check pending) |
 
 Bench lines (fill after Part 5, 6, 9, 14): one line per real clip, device, model, provider, ms/frame, scan x-realtime, export x-realtime.
 Format (the app's "Copy bench line" button produces it): `device | model | provider | input | image | mean ms/frame (median, p95, n) | fps`.
@@ -107,7 +107,7 @@ repo/
 - No Gradle wrapper is committed; CI installs the pinned Gradle. For local terminal use: `gradle wrapper --gradle-version 8.14.3` once, then commit the wrapper.
 - `make_package.py` copies an explicit list, so `android/` is never in the Windows package (checked 2026-11-14).
 - Part 6 adds the model-fetch/export step to `android.yml` (pose model export reuses `scripts/export_pose.py`, which needs `ultralytics`+`onnx` on the Ubuntu runner).
-- Part 15: on a `v*` tag, `android.yml` attaches the signed APK to the same GitHub Release (`softprops/action-gh-release` can add files from both workflows). Alternative: merge the job into `build.yml` with a `release` job that `needs` both.
+- Part 15 (done): on a `v*` tag, `android.yml` attaches the signed APK (private repositories only, see Part 15) to the same GitHub Release (`softprops/action-gh-release` can add files from both workflows). Alternative: merge the job into `build.yml` with a `release` job that `needs` both.
 
 ---
 
@@ -268,7 +268,7 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - Exit still open: a real clip where a foot leaves and re-enters the frame (also with a panning camera): compare the views with and without `kp_world`; tune `kp_hold_s`, the limb ratios and `part_margin` by measurement.
 - Rounding: views are rounded to 4 decimals in both languages; a value exactly on a rounding boundary could differ by one digit (see Part 9 note).
 
-- **Next: Part 15** (hardening + release build). Needs from you: the CI result of the Part 11-14 push (paste the Gradle/Kotlin error if any, incl. the open Part 8 test fix), and the phone checks of Parts 11-14 (exits below; in particular one real export: does it play, is the zoom what the preview showed, is the audio there, x-realtime).
+- **All 15 parts are written. Next: no new part. What is needed from you (in this order):** (1) push and open the Android run: paste the first Gradle/Kotlin error (nothing in Parts 2-15 has ever been compiled by Gradle, incl. the open Part 8 test fix; fix them one run at a time); (2) the phone checks listed in each part's Exit (Parts 5-7, 9, 11-14, 15); (3) for a signed APK: create the keystore and the 4 secrets (android/README.md). Then pick from the Backlog (section 8).
 - (old note, answered by Part 11) **Part 11 needed:** the CI result of this push (paste the Gradle error if any, including the open Part 8 test fix), and a decision whether a tapped joint should map to a preset in the UI (e.g. ankle -> foot, wrist -> hands) or stay a single-joint target.
 
 **Part 10 (original text, kept for reference)** (~400, may split)
@@ -326,7 +326,17 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - Cross-test: the crop for 20 sample times matches `cropRect` (≤ 1 px). Check an exported file plays and has audio.
 - Exit: a real clip exported on the phone; record export x-realtime.
 
-**Part 15 — Hardening + release** (~250)
+**Part 15 — Hardening + release** (~250) ✅ written, CI run + phone check pending
+- Files: `core/.../Hardening.kt` (NEW: `ErrKind`, `classifyError`, `exportBytesNeeded`, `enoughSpaceForExport`, `lowBattery`, `trimLog`, `logLine`) + `HardeningTest.kt` (6 tests) + `VersionTest.kt` (`repoVersionFileIsWellFormed`: `../../VERSION` must be X.Y.Z); app: `Safety.kt` (NEW: `App` (crash logger, deletes a half-written `cache/export`), `ErrorLog`, `Safety.friendly/videoReadable/freeBytes/batteryLow/shareLog`, composables `BatteryWarning`, `AboutSection`), `ResultScreen.kt`, `PickScreen.kt`, `ScanService.kt`, `MainActivity.kt` (home scrolls, footer), manifest (`android:name=".App"`), strings en/tr (+12 each), `app/build.gradle.kts` (release signing from env, `lint` does not fail the build); `.github/workflows/android.yml`; `THIRD_PARTY_NOTICES.md` (section 5, Android); `android/README.md` (release + error log); `tests/test_android_release.py` (VERSION shared, no secrets in gradle, workflow wiring, notices, en/tr string keys equal).
+- **Messages:** every failure goes through `Safety.friendly`: one sentence for NO_SPACE / MODEL_MISSING / VIDEO_ACCESS / CODEC / OTHER + the short technical reason in brackets; the full line (time, place, kind, exception, 5 frames) is appended to `files/logs/error.log` (100 KB cap). Home footer: **Share error log** (text with version + device) and **Clear error log**. Uncaught crashes are logged too (`App`).
+- **Preflight:** export checks free space first (cache file + the copy in Movies: on one volume 2 x the estimate, `enoughSpaceForExport`; estimate = bitrate x duration x 1.15 + 16 MB), the video must still be openable (`videoReadable`, SAF grant lost / file deleted: message + Export disabled), the player reports its own errors, a battery < 20 % and not charging shows a warning above Start (pick screen) and Export. `Exporter.start` exceptions and an error that arrives before `start()` returns are handled (no stuck "exporting" state).
+- **Release:** `app/build.gradle.kts` signs `release` only when `KEYSTORE_PATH` (+ `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`) exist; no R8 (ORT/OpenCV keep rules untested). `android.yml` on a `v*` tag: writes the keystore from secret `ANDROID_KEYSTORE_B64`, `assembleRelease`, deletes the keystore, artifact `TakipliOynat-Android-Release`; without the 4 secrets the step is skipped with a warning (debug APK still uploaded).
+- **Licence rule kept (decision of 2026-11-14):** the APK contains the AGPL pose models, so it is attached to the GitHub Release **only if the repository is private** (`github.event.repository.private`); in a public repo it stays a workflow artifact. This is why the original exit ("a `v*` tag publishes Setup, Portable and the APK on the same release") holds for a private repo only. To publish for others: swap the pose model first (Part 6 note).
+- **Not done (moved to Backlog):** export in a foreground service (still in-process, screen kept on; a killed app loses the export), notification-permission explanation dialog, translated preset chip names, R8/shrinking, a `.views.json` PC <-> phone cross-export on a real clip, the 3-clip hardening test (fast limb motion, part leaves and re-enters, several people) which needs the phone.
+- Race to know: `build.yml` and `android.yml` both call `softprops/action-gh-release` on the same tag; if both try to create the release at the same moment one can fail: re-run that job (the other already created it).
+- Never compiled. Likeliest failures: `signingConfigs.findByName` / `lint {}` DSL in AGP 8.13, `Thread.setDefaultUncaughtExceptionHandler` lambda, `registerReceiver(null, filter)`, `PlaybackException.errorCodeName`, the `try { Exporter.start(...) } catch` expression in `ResultScreen`.
+- Exit (open, on the phone): break each thing on purpose: delete the picked video then open the result (video message, Export disabled); fill storage then Export (storage message with MB); remove the models folder build (model message); start an export at < 20 % battery (warning); Share error log shows the lines; a signed APK from a `v*` tag installs over a previous signed one (same key).
+- (original plan:)
 - Error log, clear messages (unsupported codec, out of space, model missing), permission/SAF edge cases, low-battery warning, tested on ≥ 3 clips (fast limb motion, part leaves and re-enters the frame, several people).
 - Signed release build in CI (keystore from GitHub secrets), APK attached to the `v*` GitHub Release (see §4), `VERSION` sync test, licence notices for the Android build (ONNX Runtime MIT, QNN runtime terms, OpenCV Apache-2.0, Media3 Apache-2.0, pose model licence per the Part 6 decision).
 - Exit: a `v*` tag publishes Setup, Portable and the Android APK on the same release.
@@ -344,6 +354,8 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 | Multi-target / group framing | PC plan T1/T2 |
 | Export options | Output size/aspect (16:9, 9:16), upscale, picture-in-picture, batch queue (PC plan E2) |
 | Other classes (ball, cars, animals) | PC plan O1 |
+| Export in a foreground service | Same pattern as `ScanService`; survives the app being killed (Part 15 left it in-process) |
+| Release polish | R8/shrinking with keep rules, notification-permission dialog, translated preset names, PC <-> phone `.views.json` cross-export on a real clip |
 
 ---
 
@@ -405,6 +417,7 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 | 2026-11-14 | Part 11: scan runs in a `dataSync` foreground service; the tap is resolved to {person, part} after the scan (`applyPick`); tapped joint -> preset group by default (provisional), chip overrides, "exact joint" option |
 | 2026-11-14 | Part 12: preview at most every 200 ms, 320 px, raw per-sample part box + crop (not the smoothed final views); toggle chip to measure overhead |
 | 2026-11-14 | Part 13: preview = ExoPlayer on TextureView + `graphicsLayer` from `viewTransform` (same clamp as `cropRect`); sliders rebuild views from the saved scan on release; media3 1.8.0 unverified; Save writes track.json + .views.json |
+| 2026-11-14 | Part 15: errors -> `classifyError` kinds + friendly sentence + `error.log`; export preflight (space, video access, battery); release signed from env/secrets, APK attached to the Release only in a PRIVATE repo (AGPL models), no R8 |
 | 2026-11-14 | Part 14: export = Transformer + `MatrixTransformation` from `exportNdc` (cross-tested against `cropRect`), source size, audio passthrough, bitrate by formula, cache file -> MediaStore Movies; runs in-process (no service yet) |
 | 2026-11-14 | Part 2: `part_margin` = 0.02 and `scan_fps_part` = 15.0 are **provisional** placeholders, final values by measurement (Parts 9/10/13) |
 

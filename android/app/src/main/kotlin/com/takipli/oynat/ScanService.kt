@@ -86,7 +86,8 @@ class ScanService : Service() {
         } catch (e: CancellationException) {
             post(ScanUi.Failed(getString(R.string.scan_cancelled), true))
         } catch (e: Throwable) {
-            post(ScanUi.Failed(e.message ?: e.javaClass.simpleName, false))
+            ErrorLog.record(this, "scan", e)
+            post(ScanUi.Failed(Safety.friendly(this, e), false))
         } finally {
             wake?.takeIf { it.isHeld }?.release()
         }

@@ -2,6 +2,7 @@ package com.takipli.oynat.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class VersionTest {
     @Test
@@ -16,5 +17,15 @@ class VersionTest {
     @Test
     fun coreModuleIsLinked() {
         assertEquals("ok", CoreInfo.label())
+    }
+
+    /** The shared repo VERSION (two levels above this module) must be X.Y.Z so versionName/versionCode stay valid. */
+    @Test
+    fun repoVersionFileIsWellFormed() {
+        val f = java.io.File("../../VERSION")
+        if (!f.isFile) return // module built outside the repo
+        val v = f.readText().trim()
+        assertTrue(Regex("""\d+\.\d+\.\d+""").matches(v), "VERSION is '$v'")
+        assertTrue(versionCode(v) >= 10000, "versionCode ${versionCode(v)}")
     }
 }

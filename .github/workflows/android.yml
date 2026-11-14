@@ -1,7 +1,10 @@
 name: Android
 
 # Runs in parallel with the PC "Build" workflow on the same triggers (separate workflow file,
-# so build.yml and its tests stay untouched). Part 15 merges the release step.
+# so build.yml and its tests stay untouched). Part 15: on a v* tag it also builds a SIGNED release APK
+# (keystore from the ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
+# secrets) and, in a PRIVATE repository only, attaches it to the same GitHub Release as the Windows files.
+# Why private only: the APK contains the Ultralytics pose models (AGPL-3.0, personal use; handover-android.md, decisions log).
 on:
   push:
     branches: [main]
@@ -15,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write  # only the release step writes (tags in a private repo); pull requests from forks stay read-only
 
 jobs:
   android:
@@ -66,13 +69,47 @@ jobs:
       - name: Name the APK
         run: |
           v=$(tr -d "[:space:]" < VERSION)
-          mkdir -p dist-android
+          mkdir -p dist-android/release
           cp android/app/build/outputs/apk/debug/app-debug.apk "dist-android/TakipliOynat-Android-$v-debug.apk"
+      - name: Signed release APK (v* tags; needs the keystore secrets, otherwise skipped with a warning)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::warning::Android keystore secrets are not set: the signed release APK is skipped (the debug APK is still uploaded)"
+            exit 0
+          fi
+          export KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
+          echo "$KEYSTORE_B64" | base64 -d > "$KEYSTORE_PATH"
+          (cd android && gradle --no-daemon --stacktrace :app:assembleRelease)
+          rm -f "$KEYSTORE_PATH"
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          test -s "$apk" || { echo "release APK was not produced (unsigned?)"; ls -l android/app/build/outputs/apk/release; exit 1; }
+          v=$(tr -d "[:space:]" < VERSION)
+          cp "$apk" "dist-android/release/TakipliOynat-Android-$v.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: TakipliOynat-Android
           path: dist-android/*.apk
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TakipliOynat-Android-Release
+          path: dist-android/release/*.apk
+          if-no-files-found: ignore
+      - name: Attach the signed APK to the GitHub Release (private repositories only; AGPL models inside)
+        if: startsWith(github.ref, 'refs/tags/v') && github.event.repository.private == true && hashFiles('dist-android/release/*.apk') != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-android/release/*.apk
+      - name: Public repository - APK stays an artifact
+        if: startsWith(github.ref, 'refs/tags/v') && github.event.repository.private != true
+        run: |
+          echo "::notice::Public repository: the APK contains AGPL-3.0 pose models (personal use), so it is not attached to the Release. Download it from the workflow artifacts."
       - name: Test reports on failure
         if: failure()
         uses: actions/upload-artifact@v4

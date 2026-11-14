@@ -90,7 +90,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                 VideoDecoder.sample(ctx, u, 1.0, 0.0) { f -> frame = f.bitmap; frameT = f.t; false }
                 uri = u
             } catch (e: Throwable) {
-                uri = null; error = ctx.getString(R.string.bench_error, e.message ?: e.javaClass.simpleName)
+                uri = null; ErrorLog.record(ctx, "open-video", e); error = Safety.friendly(ctx, e)
             }
         }
     }
@@ -138,6 +138,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                 FilterChip(selected = npu, onClick = { npu = !npu }, label = { Text("NPU") })
                 FilterChip(selected = preview, onClick = { preview = !preview }, label = { Text(stringResource(R.string.pick_preview)) })
             }
+            BatteryWarning()
             Button(
                 enabled = tap != null && model.isNotEmpty(),
                 onClick = {
@@ -171,7 +172,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                 if (s.targetText != null) Button(onClick = { onResult(s.file) }) { Text(stringResource(R.string.result_open)) }
                 OutlinedButton(onClick = { ScanService.reset() }) { Text(stringResource(R.string.pick_again)) }
             }
-            is ScanUi.Failed -> Text(if (s.cancelled) s.message else stringResource(R.string.bench_error, s.message))
+            is ScanUi.Failed -> Text(s.message)
             ScanUi.Idle -> {}
         }
     }

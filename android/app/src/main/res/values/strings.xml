@@ -72,4 +72,16 @@
     <string name="export_keep_open">Exporting with the hardware encoder. Keep the app open and the screen on until it finishes.</string>
     <string name="export_done">Saved to Movies/TakipliOynat/%1$s (%2$s x realtime).</string>
     <string name="export_cancelled">Export cancelled.</string>
+    <string name="err_no_space">Not enough free storage. Free some space and try again.</string>
+    <string name="err_no_space_export">Not enough free storage for the export: about %1$d MB needed (the file is written twice while it is saved), %2$d MB free. Free some space and try again.</string>
+    <string name="err_model">The pose model file is missing. Use a build that contains the .onnx models, or copy them to Android/data/com.takipli.oynat/files/models/.</string>
+    <string name="err_video">The video cannot be read (moved, deleted, or access was lost). Go back and pick it again.</string>
+    <string name="err_codec">This phone cannot decode or encode this video format. Try H.264 instead of HEVC, or another clip.</string>
+    <string name="err_other">Something went wrong. The details are in the error log (home screen, Share error log).</string>
+    <string name="battery_low">Battery is low and the phone is not charging. A long scan or export may be cut off: plug in the charger.</string>
+    <string name="log_share">Share error log</string>
+    <string name="log_clear">Clear error log</string>
+    <string name="log_empty">The error log is empty.</string>
+    <string name="log_cleared">Error log cleared.</string>
+    <string name="about_licences">Personal-use build. Pose models: Ultralytics YOLOv8 / YOLO11 (AGPL-3.0), not for redistribution. ONNX Runtime (MIT), Qualcomm QNN runtime (Qualcomm terms), OpenCV, AndroidX Media3 and Compose (Apache-2.0). Details: THIRD_PARTY_NOTICES.md in the repository.</string>
 </resources>

@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -49,7 +51,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit, onScan: () -> Unit, onPick: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
+        modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp, alignment = androidx.compose.ui.Alignment.CenterVertically),
     ) {
         Text(stringResource(R.string.home_title), style = MaterialTheme.typography.headlineMedium)
@@ -60,5 +62,6 @@ fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit, onScan: () -> Unit, on
         Button(onClick = onBench) { Text(stringResource(R.string.open_bench)) }
         Button(onClick = onDecode) { Text(stringResource(R.string.open_decode)) }
         Button(onClick = onScan) { Text(stringResource(R.string.open_scan)) }
+        AboutSection()
     }
 }

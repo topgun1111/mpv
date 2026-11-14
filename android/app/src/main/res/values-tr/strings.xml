@@ -72,4 +72,16 @@
     <string name="export_keep_open">Donanım kodlayıcıyla dışa aktarılıyor. Bitene kadar uygulamayı açık ve ekranı yanık tut.</string>
     <string name="export_done">Movies/TakipliOynat/%1$s dosyasına kaydedildi (%2$s x gerçek zaman).</string>
     <string name="export_cancelled">Dışa aktarma iptal edildi.</string>
+    <string name="err_no_space">Yeterli boş depolama yok. Biraz yer aç ve tekrar dene.</string>
+    <string name="err_no_space_export">Dışa aktarma için yeterli boş depolama yok: yaklaşık %1$d MB gerekli (kaydedilirken dosya iki kez yazılır), %2$d MB boş. Yer aç ve tekrar dene.</string>
+    <string name="err_model">Pose modeli dosyası yok. .onnx modellerini içeren bir sürüm kullan ya da dosyaları Android/data/com.takipli.oynat/files/models/ klasörüne kopyala.</string>
+    <string name="err_video">Video okunamıyor (taşınmış, silinmiş ya da erişim izni kaybolmuş). Geri dön ve videoyu yeniden seç.</string>
+    <string name="err_codec">Bu telefon bu video biçimini çözemiyor ya da kodlayamıyor. HEVC yerine H.264 dene ya da başka bir klip seç.</string>
+    <string name="err_other">Bir şeyler ters gitti. Ayrıntılar hata günlüğünde (ana ekran, Hata günlüğünü paylaş).</string>
+    <string name="battery_low">Pil düşük ve telefon şarjda değil. Uzun bir tarama ya da dışa aktarma yarıda kesilebilir: şarj cihazını tak.</string>
+    <string name="log_share">Hata günlüğünü paylaş</string>
+    <string name="log_clear">Hata günlüğünü temizle</string>
+    <string name="log_empty">Hata günlüğü boş.</string>
+    <string name="log_cleared">Hata günlüğü temizlendi.</string>
+    <string name="about_licences">Kişisel kullanım sürümü. Pose modelleri: Ultralytics YOLOv8 / YOLO11 (AGPL-3.0), dağıtım için değil. ONNX Runtime (MIT), Qualcomm QNN çalışma zamanı (Qualcomm koşulları), OpenCV, AndroidX Media3 ve Compose (Apache-2.0). Ayrıntı: depodaki THIRD_PARTY_NOTICES.md.</string>
 </resources>

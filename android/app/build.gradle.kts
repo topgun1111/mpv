@@ -27,6 +27,36 @@ android {
         ndk { abiFilters += "arm64-v8a" } // phone only (Snapdragon 8 Gen 3); no x86 emulator
     }
 
+    // Part 15: release signing from the environment (CI writes the keystore from GitHub secrets; see .github/workflows/android.yml).
+    // Without KEYSTORE_PATH the release build stays unsigned: CI then skips it, local builds just use assembleDebug.
+    val keystorePath: String? = System.getenv("KEYSTORE_PATH")
+    signingConfigs {
+        if (!keystorePath.isNullOrEmpty() && file(keystorePath).isFile) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // No R8: ONNX Runtime, OpenCV and kotlinx.serialization need keep rules that were never tested here, and the APK
+            // is dominated by the models and native libraries anyway.
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.findByName("release")
+        }
+    }
+
+    lint {
+        // The release build must not fail on lint (the first compile of this code has not happened yet); run `gradle lint` on purpose.
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
