@@ -23,6 +23,13 @@ object PointScanner {
 
     suspend fun run(ctx: Context, uri: Uri, doc: TrackDoc, pick: FreePick, onProgress: (Int, Int, Double) -> Unit = { _, _, _ -> }): PointTrack =
         withContext(Dispatchers.Default) {
+            // `sam` build: SAM 2 first (accuracy over speed); any failure falls back to the optical-flow tracker below.
+            // (The `pose` build's SamEngine always returns null.)
+            if (SamEngine.hasModels(ctx)) {
+                try { SamEngine.track(ctx, uri, doc, pick, onProgress)?.let { return@withContext it } }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Throwable) { ErrorLog.record(ctx, "sam", e) }
+            }
             check(OpenCvFlow.available) { "OpenCV not available" }
             val n = doc.samples.size
             require(n > 0) { "empty scan" }

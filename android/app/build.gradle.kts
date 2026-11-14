@@ -27,6 +27,24 @@ android {
         ndk { abiFilters += "arm64-v8a" } // phone only (Snapdragon 8 Gen 3); no x86 emulator
     }
 
+    // Two builds from one code base (CI matrix in .github/workflows/android.yml):
+    //   pose = YOLOv8s/YOLO11m pose + optical-flow trackers (the current app)
+    //   sam  = same, plus the SAM-type tracker models (EdgeTAM); installs next to the pose app (own applicationId)
+    // Models live in src/<flavor>/assets/models (CI fills them; git-ignored). Code can branch on BuildConfig.ENGINE.
+    flavorDimensions += "engine"
+    productFlavors {
+        create("pose") {
+            dimension = "engine"
+            buildConfigField("String", "ENGINE", "\"pose\"")
+        }
+        create("sam") {
+            dimension = "engine"
+            applicationIdSuffix = ".sam"
+            versionNameSuffix = "-sam"
+            buildConfigField("String", "ENGINE", "\"sam\"")
+        }
+    }
+
     // Part 15: release signing from the environment (CI writes the keystore from GitHub secrets; see .github/workflows/android.yml).
     // Without KEYSTORE_PATH the release build stays unsigned: CI then skips it, local builds just use assembleDebug.
     val keystorePath: String? = System.getenv("KEYSTORE_PATH")

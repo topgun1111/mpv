@@ -14,7 +14,8 @@ is committed. Locally:
 
 ```
 cd android
-gradle :core:test :app:assembleDebug        # APK: app/build/outputs/apk/debug/app-debug.apk
+gradle :core:test :app:assemblePoseDebug     # APK: app/build/outputs/apk/pose/debug/app-pose-debug.apk
+gradle :app:assembleSamDebug                # SAM build (applicationId com.takipli.oynat.sam): app-sam-debug.apk
 ```
 
 Needs JDK 17+ and the Android SDK (platform 36). To get a local wrapper once: `gradle wrapper --gradle-version 8.14.3`
@@ -25,8 +26,8 @@ Only the phone ABI `arm64-v8a` is built.
 
 ## Pose benchmark (Parts 5-6, CPU and NPU)
 
-Home → "Pose benchmark (CPU)". Models come from `app/src/main/assets/models/*.onnx` (CI exports them; the folder is git-ignored)
-or from `Android/data/com.takipli.oynat/files/models/` on the phone. Local build without CI: put `.onnx` files in the assets folder first.
+Home → "Pose benchmark (CPU)". Models come from `app/src/<flavor>/assets/models/*.onnx` (`pose` or `sam`; CI exports them; the folders are git-ignored)
+or from `Android/data/com.takipli.oynat/files/models/` on the phone. Local build without CI: put `.onnx` files in the flavor's assets folder first.
 
 ## Release build (Part 15)
 
@@ -44,7 +45,7 @@ Create a keystore once (keep it and the passwords safe; losing them means phones
 keytool -genkeypair -v -keystore release.jks -alias takipli -keyalg RSA -keysize 4096 -validity 10000
 ```
 
-Local signed build: `KEYSTORE_PATH=/abs/path/release.jks KEYSTORE_PASSWORD=... KEY_ALIAS=takipli KEY_PASSWORD=... gradle :app:assembleRelease`.
+Local signed build: `KEYSTORE_PATH=/abs/path/release.jks KEYSTORE_PASSWORD=... KEY_ALIAS=takipli KEY_PASSWORD=... gradle :app:assemblePoseRelease` (or `assembleSamRelease`).
 The APK is attached to the GitHub Release **only in a private repository** (it contains AGPL-3.0 pose models for personal use);
 in a public repository it stays a workflow artifact (`TakipliOynat-Android-Release`).
 

@@ -5,6 +5,8 @@ name: Android
 # (keystore from the ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
 # secrets) and, in a PRIVATE repository only, attaches it to the same GitHub Release as the Windows files.
 # Why private only: the APK contains the Ultralytics pose models (AGPL-3.0, personal use; handover-android.md, decisions log).
+# Two builds from one job (matrix): `pose` (pose models + optical-flow trackers) and `sam` (adds SAM 2.1 for free-point / region targets;
+# own applicationId com.takipli.oynat.sam, so both install side by side). One failing flavor does not cancel the other.
 on:
   push:
     branches: [main]
@@ -22,8 +24,17 @@ permissions:
 
 jobs:
   android:
+    name: android-${{ matrix.flavor }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavor: pose
+            Flavor: Pose
+          - flavor: sam
+            Flavor: Sam
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -37,18 +48,35 @@ jobs:
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install ultralytics onnx
-          d=android/app/src/main/assets/models
-          python scripts/export_pose.py "$d" yolov8s-pose
-          python scripts/export_pose.py "$d" yolo11m-pose
+          d=android/app/src/${{ matrix.flavor }}/assets/models
+          # pose build: both candidates (decide by measurement); sam build: the small one + the SAM models below
+          if [ "${{ matrix.flavor }}" = "pose" ]; then models="yolov8s-pose yolo11m-pose"; else models="yolov8s-pose"; fi
+          for m in $models; do python scripts/export_pose.py "$d" "$m"; done
           ls -l "$d"
-          for m in yolov8s-pose yolo11m-pose; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
+          for m in $models; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
+      - name: SAM 2.1 models (sam build only; Apache-2.0; exported from the official checkpoint)
+        if: matrix.flavor == 'sam'
+        env:
+          SAM_MODELS_URL: ${{ vars.SAM_MODELS_URL }}
+        run: |
+          d=android/app/src/sam/assets/models
+          mkdir -p "$d"
+          if [ -n "$SAM_MODELS_URL" ]; then # optional override: a zip with sam2-encoder.onnx + sam2-decoder.onnx
+            curl -fL --retry 3 -o "$RUNNER_TEMP/sam.zip" "$SAM_MODELS_URL"
+            unzip -o -j "$RUNNER_TEMP/sam.zip" "*.onnx" -d "$d"
+          else
+            pip install onnx git+https://github.com/facebookresearch/sam2.git
+            python scripts/export_sam2.py "$d" base_plus
+          fi
+          ls -l "$d"
+          for m in sam2-encoder sam2-decoder; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
       - name: int8 QDQ pose models for the NPU (only if android/calib has frames; optional)
         continue-on-error: true
         run: |
           n=$(ls android/calib/*.jpg android/calib/*.jpeg android/calib/*.png 2>/dev/null | wc -l)
           if [ "$n" -lt 10 ]; then echo "android/calib has $n frames (<10): skipping int8"; exit 0; fi
           pip install onnxruntime opencv-python-headless
-          d=android/app/src/main/assets/models
+          d=android/app/src/${{ matrix.flavor }}/assets/models
           python scripts/quantize_android.py "$d/yolov8s-pose.onnx" "$d/yolov8s-pose-int8.onnx" android/calib
           python scripts/quantize_android.py "$d/yolov8s-pose.onnx" "$d/yolov8s-pose-a16w8.onnx" android/calib --a16
           ls -l "$d"
@@ -62,15 +90,15 @@ jobs:
           gradle-version: "8.14.3"
       - name: Unit tests + debug APK
         working-directory: android
-        run: gradle --no-daemon --stacktrace :core:test :app:assembleDebug
+        run: gradle --no-daemon --stacktrace :core:test :app:assemble${{ matrix.Flavor }}Debug
       - name: Models are inside the APK
         run: |
-          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/models/.*\.onnx"
+          unzip -l android/app/build/outputs/apk/${{ matrix.flavor }}/debug/app-${{ matrix.flavor }}-debug.apk | grep -E "assets/models/.*\.onnx"
       - name: Name the APK
         run: |
           v=$(tr -d "[:space:]" < VERSION)
           mkdir -p dist-android/release
-          cp android/app/build/outputs/apk/debug/app-debug.apk "dist-android/TakipliOynat-Android-$v-debug.apk"
+          cp android/app/build/outputs/apk/${{ matrix.flavor }}/debug/app-${{ matrix.flavor }}-debug.apk "dist-android/TakipliOynat-Android-${{ matrix.flavor }}-$v-debug.apk"
       - name: Signed release APK (v* tags; needs the keystore secrets, otherwise skipped with a warning)
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -85,20 +113,20 @@ jobs:
           fi
           export KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
           echo "$KEYSTORE_B64" | base64 -d > "$KEYSTORE_PATH"
-          (cd android && gradle --no-daemon --stacktrace :app:assembleRelease)
+          (cd android && gradle --no-daemon --stacktrace :app:assemble${{ matrix.Flavor }}Release)
           rm -f "$KEYSTORE_PATH"
-          apk=android/app/build/outputs/apk/release/app-release.apk
-          test -s "$apk" || { echo "release APK was not produced (unsigned?)"; ls -l android/app/build/outputs/apk/release; exit 1; }
+          apk=android/app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk
+          test -s "$apk" || { echo "release APK was not produced (unsigned?)"; ls -l android/app/build/outputs/apk/${{ matrix.flavor }}/release; exit 1; }
           v=$(tr -d "[:space:]" < VERSION)
-          cp "$apk" "dist-android/release/TakipliOynat-Android-$v.apk"
+          cp "$apk" "dist-android/release/TakipliOynat-Android-${{ matrix.flavor }}-$v.apk"
       - uses: actions/upload-artifact@v4
         with:
-          name: TakipliOynat-Android
+          name: TakipliOynat-Android-${{ matrix.flavor }}
           path: dist-android/*.apk
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: TakipliOynat-Android-Release
+          name: TakipliOynat-Android-${{ matrix.flavor }}-Release
           path: dist-android/release/*.apk
           if-no-files-found: ignore
       - name: Attach the signed APK to the GitHub Release (private repositories only; AGPL models inside)
@@ -114,6 +142,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: android-reports
+          name: android-reports-${{ matrix.flavor }}
           path: android/**/build/reports
           if-no-files-found: ignore
