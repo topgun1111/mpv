@@ -31,8 +31,8 @@ from tracker.offline import (  # noqa: E402
     save_views,
     view_at,
 )
-from tracker.scan import Selection, resolve_selection  # noqa: E402
 from tracker.pose import Pose, decode_yolo_pose, nearest_keypoint  # noqa: E402
+from tracker.scan import Selection, resolve_selection  # noqa: E402
 from tracker.smooth import BoxFilter, Kalman1D, OneEuro  # noqa: E402
 
 OUT = ROOT / "android" / "core" / "src" / "test" / "resources" / "golden"

@@ -23,9 +23,13 @@ fun associatePoses(tracks: List<Track>, poses: List<Pose>, minIou: Double = 0.3)
     return out
 }
 
-private fun round(v: Double, digits: Int): Double {
-    val k = Math.pow(10.0, digits.toDouble())
-    return Math.rint(v * k) / k
+/**
+ * Python's `round(v, digits)`: rounds the exact binary value half-to-even. `rint(v * 10^digits)` is NOT the same: the
+ * multiplication can land exactly on .5 (e.g. 0.66655 -> 0.6665 in Python, 0.6666 with rint) and break the golden test.
+ */
+internal fun round(v: Double, digits: Int): Double {
+    if (v.isNaN() || v.isInfinite()) return v
+    return java.math.BigDecimal(v).setScale(digits, java.math.RoundingMode.HALF_EVEN).toDouble() + 0.0
 }
 
 /** `offline.py::_kp_row`: 17 x (x/w, y/h rounded to 4 decimals, conf to 2). */

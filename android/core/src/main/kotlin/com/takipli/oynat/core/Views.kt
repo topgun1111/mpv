@@ -31,7 +31,7 @@ private val REGION: Map<String, Pair<Double, Double>> = mapOf(
 
 private fun clamp(v: Double, lo: Double, hi: Double) = max(lo, min(hi, v))
 
-private fun round4(v: Double) = Math.rint(v * 1e4) / 1e4 + 0.0 // + 0.0: -0.0 becomes 0.0 (Python compares them equal)
+private fun round4(v: Double) = round(v, 4) // exact half-even like Python (see Scan.kt); +0.0 there turns -0.0 into 0.0
 
 /** `geometry.py::zoom_for_bbox`: log2 zoom so the box fills `fill` of the frame height (and fits the width). */
 fun zoomForBbox(b: BBox, fw: Double, fh: Double, fill: Double, minZoom: Double, maxZoom: Double): Double {
