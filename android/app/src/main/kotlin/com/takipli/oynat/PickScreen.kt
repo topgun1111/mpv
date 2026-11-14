@@ -47,6 +47,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import com.takipli.oynat.core.COCO_SKELETON
 import com.takipli.oynat.core.PRESETS
@@ -146,7 +147,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                 Canvas(
                     Modifier.matchParentSize().pointerInput(draw) {
                         fun nrm(o: Offset) = Offset((o.x / size.width).coerceIn(0f, 1f), (o.y / size.height).coerceIn(0f, 1f))
-                        if (draw) androidx.compose.foundation.gestures.detectDragGestures(
+                        if (draw) detectDragGestures(
                             onDragStart = { o -> curStroke = listOf(nrm(o)) },
                             onDrag = { c, _ -> curStroke = curStroke + nrm(c.position) },
                             onDragEnd = { if (curStroke.size >= 3) strokes.add(curStroke); curStroke = emptyList() },
