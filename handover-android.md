@@ -33,7 +33,7 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 | 1 | Android skeleton + CI workflow | ✅ written 2026-11-14 (first CI run pending) |
 | 2 | Core data, geometry, formats (incl. keypoints), One-Euro filter + golden tests | ✅ written 2026-11-14 (Kotlin never compiled here: first CI run pending) |
 | 3 | ByteTrack + Kalman port | ✅ written 2026-11-14 (Kotlin never compiled here: CI run pending) |
-| 4 | Pose model decoding (person box + 17 keypoints) | ⬜ |
+| 4 | Pose model decoding (person box + 17 keypoints) | ✅ written 2026-11-14 (synthetic golden; real-tensor golden pending; CI run pending) |
 | 5 | ONNX Runtime on device (CPU) + bench screen | ⬜ |
 | 6 | NPU: model prep + QNN provider + CPU/NPU bench + licence decision | ⬜ |
 | 7 | Video decode + frame sampling (configurable fps) | ⬜ |
@@ -187,7 +187,12 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - Port `tracker/bytetrack.py` and the Kalman part of `smooth.py` (person IDs across frames). Camera compensation is a hook only.
 - Exit: golden test on synthetic detections identical to Python.
 
-**Part 4 — Pose decoding** (~300)
+**Part 4 — Pose decoding** (~300) ✅ written, CI run pending
+- Files: `core/.../Pose.kt` (`letterboxLayout`, `preprocessChw` (RGB CHW float, gray 114), `decodeYoloPose` for `[56,N]` and `[N,56]`, `nms`, `nearestKeypoint`, `toDetections`/`withMinScore` = `PoseDetector.detect/estimate` filters), `PoseTest.kt`, fixtures `letterbox.json`, `pose.json`, `scripts/gen_golden.py`.
+- Golden input is a **synthetic** `[56,60]` tensor (NMS pair, clipped box, degenerate box, 52 background rows); expected values come from the Python `decode_yolo_pose`. Tolerance: boxes/keypoints 1e-3 px (Python is float32), scores 1e-6.
+- **Still open for this part's exit:** a golden from a *real* model output on one test image (needs `models/yolov8s-pose.onnx` + an image + onnxruntime; none were available). Do it when the model is at hand; the synthetic test already pins the decode logic.
+- The pixel resize is done by the app (Part 5: `Bitmap.createScaledBitmap` to `layout.newW x newH`, then `preprocessChw`); cv2 bilinear vs Android bilinear differ slightly, which is fine for inference.
+- Not ported yet: `PoseDetector` caching wrapper and `associate_poses` (Part 9).
 - Letterbox/preprocess, decode `[1,56,N]` (4 box + 1 score + 17×3 keypoints), NMS, mapping keypoints back to frame coordinates (port of `tracker/pose.py::decode_yolo_pose`), person boxes derived from pose output.
 - Golden: record a real pose-model output tensor for one test image in Python; Kotlin decode must match boxes and keypoints within a documented tolerance.
 

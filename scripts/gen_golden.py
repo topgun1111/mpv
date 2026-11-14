@@ -19,8 +19,10 @@ sys.path.insert(0, str(ROOT))
 from tracker.bytetrack import ByteTracker, KalmanBox, linear_assignment  # noqa: E402
 from tracker.config import Config  # noqa: E402
 from tracker.export import crop_rect  # noqa: E402
+from tracker.detector import LetterboxInfo, letterbox  # noqa: E402
 from tracker.geometry import BBox  # noqa: E402
 from tracker.offline import make_doc, save_views, view_at  # noqa: E402
+from tracker.pose import Pose, decode_yolo_pose, nearest_keypoint  # noqa: E402
 from tracker.smooth import BoxFilter, Kalman1D, OneEuro  # noqa: E402
 
 OUT = ROOT / "android" / "core" / "src" / "test" / "resources" / "golden"
@@ -174,6 +176,71 @@ def _bytetrack() -> dict:
     return {"frames": frames, "runs": runs}
 
 
+def _letterbox() -> dict:
+    cases = []
+    for (h, w), size in [((720, 1280), (640, 640)), ((1080, 1920), (640, 640)),
+                         ((640, 640), (640, 640)), ((480, 360), (640, 640)),
+                         ((1000, 333), (640, 640)), ((3, 1000), (640, 640)),
+                         ((720, 1280), (384, 640)), ((721, 1281), (640, 640))]:
+        img, info = letterbox(np.zeros((h, w, 3), np.uint8), size)
+        r = min(size[0] / h, size[1] / w)
+        cases.append({"h": h, "w": w, "size": list(size), "scale": info.scale,
+                      "pad_x": info.pad_x, "pad_y": info.pad_y,
+                      "nw": max(1, round(w * r)), "nh": max(1, round(h * r))})
+    return {"cases": cases}
+
+
+def _pose_tensor(info: LetterboxInfo) -> np.ndarray:
+    """Synthetic YOLOv8-pose output [56, N] in letterbox space (float32, 3-decimal values)."""
+    rng = random.Random(21)
+    rows = []
+
+    def person(cx, cy, w, h, score):  # letterbox-space box + a plausible skeleton
+        kp = []
+        for k in range(17):
+            fx = (-0.15 if k % 2 else 0.15) if k < 11 else (-0.1 if k % 2 else 0.1)
+            fy = -0.4 + 0.8 * k / 16
+            kp += [cx + fx * w + rng.uniform(-2, 2), cy + fy * h, rng.uniform(0.05, 0.99)]
+        return [cx, cy, w, h, score] + kp
+
+    rows += [person(300, 300, 120, 300, 0.92), person(304, 298, 118, 296, 0.80),  # NMS pair
+             person(520, 330, 100, 260, 0.75), person(100, 360, 90, 240, 0.60),
+             person(600, 200, 80, 220, 0.40), person(400, 120, 60, 160, 0.30),
+             person(330, 400, 0.4, 0.4, 0.99),  # degenerate (<1 px after mapping): dropped
+             person(20, 330, 150, 250, 0.55)]  # crosses the left letterbox edge: clipped
+    for _ in range(52):  # background: below any threshold
+        rows.append(person(rng.uniform(0, 640), rng.uniform(80, 560), rng.uniform(20, 80),
+                           rng.uniform(40, 200), rng.uniform(0.0, 0.2)))
+    arr = np.round(np.array(rows, np.float64), 3).astype(np.float32)  # [N, 56]
+    return arr.T.copy()
+
+
+def _pose() -> dict:
+    img, info = letterbox(np.zeros((720, 1280, 3), np.uint8), (640, 640))
+    fw, fh = 1280, 720
+    t = _pose_tensor(info)  # [56, N]
+    cases, poses_for_pick = [], None
+    for kw in ({}, {"conf_thres": 0.5}, {"conf_thres": 0.1, "iou_thres": 0.9},
+               {"conf_thres": 0.1, "max_det": 2}):
+        poses = decode_yolo_pose(t[None], info, fw, fh, **kw)
+        cases.append({"params": kw, "poses": [
+            {"box": _f([p.bbox.x1, p.bbox.y1, p.bbox.x2, p.bbox.y2]), "score": p.score,
+             "kpts": _f(p.kpts.reshape(-1))} for p in poses]})
+        if not kw:
+            poses_for_pick = poses
+    k = next(kp for kp in poses_for_pick[0].kpts[5:] if kp[2] >= 0.35)
+    picks = []
+    queries = [(float(k[0]) + 1.0, float(k[1]) + 1.0, {}), (0, 0, {}), (300, 300, {}),
+               (640, 300, {}), (640, 300, {"tol": 1.0}),
+               (640, 300, {"tol": 1.0, "min_conf": 0.9}), (900, 400, {"tol": 0.3})]
+    for px, py, kw in queries:
+        r = nearest_keypoint(poses_for_pick, px, py, **kw)
+        picks.append({"x": px, "y": py, "params": kw, "result": None if r is None else list(r)})
+    return {"info": {"scale": info.scale, "pad_x": info.pad_x, "pad_y": info.pad_y},
+            "frame": [fw, fh], "dim": list(t.shape), "data": _f(t.reshape(-1)),
+            "cases": cases, "picks": picks}
+
+
 def _docs() -> dict:
     kp = [round(0.01 * i, 4) if j < 2 else 0.9 for i in range(17) for j in range(3)]
     samples = [
@@ -198,6 +265,7 @@ def build() -> dict[str, str]:
     parts = {"view_at": _view_at(), "crop_rect": _crop_rect(), "one_euro": _one_euro(),
              "config": _config(), "assignment": _assignment(), "kalman_box": _kalman_box(),
              "kalman_1d": _kalman_1d(), "box_filter": _box_filter(), "bytetrack": _bytetrack(),
+             "letterbox": _letterbox(), "pose": _pose(),
              **_docs()}
     return {f"{k}.json": json.dumps(v, indent=1, sort_keys=True) + "\n" for k, v in parts.items()}
 
