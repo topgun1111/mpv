@@ -13,10 +13,12 @@ from dataclasses import dataclass
 
 from . import errlog
 from .clicks import (
+    ADDMODE_MSG,
     DOT_MSG,
     HUD_MSG,
     PART_MSG,
     RELEASE_MSG,
+    REMOVE_MSG,
     RESET_MSG,
     SAVE_MSG,
     SETTING_MSG,
@@ -35,6 +37,7 @@ from .parts import CYCLE, LABELS_TR, PART_MARGIN, next_preset
 from .quality import SOURCES, QualityWindow, scanned_agrees, views_ready
 from .settings import SETTINGS, adjust, status_text
 from .smooth import BoxFilter, ViewSmoother, ease_view
+from .targets import TargetSet
 
 CLOSED = {"event": "__closed__"}
 
@@ -144,6 +147,7 @@ class LiveController:
         # (kare, px, py, cfg) -> update(kare) -> BBox | None veren nesne; testte sahtesi verilir
         self._point_factory = point_factory or _default_point_factory
         self.point = None  # sağ tıkla seçilen sınıfsız nesne izleyici (tracker/point.py)
+        self.add_mode = False  # T1: sonraki sağ tık mevcut hedefe EKLER (birleşik kadraj)
         self.part = "auto"  # B3: parts.CYCLE adı; "auto" = tıklanan eklem (eski davranış)
         self._part_req = False  # oyuncu (ByteTrack) hedefi var, parçaya geçiş sonraki karede
         self.cfg_path = cfg_path  # `track-save` ayarları buraya yazar
@@ -231,6 +235,13 @@ class LiveController:
             return self._release()
         if name == SETTING_MSG:
             return self._on_setting(ev.get("args") or [])
+        if name == ADDMODE_MSG:
+            a = (ev.get("args") or [None, "toggle"])[1:2]
+            self.add_mode = (not self.add_mode) if a == ["toggle"] else a == ["on"]
+            return Output(osd="Hedef ekleme: " + ("AÇIK (sağ tık ekler)" if self.add_mode
+                                                  else "kapalı"))
+        if name == REMOVE_MSG:
+            return self._remove_target(None)
         if name == PART_MSG:
             return self._on_part(ev.get("args") or [])
         if name == STATUS_MSG:
@@ -238,6 +249,20 @@ class LiveController:
         if name == SAVE_MSG:
             return self._on_save()
         return Output()
+
+    def _remove_target(self, i: int | None) -> Output:
+        """T1: kümeden bir hedefi çıkar (i=None: sonuncu). Tek hedef kalırsa küme açılır."""
+        ts = self.point
+        if not isinstance(ts, TargetSet):
+            return self._release()
+        t = ts.remove(len(ts) - 1 if i is None else i)
+        label = getattr(t, "label", "hedef")
+        if len(ts) == 0:
+            return self._release()
+        if len(ts) == 1:
+            self.point = ts.trackers[0]
+        self.flt.reset()
+        return Output(osd=f"Hedef çıkarıldı: {label} ({len(ts)} kaldı)")
 
     def _on_part(self, args: list) -> Output:
         """B3: vücut parçası ayarı. Hedef zaten bir kişi/eklemse parça YENİDEN TARAMADAN değişir;
@@ -255,6 +280,13 @@ class LiveController:
         from .pose import KeypointTracker, PartTracker
 
         pt = self.point
+        if isinstance(pt, TargetSet):  # T1: kümedeki tüm parça izleyicileri aynı parçaya geçer
+            n = 0
+            for m in pt.trackers:
+                if isinstance(m, PartTracker):
+                    m.set_preset(name)
+                    n += 1
+            return Output(osd=f"Parça: {label}" + ("" if n else " (kümede parça hedefi yok)"))
         if isinstance(pt, PartTracker):
             pt.set_preset(name)
             self.flt.reset()
@@ -461,8 +493,13 @@ class LiveController:
             sx, sy = fw / click.vw, fh / click.vh
             box = (x1 * sx, y1 * sy, max(x2 * sx, x1 * sx + 4), max(y2 * sy, y1 * sy + 4))
             px, py = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+        if box is None and isinstance(self.point, TargetSet) and self._lost_t0 is None:
+            i = self.point.member_at(px, py)  # T1: üyeye sağ tık = o hedefi çıkar
+            if i is not None:
+                out = self._remove_target(i)
+                return Output(view=out.view, osd=out.osd)
         if (box is None and self.point is not None and self._lost_t0 is None
-                and self.point.bbox.contains(px, py)):
+                and not isinstance(self.point, TargetSet) and self.point.bbox.contains(px, py)):
             out = self._release()
             return Output(view=out.view, osd=out.osd)
         cur = next((x for x in self.last_tracks if x.id == self.target_id), None)
@@ -485,6 +522,17 @@ class LiveController:
         except Exception as e:  # cv2 yok / kare bozuk: takip döngüsü düşmesin
             errlog.record("nesne takibi başlatma", e)
             return Output(osd=f"Nesne takibi başlatılamadı: {e}")
+        if self.add_mode and self.point is not None:  # T1: yeni hedefi kümeye ekle
+            ts = self.point
+            if not isinstance(ts, TargetSet):
+                ts = TargetSet(ts, fill=self.cfg.target_fill, min_zoom=self.cfg.set_min_zoom,
+                               hyst=self.cfg.set_hyst)
+            ts.add(pt)
+            self.point = ts
+            self._clear_lost()
+            self.flt.reset()
+            return self._follow(ts.bbox, fw, fh, t,
+                                f"Hedef eklendi: {getattr(pt, 'label', 'nesne')} ({len(ts)} hedef)")
         if not self.has_target:
             self.smoother.reset()  # ilk hedef: doğrudan oraya; sonrakilerde kayarak geçilir
         elif self._zooming_out:

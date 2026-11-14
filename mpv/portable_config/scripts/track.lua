@@ -361,6 +361,15 @@ local function next_part()
 end
 mp.add_key_binding(nil, "part", next_part)
 
+-- T1: hedef ekleme kipi. Açıkken sağ tık mevcut hedefe EKLER (birleşik kadraj); üyeye sağ tık çıkarır.
+local add_mode = false
+local function toggle_add()
+  add_mode = not add_mode
+  if add_mode and not enabled then set_enabled(true) end
+  mp.commandv("script-message", "track-addmode", add_mode and "on" or "off")
+end
+mp.add_key_binding(nil, "add", toggle_add)
+
 mp.register_script_message("track-use-scanned", function(reason)
   if source ~= "auto" or off.on or not video_path() then return end
   set_offline(true, true, reason)
@@ -1363,6 +1372,8 @@ if TRACK_SHOW_MENU ~= false then
       src_auto = function() set_source("auto") end, src_live = function() set_source("live") end,
       src_scanned = function() set_source("scanned") end,
       bodypart = next_part, part_next = next_part,
+      target_add = toggle_add,
+      target_remove = function() mp.commandv("script-message", "track-remove") end,
       speed_up = setting("speed", 1), speed_down = setting("speed", -1),
       lead_up = setting("lead", 1), lead_down = setting("lead", -1),
       fill_up = setting("fill", 1), fill_down = setting("fill", -1),
@@ -1373,12 +1384,12 @@ if TRACK_SHOW_MENU ~= false then
     for _, p in ipairs(PARTS) do ACT["part_" .. p] = function() set_part(p) end end
     for k, f in pairs(FILES) do ACT[k] = f end
     local NEED_VIDEO = { close = true, save_view = true, load_view = true } -- video yokken gri
-    local LIVE = { release = true, speed_up = true, speed_down = true, lead_up = true,
+    local LIVE = { release = true, target_remove = true, speed_up = true, speed_down = true, lead_up = true,
       lead_down = true, fill_up = true, fill_down = true }
     local CHECK = { src_auto = function() return source == "auto" end,
       src_live = function() return source == "live" end,
       src_scanned = function() return source == "scanned" end,
-      toggle = function() return enabled end,
+      toggle = function() return enabled end, target_add = function() return add_mode end,
       offline = function() return off.on end,
       hud = function() return hud.visible end, fullscreen = function() return mp.get_property_native("fullscreen") == true end, panel = function() return panel.pinned end }
     menu = TM.new({

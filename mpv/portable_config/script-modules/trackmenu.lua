@@ -43,6 +43,9 @@ M.MENUS = {
     { sep = true },
     { cmd = "autoscan", label = "Otomatik tarama", todo = true },
     { cmd = "bodypart", label = "Vücut parçası (değiştir)", key = "G" },
+    { sep = true },
+    { cmd = "target_add", label = "Hedef ekle (sağ tık ekler)", key = "A" },
+    { cmd = "target_remove", label = "Son hedefi çıkar" },
   } },
   -- B3: vücut parçası seçimi (Takip menüsünün alt menüsü yerine ayrı başlık: liste uzun, küçük
   -- pencerede Takip listesine sığmaz). Sıra/adlar tracker/parts.py CYCLE ile aynı (testle denetlenir).
