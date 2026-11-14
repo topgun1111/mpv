@@ -70,7 +70,7 @@ jobs:
             # Editable install from a clone: the pip wheel of EdgeTAM leaves out configs/edgetam.yaml (build_sam2 then cannot find it).
             # It installs a package named `sam2`: never next to facebookresearch/sam2.
             git clone --depth 1 https://github.com/facebookresearch/EdgeTAM.git "$RUNNER_TEMP/EdgeTAM"
-            pip install onnx onnxruntime -e "$RUNNER_TEMP/EdgeTAM"
+            pip install onnx onnxruntime timm -e "$RUNNER_TEMP/EdgeTAM"
             # Five static graphs (encoder, decoder, decoder-trk, memenc, memattn); the script checks every file against PyTorch.
             # If the memory export fails (e.g. another RoPE variant), still ship encoder + decoder: the app then tracks per frame.
             python scripts/export_sam2.py "$d" edgetam || {

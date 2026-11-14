@@ -482,3 +482,7 @@ Done from the two-stage recommendation (user: "do these").
 3. Differences from SAM 2: pointer of the prompted frame is always used (SAM 2 drops it after 16 frames); padded slots repeat the prompted entry; a single tap at the prompted frame uses the 3-slot decoder with two unused slots (SAM 2 would have 1 point); lost frames add nothing to memory (SAM 2 stores a no-object memory).
 4. Not done: persisting masks to disk (they live only inside the tracker), a UI preview of the mask, int8 for decoder/memory graphs, `htp_graph_finalization_optimization_mode` and VTCM options (only the four proven option names are used).
 5. Bench lines to fill: per graph CPU vs NPU, fp16 vs int8 encoder, memory tracker x-realtime (`lastRun`) vs prompt tracker, NPU-vs-CPU mask IoU.
+
+
+## CI düzeltmesi (2026-11-15)
+- `android.yml` → android-sam işi EdgeTAM dışa aktarımında `ModuleNotFoundError: timm` ile düşüyordu (EdgeTAM `sam2/modeling/backbones/timm.py` `timm` ister; editable kurulum bağımlılığı çekmiyor). `pip install ... timm -e ...` ile giderildi. android-pose işi zaten yeşildi.
