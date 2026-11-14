@@ -66,6 +66,9 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.media3.exoplayer) // Part 13: result preview player 
+    implementation(libs.media3.transformer) // Part 14: export (hardware encoder, audio passthrough)
+    implementation(libs.media3.effect) // MatrixTransformation = the follow-cam crop
     implementation(libs.opencv) // Part 8: LK optical flow for camera-motion compensation (arm64 only via abiFilters)
     implementation(libs.onnxruntime.android.qnn) // ORT with CPU + QNN (Hexagon HTP) providers; pulls com.qualcomm.qti:qnn-runtime
     debugImplementation(libs.androidx.compose.ui.tooling)

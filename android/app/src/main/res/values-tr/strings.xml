@@ -51,4 +51,25 @@
     <string name="scan_channel">Video taraması</string>
     <string name="scan_notify_start">Tarama başlıyor …</string>
     <string name="scan_notify_run">Taranıyor: %1$d / %2$d örnek</string>
+    <string name="pick_preview">Canlı önizleme</string>
+    <string name="pick_speed">Tarama hızı: %1$s x gerçek zaman (önizleme %2$s)</string>
+    <string name="result_open">Sonucu önizle</string>
+    <string name="result_loading">Tarama yükleniyor …</string>
+    <string name="result_no_target">Bu taramada hedef yok (dokunulan noktada kimse yoktu). Geri dönüp yeniden seç.</string>
+    <string name="result_play">Oynat</string>
+    <string name="result_pause">Duraklat</string>
+    <string name="result_follow">Takip kamerası</string>
+    <string name="result_save">Görünümleri kaydet</string>
+    <string name="result_saved">Kaydedildi: görünümler tarama dosyasında ve yanındaki .views.json içinde.</string>
+    <string name="tune_fill">Hedef doluluğu (kare yüksekliği oranı): %1$s</string>
+    <string name="tune_box">Parça kutusu boyutu (x kişi boyu): %1$s</string>
+    <string name="tune_maxzoom">En çok yakınlaştırma (log2): %1$s</string>
+    <string name="tune_follow">Takip hızı (yüksek = sıkı): %1$s</string>
+    <string name="tune_hold">Kayıpta bekleme (sn): %1$s</string>
+    <string name="tune_reset">Kaydırıcıları sıfırla</string>
+    <string name="export_title">Takipli videoyu dışa aktar (MP4, özgün ses)</string>
+    <string name="export_start">Dışa aktar</string>
+    <string name="export_keep_open">Donanım kodlayıcıyla dışa aktarılıyor. Bitene kadar uygulamayı açık ve ekranı yanık tut.</string>
+    <string name="export_done">Movies/TakipliOynat/%1$s dosyasına kaydedildi (%2$s x gerçek zaman).</string>
+    <string name="export_cancelled">Dışa aktarma iptal edildi.</string>
 </resources>

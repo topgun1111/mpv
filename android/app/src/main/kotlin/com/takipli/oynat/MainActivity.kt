@@ -31,11 +31,13 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     var screen by remember { mutableStateOf("home") }
+                    var resultFile by remember { mutableStateOf("") }
                     when (screen) {
                         "bench" -> BenchScreen(onBack = { screen = "home" })
                         "decode" -> DecodeScreen(onBack = { screen = "home" })
                         "scan" -> ScanScreen(onBack = { screen = "home" })
-                        "pick" -> PickScreen(onBack = { screen = "home" })
+                        "pick" -> PickScreen(onBack = { screen = "home" }, onResult = { resultFile = it; screen = "result" })
+                        "result" -> ResultScreen(resultFile, onBack = { screen = "pick" })
                         else -> HomeScreen(onBench = { screen = "bench" }, onDecode = { screen = "decode" }, onScan = { screen = "scan" }, onPick = { screen = "pick" })
                     }
                 }

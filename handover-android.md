@@ -42,9 +42,9 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 | 10a | Part presets, group boxes, view building (Python-first + Kotlin port, golden) | ✅ written 2026-11-14 (never compiled; CI run pending) |
 | 10b | Per-keypoint One-Euro, off-screen propagation (camera-compensated), parent-joint inference, rectangle selection | ✅ written 2026-11-14 (Python tests green; Kotlin core compiled + golden-checked outside Gradle; Gradle/CI run pending) |
 | 11 | Scan service + scan UI (choose person/part) | ✅ written 2026-11-14 (never compiled; CI run + phone check pending) |
-| 12 | Live scan preview (low fps, skeleton + part box) | ⬜ |
-| 13 | Result preview player + tuning sliders | ⬜ |
-| 14 | Export (Media3 Transformer) | ⬜ |
+| 12 | Live scan preview (low fps, skeleton + part box) | ✅ written 2026-11-14 (never compiled; CI run + phone check pending) |
+| 13 | Result preview player + tuning sliders | ✅ written 2026-11-14 (never compiled; CI run + phone check pending) |
+| 14 | Export (Media3 Transformer) | ✅ written 2026-11-14 (never compiled; CI run + phone export check pending) |
 | 15 | Hardening + release build | ⬜ |
 
 Bench lines (fill after Part 5, 6, 9, 14): one line per real clip, device, model, provider, ms/frame, scan x-realtime, export x-realtime.
@@ -268,7 +268,7 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - Exit still open: a real clip where a foot leaves and re-enters the frame (also with a panning camera): compare the views with and without `kp_world`; tune `kp_hold_s`, the limb ratios and `part_margin` by measurement.
 - Rounding: views are rounded to 4 decimals in both languages; a value exactly on a rounding boundary could differ by one digit (see Part 9 note).
 
-- **Next: Part 12** (live scan preview). Needs from you: the CI result of the Part 11 push (paste the Gradle/Kotlin error if any), and one phone check of Part 11 (see its exit below).
+- **Next: Part 15** (hardening + release build). Needs from you: the CI result of the Part 11-14 push (paste the Gradle/Kotlin error if any, incl. the open Part 8 test fix), and the phone checks of Parts 11-14 (exits below; in particular one real export: does it play, is the zoom what the preview showed, is the audio there, x-realtime).
 - (old note, answered by Part 11) **Part 11 needed:** the CI result of this push (paste the Gradle error if any, including the open Part 8 test fix), and a decision whether a tapped joint should map to a preset in the UI (e.g. ankle -> foot, wrist -> hands) or stay a single-joint target.
 
 **Part 10 (original text, kept for reference)** (~400, may split)
@@ -289,15 +289,39 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - Foreground service (notification, cancel, resume). Screens: open video → first frame → tap a person or part, or pick a preset (head / leg / foot / …) → start scan. Survives app kill/restart through the resumable scan.
 - Exit: a long clip scans with the screen off and the app in the background.
 
-**Part 12 — Live scan preview (low fps)** (~300)
+**Part 12 — Live scan preview (low fps)** (~300) ✅ written, CI run + phone check pending
+- Files: `core/.../Preview.kt` (NEW: `PersonOverlay`, `PreviewOverlay`, `previewOverlay`, `cropForBox`, `livePickTarget`) + `PreviewTest.kt` (5 tests, hand-computed expectations); app: `ScanPreview.kt` (NEW: `ScanPreview`, `previewBitmap`, `ScanPreviewView` Compose canvas), `Scanner.kt` (`pick` + `onPreview` params), `ScanService.kt` (`ScanUi.Running.pv`, `Done.xRealtime/preview`, `preview` extra), `PickScreen.kt` (chip "Live preview", preview view while scanning, speed line when done), strings en/tr.
+- Drawn: the sampled frame (longer side 320), every tracked person box (white), skeletons (COCO lines, joints >= 0.35), the **target person in yellow**, the **part box in red**, the **camera crop in green** (`cropForBox` = `computeView` + the `cropRect` centre/size maths, unrounded, so it matches what export will cut).
+- Cost control: a preview is built at most every 200 ms wall time (`PREVIEW_MIN_MS`): one small bitmap copy + a tiny overlay on the scanner thread, the rest is the UI thread. The "Live preview" chip turns it off; the Done line prints `Scan speed: X x realtime (preview on/off)` so the on/off overhead can be recorded (exit below).
+- Live target: the pick is resolved on the samples so far (`livePickTarget`, retried at each preview until a person is at the pick). Part box and crop use the **raw** keypoints of the current sample only (no One-Euro, no propagation, no zero-phase), so the green crop is jumpier than the final views. After a **resume** the target ID comes from the old samples while people now have new IDs, so the red/green boxes may be missing until a fresh scan of that person; the final `applyPick` still works on the full doc.
+- Not drawn: the camera-motion/cut state, history trail. Preview bitmaps are never recycled (GC), the scanner only keeps the last one.
+- Never compiled. Likeliest failures: Compose `Canvas` draw helpers, `if (..) ({ v: ScanPreview -> .. }) else null` lambda, `ScanUi.Done` constructor arity.
+- Exit (open, on the phone): scan the same clip twice with the chip on and off and paste both `Scan speed` lines under "Bench lines" (target: within a few percent); the preview must follow the person and show the red box on the tapped part.
+- (original plan:)
 - While scanning, draw the current sampled frame, the **skeleton**, the **selected part box**, and the crop rectangle the camera would use (from the views built so far). Redraw at most ~5 fps and never slow the scanner; use a downscaled preview bitmap.
 - Exit: preview updates during a scan; scan speed with preview on is within a few percent of preview off (record both).
 
-**Part 13 — Result preview + tuning** (~350)
+**Part 13 — Result preview + tuning** (~350) ✅ written, CI run + phone check pending
+- Files: `core/.../Tuning.kt` (NEW: `Tuning`, `Config.withTuning`, `rebuildViews`, `viewTransform`) + `TuningTest.kt` (5 tests); app: `ResultScreen.kt` (NEW), `PickScreen.kt` ("Preview result" button after a scan with a target), `MainActivity.kt` (`result` route), `libs.versions.toml` + `app/build.gradle.kts` (**`androidx.media3:media3-exoplayer` 1.8.0, version NOT verified** (no network); change `media3` in the toml if it does not resolve), strings en/tr.
+- Player: ExoPlayer on a `TextureView` (not a `SurfaceView`, which cannot be scaled), inside a box with the video's aspect ratio and `clipToBounds`; each frame `viewAt(views, position)` -> `viewTransform` -> `graphicsLayer` scale + translation. `viewTransform` uses the same centre clamp as `cropRect` (a unit test checks the centre matches), so the preview shows what the export will cut. Position is polled every 33 ms; the transform is read in the draw phase only. "Follow camera" chip = compare with the original.
+- Sliders (each rebuilds the views from the saved scan on release, no rescan): target fill (`target_fill`), part box size (`kp_box`), max zoom (`max_zoom`, log2), follow speed (`offline_alpha`, EMA alpha: higher = tighter), hold when lost (`lost_hold_s`). Reset button. Body-part chips switch the preset of the same person ID (`Target(id, preset)`), also without rescanning. Not exposed yet: `part_margin`, `kp_hold_s`, min zoom, alpha_pos/zoom (they exist in `Config`; add sliders if needed).
+- Save: writes `target` + `views` back to `files/scans/<id>.track.json` and a `<id>.views.json` (`Formats.viewsOf`, version 1) next to it: this is the input of Part 14 export and is PC-compatible. Slider values themselves are not stored (only their effect on the views); they reset when the screen is reopened.
+- Limits: the player is the platform decoder at full fps; very heavy zoom on a low-resolution video looks soft (same as the export). Rebuilding on a long clip is a pure CPU pass over the samples (expected ms to tens of ms; unmeasured).
+- Never compiled. Likeliest failures: media3 version, `AndroidView` + `graphicsLayer` imports, local `@Composable fun tune`.
+- Exit (open, on the phone): preview a finished scan at normal speed; moving each slider changes the zoom/follow visibly on release; switching foot -> head works instantly; Save then reopen shows the saved views; record how long a rebuild takes on a long clip.
+- (original plan:)
 - Media3 ExoPlayer with the same view transform as export (one shared transform function), seek bar, play/pause. Sliders: `target_fill`, **part box size (`kp_box`/`part_margin`)**, `max_zoom`, smoothing, lost-hold. Changing a slider rebuilds views from the saved track doc without rescanning. Switching the part (e.g. foot → head) also works without rescanning.
 - Exit: preview of the finished scan at normal speed; sliders and part switching are instant.
 
-**Part 14 — Export** (~300)
+**Part 14 — Export** (~300) ✅ written, CI run + phone export check pending
+- Files: `core/.../ExportMath.kt` (NEW: `exportNdc`, `exportBitrate`) + `ExportMathTest.kt` (**cross-test: the matrix crop equals `cropRect` within 1 px at 20 times** on a walking-person doc, plus known values and bitrate clamps); app: `Exporter.kt` (NEW: Transformer setup, progress, `saveToMovies`), `ResultScreen.kt` (Export section: H.264 / HEVC chips, Export, Cancel, progress), `libs.versions.toml` + `app/build.gradle.kts` (`media3-transformer`, `media3-effect`, same `media3` 1.8.0, **unverified**), strings en/tr.
+- How: `EditedMediaItem` with `Effects(no audio processors, [MatrixTransformation])`; the matrix per frame = `viewAt(views, presentationTimeUs / 1e6)` -> `exportNdc` -> `setTranslate(tx, ty)` + `postScale(s, s)` (NDC, y up: crop centre to the middle, crop fills the frame). Frame size stays the source (display) size; Transformer applies the rotation metadata before effects, so the maths is in upright coordinates like `doc.video.w/h`. Audio: no audio effects -> passed through (original audio kept). Encoder: `DefaultEncoderFactory` with a bitrate from `exportBitrate` (w x h x fps x 0.11 bit/px, HEVC 0.07, clamped 2-100 Mbit/s); Transformer's default fallback may switch codec if the device has no encoder for the chosen one.
+- Output: written to `cacheDir/export/out.mp4`, then copied into `Movies/TakipliOynat/Takipli_<date>.mp4` through MediaStore (`IS_PENDING`, no storage permission), cache file deleted. Exports the views **currently shown** (after sliders / part switch), not only the saved ones.
+- Runs **in the app process, not in a service**: the screen is kept on (`keepScreenOn`) and the UI says to keep the app open. If the app is killed the export is lost (no resume). Part 15 can move it into a foreground service (same pattern as `ScanService`).
+- Not done: output size/aspect options (backlog), a `.views.json` cross-test PC<->phone export (the plan's "Compatibility rule": do it on a real clip: export the same `.views.json` with PC `python -m tracker export` and compare), HDR/10-bit sources.
+- Never compiled. Likeliest failures: media3 version/artifact names, `MatrixTransformation { }` SAM lambda, `Transformer.Listener` signatures, `ExportException.errorCodeName`.
+- Exit (open, on the phone): export a real clip (H.264): it plays, has audio, the zoom follows the part like the preview; record the "x realtime" shown after export under "Bench lines"; try HEVC; try cancel.
+- (original plan:)
 - Media3 Transformer with a time-varying matrix effect from `viewAt`; hardware encoder; original audio passthrough; H.264 default, HEVC option; progress, cancel, output to the Movies folder through MediaStore; even output size (source size; zooming far into a low-resolution video looks soft, so 4K sources work best; an output-size option is in the backlog).
 - Cross-test: the crop for 20 sample times matches `cropRect` (≤ 1 px). Check an exported file plays and has audio.
 - Exit: a real clip exported on the phone; record export x-realtime.
@@ -379,6 +403,9 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 | 2026-11-14 | Part 10: split into 10a (presets, group boxes, view building, tap resolve) and 10b (filters, off-screen propagation, rect selection); `target.preset` added beside `target.part`; `kp_tol` is now a shared config key |
 | 2026-11-14 | Part 10b: samples get optional `cam` = [a, b, tx/h, ty/h] (frame-height units, not full-res pixels); new shared key `kp_infer` (default true); off-screen propagation is forward-only, <= `kp_hold_s`, skips gaps the linear fill covers, stops at cuts; golden cfgs `default`/`custom` pin 10a, `b`/`b_custom` are 10b |
 | 2026-11-14 | Part 11: scan runs in a `dataSync` foreground service; the tap is resolved to {person, part} after the scan (`applyPick`); tapped joint -> preset group by default (provisional), chip overrides, "exact joint" option |
+| 2026-11-14 | Part 12: preview at most every 200 ms, 320 px, raw per-sample part box + crop (not the smoothed final views); toggle chip to measure overhead |
+| 2026-11-14 | Part 13: preview = ExoPlayer on TextureView + `graphicsLayer` from `viewTransform` (same clamp as `cropRect`); sliders rebuild views from the saved scan on release; media3 1.8.0 unverified; Save writes track.json + .views.json |
+| 2026-11-14 | Part 14: export = Transformer + `MatrixTransformation` from `exportNdc` (cross-tested against `cropRect`), source size, audio passthrough, bitrate by formula, cache file -> MediaStore Movies; runs in-process (no service yet) |
 | 2026-11-14 | Part 2: `part_margin` = 0.02 and `scan_fps_part` = 15.0 are **provisional** placeholders, final values by measurement (Parts 9/10/13) |
 
 **Open (decide in the named part)**

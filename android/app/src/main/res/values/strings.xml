@@ -51,4 +51,25 @@
     <string name="scan_channel">Video scan</string>
     <string name="scan_notify_start">Starting scan …</string>
     <string name="scan_notify_run">Scanning: %1$d / %2$d samples</string>
+    <string name="pick_preview">Live preview</string>
+    <string name="pick_speed">Scan speed: %1$s x realtime (preview %2$s)</string>
+    <string name="result_open">Preview result</string>
+    <string name="result_loading">Loading scan …</string>
+    <string name="result_no_target">This scan has no target (nobody was at the tapped point). Go back and pick again.</string>
+    <string name="result_play">Play</string>
+    <string name="result_pause">Pause</string>
+    <string name="result_follow">Follow camera</string>
+    <string name="result_save">Save views</string>
+    <string name="result_saved">Saved: views are in the scan file and in a .views.json next to it.</string>
+    <string name="tune_fill">Target fill (share of frame height): %1$s</string>
+    <string name="tune_box">Part box size (x person height): %1$s</string>
+    <string name="tune_maxzoom">Max zoom (log2): %1$s</string>
+    <string name="tune_follow">Follow speed (higher = tighter): %1$s</string>
+    <string name="tune_hold">Hold when lost (s): %1$s</string>
+    <string name="tune_reset">Reset sliders</string>
+    <string name="export_title">Export tracked video (MP4, original audio)</string>
+    <string name="export_start">Export</string>
+    <string name="export_keep_open">Exporting with the hardware encoder. Keep the app open and the screen on until it finishes.</string>
+    <string name="export_done">Saved to Movies/TakipliOynat/%1$s (%2$s x realtime).</string>
+    <string name="export_cancelled">Export cancelled.</string>
 </resources>

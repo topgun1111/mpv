@@ -6,8 +6,12 @@ import android.os.SystemClock
 import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.Formats
 import com.takipli.oynat.core.ScanPipeline
+import com.takipli.oynat.core.Target
+import com.takipli.oynat.core.TargetPick
 import com.takipli.oynat.core.TrackDoc
 import com.takipli.oynat.core.buildScanDoc
+import com.takipli.oynat.core.livePickTarget
+import com.takipli.oynat.core.previewOverlay
 import com.takipli.oynat.core.scanSig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -63,6 +67,8 @@ object Scanner {
         trackFile: File,
         cfg: Config = Config(),
         maxSide: Int = 960,
+        pick: TargetPick? = null,
+        onPreview: ((ScanPreview) -> Unit)? = null,
         onProgress: (ScanProgress) -> Unit = {},
     ): ScanResult = withContext(Dispatchers.Default) {
         val t0 = SystemClock.elapsedRealtime()
@@ -81,6 +87,8 @@ object Scanner {
         val total = if (info.durationS > 0) prior.size + ((info.durationS - startS) * fps).toInt().coerceAtLeast(0) else 0
         var cuts = prior.count { it.cut == 1 }
         var lastSave = SystemClock.elapsedRealtime()
+        var lastPreview = 0L
+        var liveTarget: Target? = null
 
         fun snapshot() = buildScanDoc(
             uri.toString(), info.width, info.height, info.frameRate ?: fps, info.durationS, fps,
@@ -97,6 +105,13 @@ object Scanner {
                 val cut = cfg.cutDetect && a?.cut == true
                 val motion = if (cfg.gmc && a != null && !cut && a.motionOk) a.motion else null
                 val s = pipe.step(f.t, bmp.width, bmp.height, poses, motion, cut)
+                // Part 12: at most ~5 small previews per second; only a bitmap copy + a tiny overlay, never blocks the scan
+                val now = SystemClock.elapsedRealtime()
+                if (onPreview != null && now - lastPreview >= PREVIEW_MIN_MS) {
+                    lastPreview = now
+                    if (liveTarget == null && pick != null) liveTarget = livePickTarget(pipe.samples, bmp.width, bmp.height, pick, cfg)
+                    onPreview(ScanPreview(f.t, previewBitmap(bmp), previewOverlay(s, bmp.width, bmp.height, liveTarget, cfg)))
+                }
                 bmp.recycle()
                 if (s.cut == 1) cuts++
                 onProgress(ScanProgress(pipe.samples.size, total, f.t, cuts, prior.size))

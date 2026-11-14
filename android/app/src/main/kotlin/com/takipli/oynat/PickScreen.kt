@@ -60,7 +60,7 @@ private val PICK_FPS = listOf(10, 15, 20)
  * foreground service ([ScanService]); the screen can go off or the app can be closed while it runs.
  */
 @Composable
-fun PickScreen(onBack: () -> Unit) {
+fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val models = remember { ModelStore.list(ctx) }
@@ -74,6 +74,7 @@ fun PickScreen(onBack: () -> Unit) {
     var exact by remember { mutableStateOf(false) }
     var fps by remember { mutableStateOf(PICK_FPS[1]) }
     var npu by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf(true) }
     var model by remember { mutableStateOf(models.firstOrNull { it.contains("v8s") } ?: models.firstOrNull().orEmpty()) }
     var error by remember { mutableStateOf("") }
     val running = ui is ScanUi.Running
@@ -135,13 +136,14 @@ fun PickScreen(onBack: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PICK_FPS.forEach { c -> FilterChip(selected = c == fps, onClick = { fps = c }, label = { Text("$c fps") }) }
                 FilterChip(selected = npu, onClick = { npu = !npu }, label = { Text("NPU") })
+                FilterChip(selected = preview, onClick = { preview = !preview }, label = { Text(stringResource(R.string.pick_preview)) })
             }
             Button(
                 enabled = tap != null && model.isNotEmpty(),
                 onClick = {
                     val t = tap ?: return@Button
                     notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = preset, exact = exact && preset == null))
+                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = preset, exact = exact && preset == null), preview)
                 },
             ) { Text(stringResource(R.string.pick_start)) }
         }
@@ -149,6 +151,7 @@ fun PickScreen(onBack: () -> Unit) {
         when (val s = ui) {
             is ScanUi.Running -> {
                 val p = s.p
+                s.pv?.let { ScanPreviewView(it) }
                 if (p != null && p.total > 0) LinearProgressIndicator(progress = { (p.samples.toFloat() / p.total).coerceIn(0f, 1f) })
                 Text(
                     p?.let { String.format(Locale.ROOT, "%d / %d samples | t %.1f s | cuts %d", it.samples, it.total, it.t, it.cuts) }
@@ -163,7 +166,9 @@ fun PickScreen(onBack: () -> Unit) {
                     if (s.targetText != null) stringResource(R.string.pick_done, s.targetText, s.samples)
                     else stringResource(R.string.pick_nobody, s.samples),
                 )
+                if (!s.cached) Text(stringResource(R.string.pick_speed, String.format(Locale.ROOT, "%.2f", s.xRealtime), if (s.preview) "on" else "off"))
                 Text(s.file, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                if (s.targetText != null) Button(onClick = { onResult(s.file) }) { Text(stringResource(R.string.result_open)) }
                 OutlinedButton(onClick = { ScanService.reset() }) { Text(stringResource(R.string.pick_again)) }
             }
             is ScanUi.Failed -> Text(if (s.cancelled) s.message else stringResource(R.string.bench_error, s.message))

@@ -30,9 +30,9 @@ import java.io.File
 /** What the UI shows. The scan itself lives in [ScanService], so it survives the screen going off and the activity closing. */
 sealed interface ScanUi {
     data object Idle : ScanUi
-    class Running(val p: ScanProgress?) : ScanUi
+    class Running(val p: ScanProgress?, val pv: ScanPreview? = null) : ScanUi
     /** `targetText` null = nobody was at the picked point (scan is kept; pick again without rescanning). */
-    class Done(val samples: Int, val cached: Boolean, val targetText: String?, val file: String) : ScanUi
+    class Done(val samples: Int, val cached: Boolean, val targetText: String?, val file: String, val xRealtime: Double, val preview: Boolean) : ScanUi
     class Failed(val message: String, val cancelled: Boolean) : ScanUi
 }
 
@@ -67,10 +67,12 @@ class ScanService : Service() {
             val cfg = Config()
             val pick = Formats.json.decodeFromString<TargetPick>(i.getStringExtra(X_PICK).orEmpty())
             val file = scanFile(this, videoId)
+            val withPreview = i.getBooleanExtra(X_PREVIEW, true)
             var lastNote = 0L
+            var lastPv: ScanPreview? = null
             val res = PoseRunner(this, i.getStringExtra(X_MODEL).orEmpty(), threads = 4, wantNpu = i.getBooleanExtra(X_NPU, false)).use { runner ->
-                Scanner.scan(this, uri, videoId, runner, fps, file, cfg) { p ->
-                    post(ScanUi.Running(p))
+                Scanner.scan(this, uri, videoId, runner, fps, file, cfg, pick = pick, onPreview = if (withPreview) ({ v: ScanPreview -> lastPv = v }) else null) { p ->
+                    post(ScanUi.Running(p, lastPv))
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastNote >= 1000) { lastNote = now; notify(note(getString(R.string.scan_notify_run, p.samples, p.total), p)) }
                 }
@@ -80,7 +82,7 @@ class ScanService : Service() {
             if (picked != null) Scanner.writeAtomic(file, picked)
             val tg = picked?.target
             val text = tg?.let { "#${it.id} " + (it.preset ?: it.part?.let { j -> "joint $j" } ?: "person") }
-            post(ScanUi.Done(out.samples.size, res.cached, text, file.path))
+            post(ScanUi.Done(out.samples.size, res.cached, text, file.path, res.xRealtime, withPreview))
         } catch (e: CancellationException) {
             post(ScanUi.Failed(getString(R.string.scan_cancelled), true))
         } catch (e: Throwable) {
@@ -119,7 +121,7 @@ class ScanService : Service() {
         private const val WAKE_MAX_MS = 4 * 60 * 60 * 1000L
         private const val ACTION_CANCEL = "com.takipli.oynat.SCAN_CANCEL"
         private const val X_URI = "uri"; private const val X_VIDEO_ID = "video_id"; private const val X_FPS = "fps"
-        private const val X_PICK = "pick"; private const val X_MODEL = "model"; private const val X_NPU = "npu"
+        private const val X_PREVIEW = "preview"; private const val X_PICK = "pick"; private const val X_MODEL = "model"; private const val X_NPU = "npu"
 
         private val _state = MutableStateFlow<ScanUi>(ScanUi.Idle)
         /** Written by the service, read by the UI. */
@@ -129,11 +131,11 @@ class ScanService : Service() {
         /** `files/scans/<id>.track.json`: one file per video (id from `videoId`), shared with the Part 9 cache. */
         fun scanFile(ctx: Context, videoId: String) = File(ctx.filesDir, "scans/${scanSig(videoId, 0.0, "")}.track.json")
 
-        fun start(ctx: Context, uri: Uri, videoId: String, model: String, npu: Boolean, fps: Double, pick: TargetPick) {
+        fun start(ctx: Context, uri: Uri, videoId: String, model: String, npu: Boolean, fps: Double, pick: TargetPick, preview: Boolean = true) {
             _state.value = ScanUi.Running(null)
             ctx.startForegroundService(
                 Intent(ctx, ScanService::class.java).putExtra(X_URI, uri.toString()).putExtra(X_VIDEO_ID, videoId)
-                    .putExtra(X_MODEL, model).putExtra(X_NPU, npu).putExtra(X_FPS, fps)
+                    .putExtra(X_MODEL, model).putExtra(X_NPU, npu).putExtra(X_PREVIEW, preview).putExtra(X_FPS, fps)
                     .putExtra(X_PICK, Formats.json.encodeToString(pick)),
             )
         }
