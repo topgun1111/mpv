@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -46,8 +48,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.gestures.detectTapGestures
+import com.takipli.oynat.core.COCO_SKELETON
 import com.takipli.oynat.core.PRESETS
+import com.takipli.oynat.core.Pose
 import com.takipli.oynat.core.TargetPick
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -78,6 +83,21 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     var model by remember { mutableStateOf(models.firstOrNull { it.contains("v8s") } ?: models.firstOrNull().orEmpty()) }
     var error by remember { mutableStateOf("") }
     val running = ui is ScanUi.Running
+    // People the model finds on the first frame (null = still detecting). Only a guide: the tap is resolved after the scan.
+    var found by remember { mutableStateOf<List<Pose>?>(null) }
+    LaunchedEffect(frame, model) {
+        val f = frame ?: return@LaunchedEffect
+        if (model.isEmpty()) return@LaunchedEffect
+        found = null
+        found = try {
+            withContext(Dispatchers.Default) { PoseRunner(ctx, model, threads = 4).use { it.detect(f).poses } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            ErrorLog.record(ctx, "first-frame-detect", e)
+            emptyList()
+        }
+    }
 
     val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
@@ -108,6 +128,14 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
         val bmp = frame
         if (uri != null && bmp != null && !running && ui !is ScanUi.Done) {
             Text(stringResource(R.string.pick_hint))
+            val fl = found
+            Text(
+                when {
+                    fl == null -> stringResource(R.string.pick_detecting)
+                    fl.isEmpty() -> stringResource(R.string.pick_none)
+                    else -> stringResource(R.string.pick_found, fl.size)
+                },
+            )
             Box(Modifier.fillMaxWidth().aspectRatio(bmp.width / bmp.height.toFloat())) {
                 Image(bmp.asImageBitmap(), null, Modifier.matchParentSize())
                 Canvas(
@@ -115,6 +143,15 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                         detectTapGestures { o -> tap = Offset((o.x / size.width).coerceIn(0f, 1f), (o.y / size.height).coerceIn(0f, 1f)) }
                     },
                 ) {
+                    found?.forEach { p ->
+                        val b = p.bbox
+                        fun fx(x: Double) = (x / bmp.width * size.width).toFloat()
+                        fun fy(y: Double) = (y / bmp.height * size.height).toFloat()
+                        drawRect(Color.White, Offset(fx(b.x1), fy(b.y1)), Size(fx(b.x2) - fx(b.x1), fy(b.y2) - fy(b.y1)), style = Stroke(2f))
+                        for ((a, c) in COCO_SKELETON) {
+                            if (p.conf(a) >= 0.35 && p.conf(c) >= 0.35) drawLine(Color.Yellow, Offset(fx(p.x(a)), fy(p.y(a))), Offset(fx(p.x(c)), fy(p.y(c))), 3f)
+                        }
+                    }
                     tap?.let { c ->
                         val p = Offset(c.x * size.width, c.y * size.height)
                         drawCircle(Color.Red, 14f, p, style = Stroke(width = 4f)); drawCircle(Color.White, 4f, p)

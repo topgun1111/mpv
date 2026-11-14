@@ -84,4 +84,7 @@
     <string name="log_empty">Hata günlüğü boş.</string>
     <string name="log_cleared">Hata günlüğü temizlendi.</string>
     <string name="about_licences">Kişisel kullanım sürümü. Pose modelleri: Ultralytics YOLOv8 / YOLO11 (AGPL-3.0), dağıtım için değil. ONNX Runtime (MIT), Qualcomm QNN çalışma zamanı (Qualcomm koşulları), OpenCV, AndroidX Media3 ve Compose (Apache-2.0). Ayrıntı: depodaki THIRD_PARTY_NOTICES.md.</string>
+    <string name="pick_detecting">Bu karede kişiler aranıyor …</string>
+    <string name="pick_none">Bu karede kimse algılanmadı, tarama büyük olasılıkla kimseyi bulamaz. Kare dik mi? Başka bir klip dene.</string>
+    <string name="pick_found">%1$d kişi algılandı (kutular ve iskeletler gösteriliyor). Takip edilecek kişiye dokun.</string>
 </resources>
