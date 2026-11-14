@@ -18,11 +18,11 @@ sys.path.insert(0, str(ROOT))
 
 from tracker.bytetrack import ByteTracker, KalmanBox, linear_assignment  # noqa: E402
 from tracker.config import Config  # noqa: E402
-from tracker.export import crop_rect  # noqa: E402
 from tracker.detector import LetterboxInfo, letterbox  # noqa: E402
+from tracker.export import crop_rect  # noqa: E402
 from tracker.geometry import BBox  # noqa: E402
 from tracker.offline import make_doc, save_views, view_at  # noqa: E402
-from tracker.pose import Pose, decode_yolo_pose, nearest_keypoint  # noqa: E402
+from tracker.pose import decode_yolo_pose, nearest_keypoint  # noqa: E402
 from tracker.smooth import BoxFilter, Kalman1D, OneEuro  # noqa: E402
 
 OUT = ROOT / "android" / "core" / "src" / "test" / "resources" / "golden"

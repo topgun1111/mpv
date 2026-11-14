@@ -106,5 +106,6 @@ def test_bar_wiring_in_files():
     lua = BAR.read_text(encoding="utf-8")
     conf = (ROOT / "mpv" / "portable_config" / "mpv.conf").read_text(encoding="utf-8")
     assert "osc=no" in conf
-    assert lua.count("add_forced_key_binding") == 2  # yalnız sync() içinde: sol tık + tekerlek (hover/sürükleme)
+    # yalnız sync() içinde: sol tık + tekerlek (hover/sürükleme)
+    assert lua.count("add_forced_key_binding") == 2
     assert "MBTN_RIGHT" not in lua  # sağ tık takibine dokunulmaz

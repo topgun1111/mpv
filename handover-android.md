@@ -273,6 +273,7 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - **Variable frame rate / rotated videos:** easy to get timestamps wrong; Part 7 tests both.
 - **Two implementations drift apart:** mitigated by golden fixtures and cross-tests; new part logic is written in Python first.
 - **Licences:** pose models from Ultralytics are AGPL-3.0 (personal use; distribution needs a decision, Part 6).
+- **First CI run (2026-11-14) failed in the `setup-android` step, before Gradle:** `Failed to find package 'tools'` (the action's default `packages: tools platform-tools`). Fixed with `packages: ""` in `android.yml`; AGP downloads the platform/build-tools itself. Parts 2-4 Kotlin has still not been compiled by CI: paste the next error.
 - **Part 1 was never executed:** the first CI run may fail on a version or setup detail. Paste the Gradle error, fix, re-run.
 - **PC app was never validated on real footage** (PC `handover.md`, V1). Android inherits the same tracking logic, so tracking quality is only proven by real clips on both sides.
 

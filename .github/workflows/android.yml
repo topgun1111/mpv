@@ -29,6 +29,8 @@ jobs:
           java-version: "17"
       - name: Android SDK (accepts licences)
         uses: android-actions/setup-android@v3
+        with:
+          packages: ""  # default `tools platform-tools` fails: package `tools` no longer exists
       - name: Gradle (installs the pinned version and caches it)
         uses: gradle/actions/setup-gradle@v4
         with:
