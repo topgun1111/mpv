@@ -61,6 +61,12 @@ import java.util.Locale
 
 private val PICK_FPS = listOf(10, 15, 20, 30, 60)
 
+private fun fmtClock(s: Double): String {
+    val v = s.coerceAtLeast(0.0)
+    val m = (v / 60).toInt()
+    return String.format(Locale.US, "%d:%04.1f", m, v - m * 60)
+}
+
 /**
  * Part 11: open a video -> first frame -> tap a person or a body part (and/or choose a part preset) -> scan in the
  * foreground service ([ScanService]); the screen can go off or the app can be closed while it runs.
@@ -75,6 +81,9 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     var videoId by remember { mutableStateOf("") }
     var frame by remember { mutableStateOf<Bitmap?>(null) }
     var frameT by remember { mutableStateOf(0.0) }
+    var durationS by remember { mutableStateOf(0.0) } // 0 = unknown
+    var seekT by remember { mutableStateOf(0f) } // where the user wants the pick frame (seconds)
+    var loadJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var tap by remember { mutableStateOf<Offset?>(null) } // normalized 0..1
     var preset by remember { mutableStateOf<String?>(null) } // null = automatic (tapped joint decides)
     var exact by remember { mutableStateOf(false) }
@@ -113,10 +122,35 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
             error = ""; tap = null; frame = null; ScanService.reset()
             try {
                 videoId = withContext(Dispatchers.IO) { videoIdOf(ctx, u) }
+                durationS = withContext(Dispatchers.IO) { runCatching { VideoDecoder.probe(ctx, u).durationS }.getOrDefault(0.0) }
+                seekT = 0f
                 VideoDecoder.sample(ctx, u, 1.0, 0.0) { f -> frame = f.bitmap; frameT = f.t; false }
                 uri = u
             } catch (e: Throwable) {
                 uri = null; ErrorLog.record(ctx, "open-video", e); error = Safety.friendly(ctx, e)
+            }
+        }
+    }
+
+    fun clampT(t: Double): Double =
+        if (durationS > 0) t.coerceIn(0.0, (durationS - 0.1).coerceAtLeast(0.0)) else t.coerceAtLeast(0.0)
+
+    // The first frame is often black or unrelated to the rest of the clip: let the user pick the target on any later frame.
+    // The scan tracks both ways in time from the picked frame, so nothing else changes.
+    fun loadAt(t: Double) {
+        val u = uri ?: return
+        loadJob?.cancel()
+        loadJob = scope.launch {
+            try {
+                VideoDecoder.sample(ctx, u, 1.0, clampT(t)) { f ->
+                    frame = f.bitmap; frameT = f.t
+                    tap = null; strokes.clear(); curStroke = emptyList() // those points belonged to the previous frame
+                    false
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                ErrorLog.record(ctx, "seek-frame", e); error = Safety.friendly(ctx, e)
             }
         }
     }
@@ -176,6 +210,21 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                     }
                 }
             }
+            Text(stringResource(R.string.pick_frame_time, fmtClock(seekT.toDouble()), if (durationS > 0) fmtClock(durationS) else "?"), style = MaterialTheme.typography.labelLarge)
+            if (durationS > 0.5) {
+                androidx.compose.material3.Slider(
+                    value = seekT.coerceIn(0f, durationS.toFloat()),
+                    onValueChange = { seekT = it },
+                    onValueChangeFinished = { loadAt(seekT.toDouble()) },
+                    valueRange = 0f..durationS.toFloat(),
+                )
+            }
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(-10.0 to "\u221210 s", -1.0 to "\u22121 s", -0.2 to "\u22120.2 s", 0.2 to "+0.2 s", 1.0 to "+1 s", 10.0 to "+10 s").forEach { (d, label) ->
+                    OutlinedButton(onClick = { val t = clampT(seekT + d); seekT = t.toFloat(); loadAt(t) }) { Text(label) }
+                }
+            }
+            Text(stringResource(R.string.pick_frame_hint), fontSize = 12.sp)
             Text(stringResource(R.string.pick_part), style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = preset == null, onClick = { preset = null }, label = { Text(stringResource(R.string.pick_auto)) })
