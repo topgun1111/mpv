@@ -56,7 +56,7 @@ import com.takipli.oynat.core.exportBitrate
 import com.takipli.oynat.core.exportBytesNeeded
 import com.takipli.oynat.core.Tuning
 import com.takipli.oynat.core.rebuildViews
-import com.takipli.oynat.core.viewAt
+import com.takipli.oynat.core.viewAtSmooth
 import com.takipli.oynat.core.viewTransform
 import com.takipli.oynat.core.of
 import kotlinx.coroutines.Dispatchers
@@ -152,7 +152,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
             factory = { c -> TextureView(c).also { player.setVideoTextureView(it) } },
             modifier = Modifier.fillMaxSize().graphicsLayer {
                 if (follow && views.isNotEmpty()) {
-                    val tr = viewTransform(viewAt(views, posMs / 1000.0)) // same crop as the export will cut
+                    val tr = viewTransform(viewAtSmooth(views, posMs / 1000.0)) // same crop as the export will cut
                     scaleX = tr[0].toFloat(); scaleY = tr[0].toFloat()
                     translationX = (tr[1] * size.width).toFloat(); translationY = (tr[2] * size.height).toFloat()
                 }

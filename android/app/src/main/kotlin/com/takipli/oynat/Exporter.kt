@@ -20,7 +20,7 @@ import androidx.media3.transformer.VideoEncoderSettings
 import com.takipli.oynat.core.ViewKey
 import com.takipli.oynat.core.exportBitrate
 import com.takipli.oynat.core.exportNdc
-import com.takipli.oynat.core.viewAt
+import com.takipli.oynat.core.viewAtSmooth
 import java.io.File
 
 /**
@@ -38,7 +38,7 @@ object Exporter {
         outFile.parentFile?.mkdirs()
         outFile.delete()
         val crop = MatrixTransformation { us ->
-            val n = exportNdc(viewAt(views, us / 1e6))
+            val n = exportNdc(viewAtSmooth(views, us / 1e6))
             Matrix().apply { setTranslate(n[1].toFloat(), n[2].toFloat()); postScale(n[0].toFloat(), n[0].toFloat()) }
         }
         val item = EditedMediaItem.Builder(MediaItem.fromUri(source)).setEffects(Effects(emptyList(), listOf(crop))).build()

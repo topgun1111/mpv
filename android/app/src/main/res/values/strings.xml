@@ -87,4 +87,6 @@
     <string name="pick_detecting">Detecting people on this frame …</string>
     <string name="pick_none">No person detected on this frame, so a scan will probably find nobody. Is the frame upright? Try another clip.</string>
     <string name="pick_found">%1$d person(s) detected (boxes and skeletons shown). Tap the one to follow.</string>
+    <string name="pick_free">Follow exact spot (any point)</string>
+    <string name="pick_zoom">Zoom %1$.1fx</string>
 </resources>

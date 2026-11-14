@@ -77,6 +77,8 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     var tap by remember { mutableStateOf<Offset?>(null) } // normalized 0..1
     var preset by remember { mutableStateOf<String?>(null) } // null = automatic (tapped joint decides)
     var exact by remember { mutableStateOf(false) }
+    var free by remember { mutableStateOf(false) } // Part 16: follow the exact tapped spot
+    var zoomLog2 by remember { mutableStateOf(1.5f) }
     var fps by remember { mutableStateOf(PICK_FPS[1]) }
     var npu by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf(true) }
@@ -175,13 +177,18 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                 FilterChip(selected = npu, onClick = { npu = !npu }, label = { Text("NPU") })
                 FilterChip(selected = preview, onClick = { preview = !preview }, label = { Text(stringResource(R.string.pick_preview)) })
             }
+            FilterChip(selected = free, onClick = { free = !free }, label = { Text(stringResource(R.string.pick_free)) })
+            if (free) {
+                Text(stringResource(R.string.pick_zoom, Math.pow(2.0, zoomLog2.toDouble())), style = MaterialTheme.typography.labelLarge)
+                androidx.compose.material3.Slider(value = zoomLog2, onValueChange = { zoomLog2 = it }, valueRange = 0.5f..2.5f)
+            }
             BatteryWarning()
             Button(
                 enabled = tap != null && model.isNotEmpty(),
                 onClick = {
                     val t = tap ?: return@Button
                     notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = preset, exact = exact && preset == null), preview)
+                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = preset, exact = exact && preset == null, free = free, zoom = if (free) zoomLog2.toDouble() else null), preview)
                 },
             ) { Text(stringResource(R.string.pick_start)) }
         }

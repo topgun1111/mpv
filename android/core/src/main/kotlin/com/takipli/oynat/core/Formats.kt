@@ -23,7 +23,7 @@ data class VideoInfo(
  * `part`/`preset`); `linked` = Re-ID chained IDs (PC only).
  */
 @Serializable
-data class Target(val id: Int, val part: Int? = null, val linked: List<Int> = emptyList(), val preset: String? = null)
+data class Target(val id: Int, val part: Int? = null, val linked: List<Int> = emptyList(), val preset: String? = null, val free: FreePick? = null)
 
 /**
  * `d` rows: `[id, x1, y1, x2, y2, score]` (normalized); `kp`: track ID (string) -> 51 numbers; `cut`: 1 when the sample
@@ -62,6 +62,7 @@ data class TrackDoc(
     val cuts: List<Double> = emptyList(),
     val emb: JsonElement? = null,
     val team: JsonElement? = null,
+    val pt: PointTrack? = null,
 )
 
 /** Small playback/export file `<video>.views.json` (always version 1, no samples). */

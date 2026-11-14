@@ -237,6 +237,11 @@ fun buildTargetViews(doc: TrackDoc, target: Target, cfg: Config): List<ViewKey> 
     val ts = doc.samples.map { it.t }
     val ids = setOf(target.id) + target.linked
     val boxes = when {
+        target.free != null -> {
+            // Part 16a: any tapped spot; fused multi-pass point, then the same camera-compensated off-screen propagation
+            val b = freePointBoxes(doc, target.free, cfg)
+            if (cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
+        }
         target.preset != null -> {
             // Part 10b (`offline.py::build_preset_views`): per-joint One-Euro, then off-screen propagation
             val part = target.preset != "person"

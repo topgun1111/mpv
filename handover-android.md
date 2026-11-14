@@ -428,3 +428,13 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - Default scan fps for part mode — Part 9
 - Default `part_margin` and per-preset box sizes — Part 10/13
 - Default codec (H.264 vs HEVC) — Part 14
+
+
+---
+
+## 12. Part 16 — free-point target + stable export (started 2026-11-14)
+
+**Why:** the user wants to follow *any tapped spot* (not only body parts), in close shots where points move fast and leave the frame, with stutter-free export and multiple passes.
+**16a (core, written, never compiled):** `FreePoint.kt` (`FreePick`, `PointTrack{a,b}`, person-anchor, `fuseFreePoint`, `freePointBoxes`, `viewAtSmooth`), `Target.free`, `TrackDoc.pt`, `buildTargetViews` branch (reuses `viewsFromBoxes` + `propagateBoxes`), `Exporter`/`ResultScreen` use `viewAtSmooth`; `FreePointTest.kt`.
+**16b (written 2026-11-14, never compiled; CI + phone check pending):** `app/PointTracker.kt` (`GrayStore` = gray frames in a temp file, 640 px; `PointTracker`: 5x5 LK cluster with forward-backward check and initial flow from scan `cam` + velocity, NCC verify, windowed template search, whole-frame re-acquisition after loss, slow template update; `twoPass` = A: from the tap forward and backward in time, B: reverse run from the last confident sample back to the tap), `app/PointScanner.kt` (decode once at the scan grid, run passes, return `PointTrack`), `ScanService` runs it after `applyPick` for a free pick (stale `pt` dropped; failure keeps anchor-only views), `TargetPick.free/zoom` + `resolvePick` (free target, id -1 when no person), PickScreen chip + zoom slider, strings EN/TR, `FreePickResolveTest`.
+**Open points:** `cam` is assumed to be in frame-height units for x and y (as `Offscreen.kt`); check on a panning clip. Thresholds (NCC 0.3/0.55/0.7, gate 0.35 person heights) untuned. **Backlog:** refine pass at 2x fps on spans with fused conf < 0.4 (needs a second decode of those spans), live preview of the point during the scan, tracker scale change (template is fixed size).

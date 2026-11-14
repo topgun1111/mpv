@@ -87,4 +87,6 @@
     <string name="pick_detecting">Bu karede kişiler aranıyor …</string>
     <string name="pick_none">Bu karede kimse algılanmadı, tarama büyük olasılıkla kimseyi bulamaz. Kare dik mi? Başka bir klip dene.</string>
     <string name="pick_found">%1$d kişi algılandı (kutular ve iskeletler gösteriliyor). Takip edilecek kişiye dokun.</string>
+    <string name="pick_free">Tam noktayı takip et (herhangi bir nokta)</string>
+    <string name="pick_zoom">Yakınlaştırma %1$.1fx</string>
 </resources>

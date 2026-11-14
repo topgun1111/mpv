@@ -16,6 +16,7 @@ import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.Formats
 import com.takipli.oynat.core.TargetPick
 import com.takipli.oynat.core.applyPick
+import com.takipli.oynat.core.buildTargetViews
 import com.takipli.oynat.core.scanSig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -77,11 +78,19 @@ class ScanService : Service() {
                     if (now - lastNote >= 1000) { lastNote = now; notify(note(getString(R.string.scan_notify_run, p.samples, p.total), p)) }
                 }
             }
-            val picked = applyPick(res.doc, pick, cfg)
+            var picked = applyPick(if (pick.free) res.doc.copy(pt = null) else res.doc, pick, cfg)
+            val fp = picked?.target?.free
+            if (picked != null && fp != null && OpenCvFlow.available) { // Part 16b: tracker passes for the tapped spot
+                try {
+                    val pt = PointScanner.run(this, uri, picked, fp) { d, tot, t -> post(ScanUi.Running(ScanProgress(d, tot, t, 0, 0), null)) }
+                    val d2 = picked.copy(pt = pt)
+                    picked = d2.copy(views = buildTargetViews(d2, d2.target!!, cfg))
+                } catch (e: CancellationException) { throw e } catch (e: Throwable) { ErrorLog.record(this, "point", e) } // keeps the anchor-only views
+            }
             val out = picked ?: res.doc
             if (picked != null) Scanner.writeAtomic(file, picked)
             val tg = picked?.target
-            val text = tg?.let { "#${it.id} " + (it.preset ?: it.part?.let { j -> "joint $j" } ?: "person") }
+            val text = tg?.let { if (it.free != null) "#${it.id} free point" else "#${it.id} " + (it.preset ?: it.part?.let { j -> "joint $j" } ?: "person") }
             post(ScanUi.Done(out.samples.size, res.cached, text, file.path, res.xRealtime, withPreview))
         } catch (e: CancellationException) {
             post(ScanUi.Failed(getString(R.string.scan_cancelled), true))

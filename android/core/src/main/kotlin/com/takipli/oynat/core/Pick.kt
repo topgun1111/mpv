@@ -18,6 +18,9 @@ data class TargetPick(
     val y2: Double? = null,
     val preset: String? = null,
     val exact: Boolean = false,
+    /** Part 16: follow this exact spot (not a joint/person); `zoom` = log2 chosen by the user. */
+    val free: Boolean = false,
+    val zoom: Double? = null,
 )
 
 /**
@@ -42,6 +45,10 @@ fun presetForJoint(j: Int): String? = when (j) {
  * Null when no person is at the picked point.
  */
 fun resolvePick(doc: TrackDoc, pick: TargetPick, cfg: Config): Target? {
+    if (pick.free) { // Part 16: any spot; the person under it (if any) is only the anchor
+        val id = resolveTap(doc, pick.t, pick.x, pick.y, cfg)?.first
+        return Target(id ?: -1, free = FreePick(pick.t, pick.x, pick.y, id, pick.zoom))
+    }
     val hit = if (pick.x2 != null && pick.y2 != null) resolveRect(doc, pick.t, pick.x, pick.y, pick.x2, pick.y2, cfg)
     else resolveTap(doc, pick.t, pick.x, pick.y, cfg)
     val (id, joint) = hit ?: return null
