@@ -89,4 +89,16 @@
     <string name="pick_found">%1$d kişi algılandı (kutular ve iskeletler gösteriliyor). Takip edilecek kişiye dokun.</string>
     <string name="pick_free">Tam noktayı takip et (herhangi bir nokta)</string>
     <string name="pick_zoom">Yakınlaştırma %1$.1fx</string>
+    <string name="edit_title">Noktayı düzelt</string>
+    <string name="edit_hint">Noktayı yerleştirmek için kareye dokunun veya sürükleyin, sonra Sabitle. Sabitler kesindir; Yeniden izle, sabitler arasını izletir.</string>
+    <string name="edit_prev_weak">◀ Zayıf</string>
+    <string name="edit_next_weak">Zayıf ▶</string>
+    <string name="edit_prev_pin">◀ Sabit</string>
+    <string name="edit_next_pin">Sabit ▶</string>
+    <string name="edit_pin">Buraya sabitle</string>
+    <string name="edit_unpin">Sabiti kaldır</string>
+    <string name="edit_clear">Hepsini temizle</string>
+    <string name="edit_zoom">Yakınlaştırma %1$.1fx</string>
+    <string name="edit_retrack">Sabitlerle yeniden izle</string>
+    <string name="edit_done">Yeniden izlendi.</string>
 </resources>

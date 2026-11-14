@@ -90,10 +90,11 @@ fun ResultScreen(file: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
+private fun ResultBody(doc0: TrackDoc, base: Target, file: File) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val cfg = remember { Config() }
+    var doc by remember { mutableStateOf(doc0) } // Part 17: re-tracking replaces `pt`
     var target by remember { mutableStateOf(base) }
     var tuning by remember { mutableStateOf(Tuning.of(cfg)) }
     var views by remember { mutableStateOf(doc.views) }
@@ -109,6 +110,8 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     var exportMsg by remember { mutableStateOf("") }
     var playerMsg by remember { mutableStateOf("") }
     var readable by remember { mutableStateOf(true) } // false = the picked video cannot be opened any more (moved, deleted, SAF grant lost)
+    var rtJob by remember { mutableStateOf<Job?>(null) }
+    var rtMsg by remember { mutableStateOf("") }
     val exporting = exporter != null
     val view = LocalView.current
     SideEffect { view.keepScreenOn = exporting } // the export runs in this process: keep the screen (and the app) alive
@@ -146,6 +149,25 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
         job = scope.launch { views = withContext(Dispatchers.Default) { rebuildViews(doc, t, cfg, tu) } }
     }
 
+    fun editFree(f: com.takipli.oynat.core.FreePick) { target = target.copy(free = f); rebuild(target, tuning) }
+    fun retrack() {
+        val f = target.free ?: return
+        rtJob?.cancel()
+        rtJob = scope.launch {
+            try {
+                rtMsg = "0%"
+                val pt = PointScanner.run(ctx, Uri.parse(doc.video.path), doc, f) { d, tot, _ -> rtMsg = "${100 * d / tot.coerceAtLeast(1)}%" }
+                doc = doc.copy(pt = pt)
+                rebuild(target, tuning)
+                rtMsg = ctx.getString(R.string.edit_done)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                rtMsg = ctx.getString(R.string.scan_cancelled); throw e
+            } catch (e: Throwable) {
+                ErrorLog.record(ctx, "retrack", e); rtMsg = Safety.friendly(ctx, e)
+            } finally { rtJob = null }
+        }
+    }
+
     val vw = doc.video.w.coerceAtLeast(1); val vh = doc.video.h.coerceAtLeast(1)
     Box(Modifier.fillMaxWidth().aspectRatio(vw / vh.toFloat()).clipToBounds()) {
         AndroidView(
@@ -167,8 +189,15 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     }
     Slider(value = posMs.toFloat(), valueRange = 0f..durMs.toFloat(), onValueChange = { posMs = it.toLong(); player.seekTo(it.toLong()) })
 
-    Text(stringResource(R.string.pick_part), style = MaterialTheme.typography.labelLarge)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    target.free?.let { fr ->
+        PointEditor(
+            doc, fr, cfg, posMs, busy = rtJob != null, msg = rtMsg,
+            onSeek = { ms -> player.pause(); posMs = ms; player.seekTo(ms) },
+            onEdit = { editFree(it) }, onRetrack = { retrack() }, onCancel = { rtJob?.cancel() },
+        )
+    }
+    if (target.free == null) Text(stringResource(R.string.pick_part), style = MaterialTheme.typography.labelLarge)
+    if (target.free == null) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         PRESETS.keys.forEach { p ->
             FilterChip(selected = target.preset == p, onClick = { target = Target(base.id, preset = p, linked = base.linked); rebuild(target, tuning) }, label = { Text(p.replace('_', ' ')) })
         }

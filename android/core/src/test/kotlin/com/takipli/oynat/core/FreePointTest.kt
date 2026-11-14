@@ -65,3 +65,27 @@ class FreePickResolveTest {
         assertNotNull(t); assertEquals(-1, t.id); assertEquals(2.0, t.free?.zoom)
     }
 }
+
+class PinTest {
+    private val pick = FreePick(t = 0.0, x = 0.3, y = 0.5)
+
+    @Test
+    fun pinsReplaceNearOnesAndStaySorted() {
+        val p = pick.withPin(1.0, 0.5, 0.5, 0.05).withPin(0.5, 0.4, 0.4, 0.05).withPin(1.02, 0.6, 0.6, 0.05)
+        assertEquals(listOf(0.5, 1.02), p.pins.map { it[0] })
+        assertEquals(0.6, p.pins[1][1])
+        assertEquals(1, p.withoutPin(0.5, 0.05).pins.size)
+    }
+
+    @Test
+    fun pinIsExactAndWeakSamplesAreFound() {
+        val samples = (0 until 10).map { Sample(it / 10.0) }
+        val d = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples)
+        val p = pick.withPin(0.5, 0.8, 0.2, 0.05)
+        val f = fuseFreePoint(d, p, Config())
+        assertEquals(0.8, f.getValue(5)[0], 1e-9); assertEquals(1.0, f.getValue(5)[2])
+        val c = freePointConfidence(d, p, Config())
+        assertEquals(1.0, c[5]); assertEquals(1, nextWeak(c, 0, +1)?.let { 1 }) // samples without data are weak
+        assertEquals(null, nextWeak(doubleArrayOf(1.0, 1.0), 0, +1))
+    }
+}

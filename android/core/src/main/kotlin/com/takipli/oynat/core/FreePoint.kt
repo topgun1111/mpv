@@ -1,6 +1,7 @@
 package com.takipli.oynat.core
 
 import kotlinx.serialization.Serializable
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -10,7 +11,10 @@ import kotlin.math.pow
 
 /** User pick: normalized frame point at time `t`; `id` = person it sits on (null = smallest box containing it); `zoom` = log2. */
 @Serializable
-data class FreePick(val t: Double, val x: Double, val y: Double, val id: Int? = null, val zoom: Double? = null)
+data class FreePick(val t: Double, val x: Double, val y: Double, val id: Int? = null, val zoom: Double? = null,
+    /** Manual corrections (Part 17): rows `[t, x, y]`, exact ground truth at their sample, sorted by time. */
+    val pins: List<List<Double>> = emptyList(),
+)
 
 /**
  * Point observations from the phone, aligned to `TrackDoc.samples`; rows `[x, y, conf]` normalized, empty = lost.
@@ -85,7 +89,10 @@ fun fuseFreePoint(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleAr
     val i0 = if (n > 0) nearestIndex(doc, pick.t) else 0
     fun obs(l: List<List<Double>>?, i: Int) = l?.getOrNull(i)?.takeIf { it.size >= 3 && it[2] > 0.0 }
     val raw = HashMap<Int, DoubleArray>()
+    val pinned = pick.pins.filter { it.size >= 3 }.associate { nearestIndex(doc, it[0]) to it }
     for (i in 0 until n) {
+        val pin = pinned[i]
+        if (pin != null) { raw[i] = doubleArrayOf(pin[1], pin[2], 1.0); continue }
         val an = anchor?.let { anchorAt(doc, it, i, cfg) }
         fun ok(p: List<Double>?): Boolean =
             p != null && (an == null || hypot((p[0] - an.x) * w, (p[1] - an.y) * h) / an.hPx <= GATE_HEIGHTS)
@@ -105,7 +112,7 @@ fun fuseFreePoint(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleAr
     val out = HashMap<Int, DoubleArray>()
     for ((q, i) in idx.withIndex()) {
         val p = raw.getValue(i)
-        if (q == 0 || q == idx.size - 1 || idx[q + 1] - idx[q - 1] != 2) { out[i] = p; continue }
+        if (i in pinned || q == 0 || q == idx.size - 1 || idx[q + 1] - idx[q - 1] != 2) { out[i] = p; continue }
         val l = raw.getValue(idx[q - 1]); val r = raw.getValue(idx[q + 1])
         val mx = listOf(l[0], p[0], r[0]).sorted()[1]; val my = listOf(l[1], p[1], r[1]).sorted()[1]
         out[i] = if (hypot(p[0] - mx, p[1] - my) > SPIKE) doubleArrayOf(mx, my, p[2] * 0.5) else p
@@ -141,4 +148,25 @@ fun viewAtSmooth(views: List<ViewKey>, t: Double): View {
     }
     fun ch(c: Int) = h00 * views[lo][c] + h10 * h * tangent(lo, c) + h01 * views[hi][c] + h11 * h * tangent(hi, c)
     return View(ch(1), ch(2), ch(3))
+}
+
+// ---- Part 17: manual corrections ("pins") ----
+
+/** Adds a pin at time `t` (replacing one within `tolS`); coordinates clamped to the frame. */
+fun FreePick.withPin(t: Double, x: Double, y: Double, tolS: Double): FreePick =
+    copy(pins = (pins.filter { abs(it[0] - t) > tolS } + listOf(listOf(t, x.coerceIn(0.0, 1.0), y.coerceIn(0.0, 1.0)))).sortedBy { it[0] })
+
+fun FreePick.withoutPin(t: Double, tolS: Double): FreePick = copy(pins = pins.filter { abs(it[0] - t) > tolS })
+
+/** Fused confidence per sample (0 = lost, 1 = pinned) for the editor timeline. */
+fun freePointConfidence(doc: TrackDoc, pick: FreePick, cfg: Config): DoubleArray {
+    val f = fuseFreePoint(doc, pick, cfg)
+    return DoubleArray(doc.samples.size) { f[it]?.get(2) ?: 0.0 }
+}
+
+/** Next sample after/before `from` (dir = +1/-1) whose confidence is below `thr`, or null. */
+fun nextWeak(conf: DoubleArray, from: Int, dir: Int, thr: Double = 0.4): Int? {
+    var i = from + dir
+    while (i in conf.indices) { if (conf[i] < thr) return i; i += dir }
+    return null
 }

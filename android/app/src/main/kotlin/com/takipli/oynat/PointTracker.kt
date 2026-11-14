@@ -20,9 +20,15 @@ import kotlin.math.max
 import kotlin.math.min
 
 /** Part 16b: gray frames (gw x gh) of every sample, kept in a temp file so passes can walk the video in either direction. */
-class GrayStore(file: File, val gw: Int, val gh: Int, val n: Int) : AutoCloseable {
+class GrayStore(private val file: File, val gw: Int, val gh: Int, val n: Int, resume: Boolean = false) : AutoCloseable {
     private val raf = RandomAccessFile(file, "rw")
-    private val has = BooleanArray(n)
+    private val hasFile = File(file.path + ".has")
+    private val has = BooleanArray(n).also { h ->
+        if (resume && hasFile.exists() && hasFile.length() == n.toLong()) hasFile.readBytes().forEachIndexed { i, b -> h[i] = b.toInt() == 1 }
+    }
+    val complete: Boolean get() = has.any { it }
+    /** Remember which frames exist so a later run can reuse the file without decoding again. */
+    fun saveIndex() { hasFile.writeBytes(ByteArray(n) { if (has[it]) 1 else 0 }) }
     fun put(i: Int, gray: ByteArray) { raf.seek(i.toLong() * gw * gh); raf.write(gray); has[i] = true }
     fun has(i: Int) = i in 0 until n && has[i]
     /** New Mat (caller releases). */
@@ -172,19 +178,33 @@ class PointTracker(private val store: GrayStore, private val cam: List<List<Doub
         } finally { prev.release(); tmpl?.release(); tmpl0?.release() }
     }
 
-    /** Pass A (from the pick, both directions in time) + pass B (reverse run from the last confident sample back to the pick). */
-    fun twoPass(pick: Int, sx: Double, sy: Double, onStep: (Int) -> Unit = {}, isCancelled: () -> Unit = {}): Pair<List<List<Double>>, List<List<Double>>> {
+    /**
+     * Passes over all pins (`seeds` = sample index, x, y; the pick is one of them). A: from each pin forward to the next pin
+     * (before the first pin: backward; after the last: forward). B: from each pin back to the previous one, plus a reverse run
+     * from the last confident sample back to the outer pins. Pins are written back as exact rows. `onStep` counts stages
+     * (seeds + 3).
+     */
+    fun multiPass(seeds: List<Triple<Int, Double, Double>>, onStep: (Int) -> Unit = {}, isCancelled: () -> Unit = {}): Pair<List<List<Double>>, List<List<Double>>> {
         val n = store.n
         val a = arrayOfNulls<DoubleArray>(n); val b = arrayOfNulls<DoubleArray>(n)
-        if (!store.has(pick)) return List(n) { emptyList<Double>() } to List(n) { emptyList<Double>() }
-        run(pick, sx, sy, n - 1, +1, a, true, isCancelled); onStep(1)
-        run(pick, sx, sy, 0, -1, a, false, isCancelled); onStep(2)
-        val fEnd = (n - 1 downTo pick).firstOrNull { (a[it]?.get(2) ?: 0.0) >= 0.5 && it != pick }
-        if (fEnd != null) a[fEnd]?.let { run(fEnd, it[0], it[1], pick, -1, b, false, isCancelled) }
-        onStep(3)
-        val bStart = (0 until pick).firstOrNull { (a[it]?.get(2) ?: 0.0) >= 0.5 }
-        if (bStart != null) a[bStart]?.let { run(bStart, it[0], it[1], pick, +1, b, false, isCancelled) }
-        onStep(4)
+        val pins = seeds.filter { store.has(it.first) }.distinctBy { it.first }.sortedBy { it.first }
+        if (pins.isEmpty()) return List(n) { emptyList<Double>() } to List(n) { emptyList<Double>() }
+        var step = 0
+        for ((k, p) in pins.withIndex()) {
+            val next = pins.getOrNull(k + 1)
+            run(p.first, p.second, p.third, next?.first ?: (n - 1), +1, a, true, isCancelled)
+            if (next != null) run(next.first, next.second, next.third, p.first, -1, b, false, isCancelled)
+            onStep(++step)
+        }
+        val first = pins.first(); val last = pins.last()
+        run(first.first, first.second, first.third, 0, -1, a, false, isCancelled); onStep(++step)
+        val fEnd = (n - 1 downTo last.first + 1).firstOrNull { (a[it]?.get(2) ?: 0.0) >= 0.5 }
+        if (fEnd != null) a[fEnd]?.let { run(fEnd, it[0], it[1], last.first, -1, b, false, isCancelled) }
+        onStep(++step)
+        val bStart = (0 until first.first).firstOrNull { (a[it]?.get(2) ?: 0.0) >= 0.5 }
+        if (bStart != null) a[bStart]?.let { run(bStart, it[0], it[1], first.first, +1, b, false, isCancelled) }
+        onStep(++step)
+        for (p in pins) a[p.first] = doubleArrayOf(p.second, p.third, 1.0)
         return a.map { it?.toList() ?: emptyList() } to b.map { it?.toList() ?: emptyList() }
     }
 }
