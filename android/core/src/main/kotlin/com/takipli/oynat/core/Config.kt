@@ -40,6 +40,7 @@ data class Config(
     val kpHoldS: Double = 1.5,
     val kpFilter: Boolean = true,
     val kpWorld: Boolean = true,
+    val kpInfer: Boolean = true,
     // Android-only; provisional, final values are decided by measurement (Part 10/13 and Part 9).
     val partMargin: Double = 0.02,
     val scanFpsPart: Double = 15.0,

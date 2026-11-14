@@ -16,6 +16,7 @@
  "kp_box": 0.1,
  "kp_filter": true,
  "kp_hold_s": 1.5,
+ "kp_infer": true,
  "kp_min_conf": 0.35,
  "kp_tol": 0.12,
  "kp_world": true,

@@ -17,10 +17,12 @@ class Pipeline:
         self.gmc = gmc
         self.cuts = cuts
         self.cut = False  # son step bir kesmeyle mi başladı
+        self.cam: list[float] | None = None  # son step: [a, b, tx/h, ty/h] (yalnız kestirim tamamsa)
 
     def step(self, frame_bgr) -> list[Track]:
         motion = None
         self.cut = False
+        self.cam = None
         if self.gmc is not None:
             try:
                 motion = self.gmc.step(frame_bgr, self.tracker.boxes)
@@ -35,6 +37,8 @@ class Pipeline:
             if self.cut:
                 self.on_cut()
                 motion = None
+        if motion is not None and getattr(self.gmc, "ok", False):
+            self.cam = cam_row(motion, frame_bgr.shape[0])
         return self.tracker.update(self.detector.detect(frame_bgr), motion)
 
     def on_cut(self) -> None:
@@ -50,6 +54,13 @@ class Pipeline:
         if self.cuts is not None:
             self.cuts.reset()
         self.cut = False
+
+
+def cam_row(motion, h: int) -> list[float]:
+    """3x3 önceki→bu kare benzerlik dönüşümü → [a, b, tx/h, ty/h] (a = ölçek·cos, b = ölçek·sin;
+    öteleme kare yüksekliği biriminde: çözünürlükten bağımsız). `track.json` örneğindeki `cam`."""
+    return [round(float(motion[0][0]), 6), round(float(motion[1][0]), 6),
+            round(float(motion[0][2]) / h, 5), round(float(motion[1][2]) / h, 5)]
 
 
 def make_cuts(cfg):

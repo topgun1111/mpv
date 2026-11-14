@@ -61,6 +61,12 @@ class ScanTest {
                 }
             }
             assertEquals(e["cut"]?.jsonPrimitive?.int, a.cut, "cut #$i")
+            val ecam = e["cam"]?.jsonArray
+            if (ecam == null) assertNull(a.cam, "cam #$i") else {
+                val ev = doubles(ecam)
+                assertEquals(4, a.cam!!.size, "cam size #$i")
+                for (c in ev.indices) assertEquals(ev[c], a.cam!![c], 1e-9, "cam #$i/$c")
+            }
         }
     }
 

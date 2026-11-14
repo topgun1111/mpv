@@ -29,6 +29,20 @@ private val REGION: Map<String, Pair<Double, Double>> = mapOf(
     "hands" to (0.35 to 0.62),
 )
 
+/** Part 10b: missing end joint -> (parent, parent's parent, limb ratio): end = parent + (parent - grandparent) * ratio. */
+private val INFER: Map<Int, Triple<Int, Int, Double>> = mapOf(
+    15 to Triple(13, 11, 1.0), 16 to Triple(14, 12, 1.0), 9 to Triple(7, 5, 0.8), 10 to Triple(8, 6, 0.8),
+)
+private const val INFER_CONF = 0.5
+
+/** `parts.py::infer_joint`: pixel estimate `[x, y, conf]` of a missing ankle/wrist from two confident upper joints, or null. */
+fun inferJoint(row: List<Double>, j: Int, w: Int, h: Int, minConf: Double): DoubleArray? {
+    val (p, g, ratio) = INFER[j] ?: return null
+    if (row.size < 3 * N_KPT || row[3 * p + 2] < minConf || row[3 * g + 2] < minConf) return null
+    val px = row[3 * p] * w; val py = row[3 * p + 1] * h; val gx = row[3 * g] * w; val gy = row[3 * g + 1] * h
+    return doubleArrayOf(px + (px - gx) * ratio, py + (py - gy) * ratio, min(row[3 * p + 2], row[3 * g + 2]) * INFER_CONF)
+}
+
 private fun clamp(v: Double, lo: Double, hi: Double) = max(lo, min(hi, v))
 
 private fun round4(v: Double) = round(v, 4) // exact half-even like Python (see Scan.kt); +0.0 there turns -0.0 into 0.0
@@ -144,7 +158,7 @@ fun viewsFromBoxes(ts: List<Double>, boxes: Map<Int, DoubleArray>, cfg: Config, 
     return out
 }
 
-private fun videoSize(doc: TrackDoc) = (doc.video.w.takeIf { it != 0 } ?: 1) to (doc.video.h.takeIf { it != 0 } ?: 1)
+internal fun videoSize(doc: TrackDoc) = (doc.video.w.takeIf { it != 0 } ?: 1) to (doc.video.h.takeIf { it != 0 } ?: 1)
 
 /** `offline.py::build_views` boxes: the person box of the best-scoring ID per sample. */
 fun personBoxes(doc: TrackDoc, ids: Set<Int>): Map<Int, DoubleArray> {
@@ -175,9 +189,11 @@ fun jointBoxes(doc: TrackDoc, ids: Set<Int>, part: Int, cfg: Config): Map<Int, D
 
 /**
  * `parts.py::preset_boxes`: group box = union of confident joints + `partMargin` (>= `kpBox` x person height), else the
- * person-box slice for that part. Joint-based candidates beat slices; among equals the later ID wins.
+ * person-box slice for that part. Joint-based candidates beat slices; among equals the later ID wins. With `cfg.kpInfer`
+ * a missing ankle/wrist is estimated from its two upper joints (`inferJoint`) before the slice is used. `kps`
+ * (Part 10b): per-sample rows from `smoothKeypoints`; null = the raw `kp`.
  */
-fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config): Map<Int, DoubleArray> {
+fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config, kps: List<Map<String, List<Double>>>? = null): Map<Int, DoubleArray> {
     val joints = requireNotNull(PRESETS[preset]) { "unknown part preset: $preset" }
     val (w, h) = videoSize(doc)
     val boxes = HashMap<Int, DoubleArray>(); val best = HashMap<Int, Double>()
@@ -190,15 +206,21 @@ fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config): Map<
         if (preset == "person") {
             box = doubleArrayOf((x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1); q = score
         } else {
-            val row = s.kp?.get(id.toString())
-            val pts = joints.filter { row != null && row.size >= 3 * N_KPT && row[3 * it + 2] >= cfg.kpMinConf }
-            if (row != null && pts.isNotEmpty()) {
-                val xs = pts.map { row[3 * it] * w }; val ys = pts.map { row[3 * it + 1] * h }
+            val row = if (kps != null) kps[i][id.toString()] else s.kp?.get(id.toString())
+            val xs = ArrayList<Double>(); val ys = ArrayList<Double>(); val cs = ArrayList<Double>()
+            if (row != null && row.size >= 3 * N_KPT) for (j in joints) {
+                if (row[3 * j + 2] >= cfg.kpMinConf) {
+                    xs.add(row[3 * j] * w); ys.add(row[3 * j + 1] * h); cs.add(row[3 * j + 2])
+                } else if (cfg.kpInfer) {
+                    inferJoint(row, j, w, h, cfg.kpMinConf)?.let { xs.add(it[0]); ys.add(it[1]); cs.add(it[2]) }
+                }
+            }
+            if (xs.isNotEmpty()) {
                 val m = cfg.partMargin * h
                 val side = max(cfg.kpBox * (y2 - y1) * h, 8.0)
                 val bw = max(xs.max() - xs.min() + 2 * m, side); val bh = max(ys.max() - ys.min() + 2 * m, side)
                 box = doubleArrayOf((xs.max() + xs.min()) / 2 / w, (ys.max() + ys.min()) / 2 / h, bw / w, bh / h)
-                q = pts.sumOf { row[3 * it + 2] } / pts.size
+                q = cs.sum() / cs.size
             } else {
                 val (top, bot) = REGION.getValue(preset)
                 val ry1 = y1 + (y2 - y1) * top; val ry2 = y1 + (y2 - y1) * bot
@@ -215,7 +237,13 @@ fun buildTargetViews(doc: TrackDoc, target: Target, cfg: Config): List<ViewKey> 
     val ts = doc.samples.map { it.t }
     val ids = setOf(target.id) + target.linked
     val boxes = when {
-        target.preset != null -> presetBoxes(doc, ids, target.preset, cfg)
+        target.preset != null -> {
+            // Part 10b (`offline.py::build_preset_views`): per-joint One-Euro, then off-screen propagation
+            val part = target.preset != "person"
+            val kps = if (part && cfg.kpFilter) smoothKeypoints(doc, ids, cfg) else null
+            val b = presetBoxes(doc, ids, target.preset, cfg, kps)
+            if (part && cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
+        }
         target.part != null -> jointBoxes(doc, ids, target.part, cfg)
         else -> personBoxes(doc, ids)
     }
@@ -244,7 +272,7 @@ fun pickTrack(tracks: List<Track>, px: Double, py: Double, tol: Double = 0.0): T
 /**
  * `scan.py::resolve_selection`, point case: tap at normalized (`nx`, `ny`) at time `t` -> (person ID, joint or null).
  * A joint within `kpTol` x person height wins (nearest); otherwise the person under/near the tap (`pickTol`).
- * Rectangle selection is not ported yet.
+ * Rectangle selection: `resolveRect`.
  */
 fun resolveTap(doc: TrackDoc, t: Double, nx: Double, ny: Double, cfg: Config): Pair<Int, Int?>? {
     val s = doc.samples.minByOrNull { abs(it.t - t) } ?: return null
@@ -269,4 +297,48 @@ fun resolveTap(doc: TrackDoc, t: Double, nx: Double, ny: Double, cfg: Config): P
     if (bestK >= 0) return bestId to bestK
     val tracks = s.d.map { Track(it[0].toInt(), BBox(it[1] * w, it[2] * h, it[3] * w, it[4] * h), it[5], 0, 0) }
     return pickTrack(tracks, px, py, cfg.pickTol * h)?.let { it.id to null }
+}
+
+/**
+ * `scan.py::resolve_selection`, rectangle case (Part 10b): the person holding >= 50% of the rectangle's area (largest
+ * share, then the smaller box); a rectangle no person holds falls back to the person at its centre (`pickTol`). A
+ * rectangle at most 30% of the person's height with a confident joint inside returns that joint (nearest to the
+ * centre). Normalized corners in any order.
+ */
+fun resolveRect(doc: TrackDoc, t: Double, x1: Double, y1: Double, x2: Double, y2: Double, cfg: Config): Pair<Int, Int?>? {
+    val s = doc.samples.minByOrNull { abs(it.t - t) } ?: return null
+    val (w, h) = videoSize(doc)
+    val px1 = min(x1, x2) * w; val py1 = min(y1, y2) * h; val px2 = max(x1, x2) * w; val py2 = max(y1, y2) * h
+    val cx = (px1 + px2) / 2; val cy = (py1 + py2) / 2
+    val persons = LinkedHashMap<Int, DoubleArray>()
+    for (d in s.d) persons[d[0].toInt()] = doubleArrayOf(d[1] * w, d[2] * h, d[3] * w, d[4] * h)
+    val area = max((px2 - px1) * (py2 - py1), 1e-9)
+    var bestId = -1; var bestFrac = 0.0; var bestNegArea = 0.0
+    for ((id, b) in persons) {
+        val iw = min(px2, b[2]) - max(px1, b[0]); val ih = min(py2, b[3]) - max(py1, b[1])
+        val frac = max(iw, 0.0) * max(ih, 0.0) / area
+        val negArea = -(b[2] - b[0]) * (b[3] - b[1])
+        if (frac >= 0.5 && (bestId < 0 || frac > bestFrac || (frac == bestFrac && negArea > bestNegArea))) {
+            bestId = id; bestFrac = frac; bestNegArea = negArea
+        }
+    }
+    if (bestId < 0) {
+        val tracks = s.d.map { Track(it[0].toInt(), BBox(it[1] * w, it[2] * h, it[3] * w, it[4] * h), it[5], 0, 0) }
+        val nx = (min(x1, x2) + max(x1, x2)) / 2; val ny = (min(y1, y2) + max(y1, y2)) / 2 // like pick_target_id: normalized centre * size
+        return pickTrack(tracks, nx * w, ny * h, cfg.pickTol * h)?.let { it.id to null }
+    }
+    val pb = persons.getValue(bestId)
+    val row = s.kp?.get(bestId.toString())
+    if ((py2 - py1) <= 0.3 * (pb[3] - pb[1]) && row != null && row.size >= 3 * N_KPT) {
+        var bd = Double.MAX_VALUE; var bk = -1
+        for (k in 0 until row.size / 3) {
+            if (row[3 * k + 2] < cfg.kpMinConf) continue
+            val x = row[3 * k] * w; val y = row[3 * k + 1] * h
+            if (x < px1 || x > px2 || y < py1 || y > py2) continue
+            val d = hypot(x - cx, y - cy)
+            if (d < bd) { bd = d; bk = k }
+        }
+        if (bk >= 0) return bestId to bk
+    }
+    return bestId to null
 }

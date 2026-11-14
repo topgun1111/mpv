@@ -30,6 +30,27 @@ REGION: dict[str, tuple[float, float]] = {
 }
 
 
+# Android 10b: eksik uç eklem → (üst eklem, onun üstü, uzuv oranı). Uç = üst + (üst − onun üstü) × oran
+# (bacakta baldır ≈ uyluk, kolda ön kol ≈ 0.8 × üst kol). İkisi de güvenilirse kestirilir; güveni
+# min(üst, onun üstü) × INFER_CONF (gerçek eklemden her zaman düşük → kutu seçiminde sonra gelir).
+INFER: dict[int, tuple[int, int, float]] = {
+    15: (13, 11, 1.0), 16: (14, 12, 1.0), 9: (7, 5, 0.8), 10: (8, 6, 0.8),
+}
+INFER_CONF = 0.5
+
+
+def infer_joint(row, j: int, w: int, h: int, min_conf: float):
+    """Eksik eklem j'nin kare pikseli kestirimi (x, y, güven) ya da None (zincir güvenilir değil)."""
+    if not row or j not in INFER:
+        return None
+    p, g, ratio = INFER[j]
+    if row[3 * p + 2] < min_conf or row[3 * g + 2] < min_conf:
+        return None
+    px, py, gx, gy = row[3 * p] * w, row[3 * p + 1] * h, row[3 * g] * w, row[3 * g + 1] * h
+    return (px + (px - gx) * ratio, py + (py - gy) * ratio,
+            min(row[3 * p + 2], row[3 * g + 2]) * INFER_CONF)
+
+
 # B3: menü/kısayol sırası ("auto" = parça ayarı yok: tıklanan eklem izlenir) ve Türkçe adlar.
 CYCLE: tuple[str, ...] = ("auto", "person", "head", "torso", "left_arm", "right_arm", "left_leg",
                           "right_leg", "legs", "left_foot", "right_foot", "feet", "hands")
@@ -54,12 +75,20 @@ def check_preset(name: str) -> str:
 
 
 def group_box(joints, row, w: int, h: int, person_h_px: float, kp_min_conf: float,
-              kp_box: float, margin: float = PART_MARGIN):
-    """([cx, cy, bw, bh] normalize, ort. güven) ya da None (güvenilir eklem yok)."""
+              kp_box: float, margin: float = PART_MARGIN, infer: bool = False):
+    """([cx, cy, bw, bh] normalize, ort. güven) ya da None (güvenilir eklem yok).
+    `infer` (10b): grubun güvenilir olmayan ayak bileği/bileği üst eklemlerinden kestirilir
+    (`infer_joint`) ve birleşime katılır; zincir de güvenilir değilse yine None."""
     if not row:
         return None
-    pts = [(row[3 * j] * w, row[3 * j + 1] * h, row[3 * j + 2]) for j in joints
-           if row[3 * j + 2] >= kp_min_conf]
+    pts = []
+    for j in joints:
+        if row[3 * j + 2] >= kp_min_conf:
+            pts.append((row[3 * j] * w, row[3 * j + 1] * h, row[3 * j + 2]))
+        elif infer:
+            e = infer_joint(row, j, w, h, kp_min_conf)
+            if e is not None:
+                pts.append(e)
     if not pts:
         return None
     xs, ys = [p[0] for p in pts], [p[1] for p in pts]
@@ -71,17 +100,20 @@ def group_box(joints, row, w: int, h: int, person_h_px: float, kp_min_conf: floa
     return [cx / w, cy / h, bw / w, bh / h], sum(p[2] for p in pts) / len(pts)
 
 
-def preset_boxes(doc: dict, ids: set[int], preset: str, cfg) -> dict[int, list[float]]:
+def preset_boxes(doc: dict, ids: set[int], preset: str, cfg,
+                 kps: list[dict] | None = None) -> dict[int, list[float]]:
     """Örnek başına [cx, cy, w, h] (normalize). Birden çok kimlikte en iyi aday: eklem tabanlı
-    kutular (ort. güven) her zaman alt kutudan (−1 + skor) ve eşitlikte sonraki kimlik kazanır."""
+    kutular (ort. güven) her zaman alt kutudan (−1 + skor) ve eşitlikte sonraki kimlik kazanır.
+    `kps` (10b): örnek başına {kimlik: satır} (`offscreen.smooth_keypoints`); yoksa `s["kp"]`."""
     check_preset(preset)
     w, h = doc["video"]["w"] or 1, doc["video"]["h"] or 1
     margin = getattr(cfg, "part_margin", PART_MARGIN)
     joints = PRESETS[preset]
+    infer = bool(getattr(cfg, "kp_infer", False))
     boxes: dict[int, list[float]] = {}
     best: dict[int, float] = {}
     for i, s in enumerate(doc["samples"]):
-        kps = s.get("kp") or {}
+        rows = kps[i] if kps is not None else (s.get("kp") or {})
         for d in s["d"]:
             if d[0] not in ids:
                 continue
@@ -89,8 +121,8 @@ def preset_boxes(doc: dict, ids: set[int], preset: str, cfg) -> dict[int, list[f
             if preset == "person":
                 box, q = [(x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1], score
             else:
-                g = group_box(joints, kps.get(str(d[0])), w, h, (y2 - y1) * h,
-                              cfg.kp_min_conf, cfg.kp_box, margin)
+                g = group_box(joints, rows.get(str(d[0])), w, h, (y2 - y1) * h,
+                              cfg.kp_min_conf, cfg.kp_box, margin, infer)
                 if g is not None:
                     box, q = g
                 else:

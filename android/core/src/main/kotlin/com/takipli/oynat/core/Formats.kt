@@ -25,13 +25,18 @@ data class VideoInfo(
 @Serializable
 data class Target(val id: Int, val part: Int? = null, val linked: List<Int> = emptyList(), val preset: String? = null)
 
-/** `d` rows: `[id, x1, y1, x2, y2, score]` (normalized); `kp`: track ID (string) -> 51 numbers. */
+/**
+ * `d` rows: `[id, x1, y1, x2, y2, score]` (normalized); `kp`: track ID (string) -> 51 numbers; `cut`: 1 when the sample
+ * starts a new shot; `cam` (Part 10b): `[a, b, tx/h, ty/h]`, background similarity previous sample -> this one
+ * (a = scale*cos, b = scale*sin, translation in frame-height units), only when the camera estimate succeeded.
+ */
 @Serializable
 data class Sample(
     val t: Double,
     val d: List<List<Double>> = emptyList(),
     val kp: Map<String, List<Double>>? = null,
     val cut: Int? = null,
+    val cam: List<Double>? = null,
 )
 
 data class Keypoint(val x: Double, val y: Double, val conf: Double)

@@ -14,7 +14,9 @@ Aşamalar (hepsi IO'suz, testli; yalnız `VideoSource` cv2 kullanır):
    "views": [[t, zoom, pan_x, pan_y], ...]}   # target yoksa []
 Sürüm 2 (`offline --pose`, B1): her örnekte isteğe bağlı `"kp": {"<id>": [x, y, güven] × 17}`
 (düz liste, 51 sayı; x/y normalize, güven 0..1; COCO sırası = `pose.KEYPOINT_NAMES`) ve hedefte
-`"part": <eklem indeksi>`. Sürüm 1 dosyaları aynen okunur; `kp` yoksa parça hedefi seçilemez.
+`"part": <eklem indeksi>`. Android 10b: örnekte isteğe bağlı `"cam": [a, b, tx/h, ty/h]` (önceki örnekten bu
+örneğe arka plan benzerlik dönüşümü: ölçek·cos, ölçek·sin, öteleme kare yüksekliği biriminde; yalnız
+kamera kestirimi tamamsa ve kesme değilse), hedefte `"preset": <ad>`. Sürüm 1 dosyaları aynen okunur; `kp` yoksa parça hedefi seçilemez.
 Hedef seçilince ayrıca küçük bir `<video>.views.json` yazılır (`save_views`): yalnız
 {"version", "video": {"path"}, "target", "views"}; Lua (Parça 10) bunu okur, büyük `samples`'ı
 ayrıştırmaz. `views` doğrudan mpv `video-zoom`/`video-pan-x/y` değerleridir (Parça 10 Lua bunları
@@ -120,6 +122,9 @@ def run_detection(frames, pipeline, progress=None, total: int | None = None, ban
         smp = {"t": round(t, 3), "d": d}
         if getattr(pipeline, "cut", False) is True:  # G4: bu örnek bir çekim kesmesiyle başlar
             smp["cut"] = 1
+        cam = getattr(pipeline, "cam", None)
+        if cam and not smp.get("cut"):  # 10b: kamera hareketi (kp_world: kare dışına çıkan parça)
+            smp["cam"] = list(cam)
         if pose is not None:
             kp = {str(i): _kp_row(p, w, h)
                   for i, p in associate_poses(tracks, pose.estimate(frame)).items()}
@@ -298,11 +303,17 @@ def build_part_views(doc: dict, ids: int | set[int], part: int,
 def build_preset_views(doc: dict, ids: int | set[int], preset: str,
                        cfg: Config) -> list[list[float]]:
     """Kimlik(ler)in hazır ayar (`parts.PRESETS`) grubunu izleyen görünüm anahtar kareleri."""
+    from .offscreen import propagate_boxes, smooth_keypoints
     from .parts import preset_boxes
 
     ts = [s["t"] for s in doc["samples"]]
     ids = {ids} if isinstance(ids, int) else set(ids)
-    return _views_from_boxes(ts, preset_boxes(doc, ids, preset, cfg), cfg, cut_indices(doc))
+    part = preset != "person"
+    kps = smooth_keypoints(doc, ids, cfg) if part and cfg.kp_filter else None  # 10b: eklem başına One-Euro
+    boxes = preset_boxes(doc, ids, preset, cfg, kps)
+    if part and cfg.kp_world and cfg.kp_hold_s > 0:  # 10b: kare dışına çıkan/kaybolan parçayı taşı
+        boxes = propagate_boxes(doc, boxes, cfg)
+    return _views_from_boxes(ts, boxes, cfg, cut_indices(doc))
 
 
 def cut_indices(doc: dict) -> set[int]:

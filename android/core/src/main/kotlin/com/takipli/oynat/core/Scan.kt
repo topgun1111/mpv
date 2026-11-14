@@ -32,6 +32,11 @@ internal fun round(v: Double, digits: Int): Double {
     return java.math.BigDecimal(v).setScale(digits, java.math.RoundingMode.HALF_EVEN).toDouble() + 0.0
 }
 
+/** `pipeline.py::cam_row`: 3x3 row-major previous -> this similarity -> `[a, b, tx/h, ty/h]`; null without a motion. */
+fun camRow(motion: DoubleArray?, h: Int): List<Double>? =
+    if (motion == null || motion.size < 9) null
+    else listOf(round(motion[0], 6), round(motion[3], 6), round(motion[2] / h, 5), round(motion[5] / h, 5))
+
 /** `offline.py::_kp_row`: 17 x (x/w, y/h rounded to 4 decimals, conf to 2). */
 fun kpRow(p: Pose, w: Int, h: Int): List<Double> {
     val out = ArrayList<Double>(3 * p.count)
@@ -72,7 +77,7 @@ class ScanPipeline(private val cfg: Config = Config(), private val tracker: Byte
             listOf(tr.id.toDouble(), round(b.x1 / w, 4), round(b.y1 / h, 4), round(b.x2 / w, 4), round(b.y2 / h, 4), round(tr.score, 3))
         }
         val kp = associatePoses(tracks, poses.withMinScore(cfg.poseConf)).mapKeys { it.key.toString() }.mapValues { kpRow(it.value, w, h) }
-        val s = Sample(round(t, 3), d, kp.ifEmpty { null }, if (cut) 1 else null)
+        val s = Sample(round(t, 3), d, kp.ifEmpty { null }, if (cut) 1 else null, if (cut) null else camRow(motion, h))
         list.add(s)
         return s
     }

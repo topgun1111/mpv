@@ -31,6 +31,9 @@ from tracker.offline import (  # noqa: E402
     save_views,
     view_at,
 )
+from tracker.offscreen import propagate_boxes, smooth_keypoints  # noqa: E402
+from tracker.parts import preset_boxes  # noqa: E402
+from tracker.pipeline import cam_row  # noqa: E402
 from tracker.pose import Pose, decode_yolo_pose, nearest_keypoint  # noqa: E402
 from tracker.scan import Selection, resolve_selection  # noqa: E402
 from tracker.smooth import BoxFilter, Kalman1D, OneEuro  # noqa: E402
@@ -42,7 +45,7 @@ SHARED_KEYS = (
     "det_conf det_iou det_size live_det_conf offline_fps offline_interp_s offline_alpha "
     "target_fill min_zoom max_zoom alpha_pos alpha_zoom dead_zone_pos dead_zone_zoom "
     "lost_hold_s lost_zoomout_s kf_accel kf_meas gmc gmc_side cut_detect cut_hist cut_diff "
-    "pick_tol pose_conf kp_min_conf kp_tol kp_box kp_hold_s kp_filter kp_world"
+    "pick_tol pose_conf kp_min_conf kp_tol kp_box kp_hold_s kp_filter kp_world kp_infer"
 ).split()
 
 VIEWS = [[0.0, 0.0, 0.0, 0.0], [1.0, 1.0, 0.1, -0.05], [2.5, 2.0, -0.2, 0.15], [4.0, 0.5, 0.0, 0.0]]
@@ -316,13 +319,14 @@ def _scan() -> dict:
 
     class _FakePipeline:
         def __init__(self):
-            self.tracker, self.i, self.cut = ByteTracker(low_thr=cfg.live_det_conf), 0, False
+            self.tracker, self.i, self.cut, self.cam = ByteTracker(low_thr=cfg.live_det_conf), 0, False, None
 
         def step(self, frame):
             st = steps[self.i]
             self.i += 1
             self.cut = bool(st["cut"])
             m = None if (self.cut or st["motion"] is None) else np.array(st["motion"], float)
+            self.cam = None if m is None else cam_row(m, h)  # 10b: like Pipeline.step (motion ok)
             if self.cut:
                 self.tracker.clear()
             dets = [_Det(p["bbox"], p["score"]) for p in st["poses"] if p["score"] >= cfg.live_det_conf]
@@ -344,20 +348,30 @@ def _scan() -> dict:
 
 
 def _target_views() -> dict:
-    """Part 10: views for person / joint / preset targets (Python `offline` + `parts`) on the scan fixture doc,
-    plus a variant where person 2 is gone for 12 samples (hold -> zoom-out -> zoom-in) and tap resolution."""
+    """Part 10/10b: views for person / joint / preset targets (Python `offline` + `parts` + `offscreen`) on the scan
+    fixture doc, variants where a person is gone for a while (hold -> zoom-out -> zoom-in; propagation with and
+    without camera motion, cut), and tap / rectangle resolution. Cfgs `default`/`custom` pin the Part 10a
+    behaviour (10b switches off); `b`/`b_custom` use the 10b defaults."""
     base = _scan()
     video = {"w": base["w"], "h": base["h"]}
-    gap = json.loads(json.dumps(base["samples"]))
-    for s in gap[6:18]:
-        s["d"] = [d for d in s["d"] if d[0] != 2]
-        s["kp"] = {k: v for k, v in (s.get("kp") or {}).items() if k != "2"}
-        if not s["kp"]:
-            s.pop("kp")
-    docs = {"base": {"video": video, "samples": base["samples"]}, "gap": {"video": video, "samples": gap}}
+    removed = {"gap": [6, 18, 2], "exit": [2, 18, 1], "exit2": [18, 24, 1]}  # [from, to), track id gone
+
+    def without(frm, to, tid):
+        smp = json.loads(json.dumps(base["samples"]))
+        for q in smp[frm:to]:
+            q["d"] = [d for d in q["d"] if d[0] != tid]
+            q["kp"] = {k: v for k, v in (q.get("kp") or {}).items() if k != str(tid)}
+            if not q["kp"]:
+                q.pop("kp")
+        return {"video": video, "samples": smp}
+
+    docs = {"base": {"video": video, "samples": base["samples"]},
+            **{name: without(*r) for name, r in removed.items()}}
+    legacy = {"kp_filter": False, "kp_world": False, "kp_infer": False}  # Part 10a behaviour
     custom = {"target_fill": 0.8, "max_zoom": 3.5, "lost_hold_s": 0.5, "lost_zoomout_s": 1.0,
               "offline_alpha": 0.5, "kp_box": 0.15}
-    cfgs = {"default": {}, "custom": custom}
+    cfgs = {"default": dict(legacy), "custom": {**custom, **legacy}, "b": {},
+            "b_custom": {**custom, "kp_hold_s": 2.5, "kp_infer": True}}
     cases = []
 
     def add(doc, cfg, kind, tid, arg=None):
@@ -371,7 +385,7 @@ def _target_views() -> dict:
             views = apply_target({**d, "target": None, "views": []}, tid, c, link=False, preset=arg)["views"]
         cases.append({"doc": doc, "cfg": cfg, "kind": kind, "id": tid, "arg": arg, "views": views})
 
-    for cfg in cfgs:
+    for cfg in ("default", "custom"):
         add("base", cfg, "person", 1)
         add("gap", cfg, "person", 2)
         add("base", cfg, "joint", 2, 15)
@@ -382,6 +396,28 @@ def _target_views() -> dict:
         add("base", cfg, "preset", 2, "torso")
         add("gap", cfg, "preset", 2, "person")
         add("base", cfg, "preset", 1, "hands")
+    for cfg in ("b", "b_custom"):  # 10b: per-joint One-Euro, ankle inference, off-screen propagation
+        add("base", cfg, "preset", 1, "feet")
+        add("base", cfg, "preset", 2, "left_leg")
+        add("base", cfg, "preset", 1, "right_foot")
+        add("base", cfg, "preset", 2, "hands")
+        add("gap", cfg, "preset", 2, "left_leg")
+        add("exit", cfg, "preset", 1, "left_foot")
+        add("exit", cfg, "preset", 1, "legs")
+        add("exit2", cfg, "preset", 1, "right_leg")
+        add("exit", cfg, "preset", 1, "person")
+    # finer-grained references (localise a failing view): smoothed rows and propagated boxes
+    ids = [1, 2]
+    smooth = {"doc": "base", "cfg": "b", "ids": ids,
+              "rows": smooth_keypoints(docs["base"], set(ids), Config(**cfgs["b"]))}
+    prop = []
+    for dname, cname, tid, preset in (("exit", "b", 1, "left_foot"), ("exit", "b_custom", 1, "left_foot"),
+                                      ("exit2", "b_custom", 1, "right_leg")):
+        c = Config(**cfgs[cname])
+        bx = preset_boxes(docs[dname], {tid}, preset, c)
+        prop.append({"doc": dname, "cfg": cname, "id": tid, "preset": preset,
+                     "in": {str(k): v for k, v in bx.items()},
+                     "out": {str(k): v for k, v in propagate_boxes(docs[dname], bx, c).items()}})
     taps = []
     s3 = base["samples"][3]
     wr = s3["kp"]["1"]
@@ -390,7 +426,21 @@ def _target_views() -> dict:
     for tt, nx, ny in pts:
         r = resolve_selection(docs["base"], Selection.point(tt, nx, ny), Config())
         taps.append({"t": tt, "x": nx, "y": ny, "result": None if r is None else list(r)})
-    return {"docs": {"gap_ids": [6, 18, 2]}, "cfgs": cfgs, "cases": cases, "taps": taps}
+    # rectangle selection (10b): mostly over one person, tiny around an ankle, straddling, empty, later sample
+    p1, p2 = s3["d"][0], s3["d"][1]
+    k2 = s3["kp"]["2"]
+    rects = []
+    for tt, (ax, ay, bx, by) in (
+            (s3["t"], (p1[1] - 0.01, p1[2] - 0.01, p1[3] + 0.01, p1[4] + 0.01)),
+            (s3["t"], (k2[45] - 0.01, k2[46] - 0.01, k2[45] + 0.01, k2[46] + 0.01)),
+            (s3["t"], (p1[1] + 0.02, p1[2] + 0.1, p2[3] - 0.02, p2[2] + 0.4)),
+            (s3["t"], (0.0, 0.0, 0.03, 0.03)),
+            (s3["t"], (p2[1] + 0.001, p2[2] + 0.001, p2[1] + 0.004, p2[2] + 0.004)),
+            (base["samples"][12]["t"], (0.0, 0.0, 1.0, 1.0))):
+        r = resolve_selection(docs["base"], Selection.rect(tt, ax, ay, bx, by), Config())
+        rects.append({"t": tt, "rect": [ax, ay, bx, by], "result": None if r is None else list(r)})
+    return {"docs": {"removed": removed}, "cfgs": cfgs, "cases": cases, "taps": taps, "rects": rects,
+            "smooth": smooth, "propagate": prop}
 
 
 def _docs() -> dict:
