@@ -210,6 +210,10 @@ def main(argv: list[str]) -> int:
             torch.onnx.export(model, args, str(path), dynamo=False, **kw)
         except TypeError:  # older torch has no `dynamo` argument
             torch.onnx.export(model, args, str(path), **kw)
+        # torch.onnx.export restores the wrapper's original mode (train, as a fresh nn.Module) on ALL children: BatchNorm would then
+        # use batch statistics in the PyTorch reference and every later check would differ. Put everything back in eval.
+        model.eval()
+        sam.eval()
 
     def ort_check(path: Path, model, args, names, tol=2e-2) -> None:
         try:
@@ -217,6 +221,8 @@ def main(argv: list[str]) -> int:
         except ImportError:
             print(f"WARNING: onnxruntime missing, {path.name} not checked", file=sys.stderr)
             return
+        model.eval()
+        sam.eval()
         sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
         got = sess.run(None, {n: a.numpy() for n, a in zip(names, args)})
         ref = model(*args)

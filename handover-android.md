@@ -486,3 +486,4 @@ Done from the two-stage recommendation (user: "do these").
 
 ## CI düzeltmesi (2026-11-15)
 - `android.yml` → android-sam işi EdgeTAM dışa aktarımında `ModuleNotFoundError: timm` ile düşüyordu (EdgeTAM `sam2/modeling/backbones/timm.py` `timm` ister; editable kurulum bağımlılığı çekmiyor). `pip install ... timm -e ...` ile giderildi. android-pose işi zaten yeşildi.
+- `scripts/export_sam2.py`: ONNX dışa aktarımı sonrası sarmalayıcı train moduna dönüyor (torch.onnx.export orijinal modu geri yükler) → BatchNorm batch istatistiği kullanıp encoder kontrolünü bozuyordu (`sam-encoder.onnx output 0 differs from PyTorch (1.75)`). `export()` ve `ort_check()` içinde `model.eval(); sam.eval()` eklendi. Henüz CI ile doğrulanmadı.
