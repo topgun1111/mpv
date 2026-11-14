@@ -243,21 +243,28 @@ def _pose() -> dict:
 
 
 def _cuts() -> dict:
-    """Cut detector on small synthetic BGR frames (width 32 so the fixture stays small; frames are already thumbnail-sized)."""
+    """Cut detector on small synthetic BGR frames.
+
+    Width 32 keeps the fixture small; the frames are already thumbnail-sized.
+    """
     rng = np.random.default_rng(7)
     w, h = 32, 18
-    scene_a = np.stack([rng.integers(150, 256, (h, w)), rng.integers(0, 80, (h, w)), rng.integers(0, 80, (h, w))],
-                       axis=2).astype(np.uint8)  # BGR: dark blue
-    scene_b = np.stack([rng.integers(0, 60, (h, w)), rng.integers(180, 256, (h, w)), rng.integers(180, 256, (h, w))],
-                       axis=2).astype(np.uint8)  # bright yellow
-    noisy = np.clip(scene_a.astype(int) + rng.integers(-6, 7, scene_a.shape), 0, 255).astype(np.uint8)
+    def chan(lo, hi):
+        return rng.integers(lo, hi, (h, w))
+
+    # BGR: dark blue, then bright yellow
+    scene_a = np.stack([chan(150, 256), chan(0, 80), chan(0, 80)], axis=2).astype(np.uint8)
+    scene_b = np.stack([chan(0, 60), chan(180, 256), chan(180, 256)], axis=2).astype(np.uint8)
+    noise = rng.integers(-6, 7, scene_a.shape)
+    noisy = np.clip(scene_a.astype(int) + noise, 0, 255).astype(np.uint8)
     frames = [scene_a, noisy, np.roll(scene_a, 3, axis=1), scene_b, scene_b, scene_a]
     cam_ok = [None, None, True, None, False, False]
     det = CutDetector(0.35, 0.18, 0.7, width=w)
     steps = []
     for f, ok in zip(frames, cam_ok):
         cut = det.step(f, ok)
-        argb = [(255 << 24) | (int(p[2]) << 16) | (int(p[1]) << 8) | int(p[0]) for p in f.reshape(-1, 3)]
+        argb = [(255 << 24) | (int(p[2]) << 16) | (int(p[1]) << 8) | int(p[0])
+                for p in f.reshape(-1, 3)]
         argb = [v - (1 << 32) if v >= (1 << 31) else v for v in argb]
         steps.append({"argb": argb, "cam_ok": ok, "cut": bool(cut),
                       "hist": round(det.last_hist, 6), "diff": round(det.last_diff, 6)})

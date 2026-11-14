@@ -12,18 +12,19 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+// File-level so the nested FakeFlow (not an inner class) can use them too.
+private fun points(n: Int, w: Double, h: Double, seed: Long): DoubleArray {
+    val r = Random(seed)
+    return DoubleArray(2 * n) { if (it % 2 == 0) r.nextDouble() * w else r.nextDouble() * h }
+}
+
+private fun transform(src: DoubleArray, a: Double, b: Double, tx: Double, ty: Double) =
+    DoubleArray(src.size) { i -> if (i % 2 == 0) a * src[i] - b * src[i + 1] + tx else b * src[i - 1] + a * src[i] + ty }
+
 /** Part 8: camera motion on synthetic shifts (feature tracking is faked; OpenCV runs only on the phone). */
 class GmcTest {
     private fun near(e: Double, a: Double, tol: Double, msg: String = "") =
         assertTrue(abs(e - a) <= tol, "$msg expected $e got $a")
-
-    private fun points(n: Int, w: Double, h: Double, seed: Long): DoubleArray {
-        val r = Random(seed)
-        return DoubleArray(2 * n) { if (it % 2 == 0) r.nextDouble() * w else r.nextDouble() * h }
-    }
-
-    private fun transform(src: DoubleArray, a: Double, b: Double, tx: Double, ty: Double) =
-        DoubleArray(src.size) { i -> if (i % 2 == 0) a * src[i] - b * src[i + 1] + tx else b * src[i - 1] + a * src[i] + ty }
 
     @Test
     fun similarityRecoversShiftRotationScaleWithOutliers() {

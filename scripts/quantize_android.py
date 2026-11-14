@@ -1,12 +1,15 @@
 """Pose ONNX -> QDQ-quantized ONNX for the Hexagon NPU (QNN HTP), calibrated on real frames.
 
 Usage: python scripts/quantize_android.py SRC.onnx DST.onnx CALIB_DIR [--a16]
-  CALIB_DIR: JPEG/PNG frames with people in motion (android/calib/, ~50-100 frames, your own footage is best).
+  CALIB_DIR: JPEG/PNG frames with people in motion (android/calib/, ~50-100 frames;
+             your own footage is best).
   --a16: 16-bit activations / 8-bit weights (HTP supports it; keeps keypoint coordinates precise).
          Default is 8-bit activations (fastest, but pixel coordinates up to 640 get ~2.5 px steps).
 Needs: pip install onnxruntime onnx opencv-python-headless numpy (build machine only).
-Preprocessing is identical to the app (letterbox, gray 114, RGB, CHW, 0..1; tracker/detector.py::letterbox).
-fp16 needs no calibration: the app runs fp32 models with HTP fp16 precision (`enable_htp_fp16_precision`).
+Preprocessing is identical to the app (letterbox, gray 114, RGB, CHW, 0..1;
+tracker/detector.py::letterbox).
+fp16 needs no calibration: the app runs fp32 models with HTP fp16 precision
+(`enable_htp_fp16_precision`).
 """
 from __future__ import annotations
 
@@ -48,11 +51,13 @@ def main(argv: list[str]) -> int:
         return 2
     src, dst, folder = Path(args[0]), Path(args[1]), Path(args[2])
     if not src.is_file() or not folder.is_dir():
-        print(f"HATA: kaynak model ya da kalibrasyon klasoru yok: {src} / {folder}", file=sys.stderr)
+        print(f"HATA: kaynak model ya da kalibrasyon klasoru yok: {src} / {folder}",
+              file=sys.stderr)
         return 1
     frames = calib_frames(folder)
     if len(frames) < 10:
-        print(f"HATA: kalibrasyon icin en az 10 kare gerekli, bulunan {len(frames)}: {folder}", file=sys.stderr)
+        print(f"HATA: kalibrasyon icin en az 10 kare gerekli, bulunan {len(frames)}: {folder}",
+              file=sys.stderr)
         return 1
 
     import onnx
@@ -84,8 +89,10 @@ def main(argv: list[str]) -> int:
     if not dst.is_file() or dst.stat().st_size < MIN_BYTES // 2:
         print(f"HATA: nicemleme basarisiz/cok kucuk: {dst}", file=sys.stderr)
         return 1
-    print(f"QDQ model hazir: {dst} ({dst.stat().st_size / 1e6:.1f} MB, {len(frames)} kalibrasyon karesi, "
-          f"{'16' if a16 else '8'}-bit etkinlestirme)")
+    mb = dst.stat().st_size / 1e6
+    bits = "16" if a16 else "8"
+    print(f"QDQ model hazir: {dst} ({mb:.1f} MB, {len(frames)} kalibrasyon karesi, "
+          f"{bits}-bit etkinlestirme)")
     return 0
 
 
