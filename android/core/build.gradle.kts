@@ -18,7 +18,7 @@ kotlin {
 }
 
 dependencies {
-    implementation(libs.kotlinx.serialization.json)
+    api(libs.kotlinx.serialization.json) // app uses Json (ScanService) with the core types
     testImplementation(libs.kotlin.test)
 }
 
