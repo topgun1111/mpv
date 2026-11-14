@@ -63,18 +63,39 @@ jobs:
         run: |
           d=android/app/src/sam/assets/models
           mkdir -p "$d"
-          if [ -n "$SAM_MODELS_URL" ]; then # optional override: a zip with sam-encoder.onnx + sam-decoder.onnx
+          if [ -n "$SAM_MODELS_URL" ]; then # optional override: a zip with the .onnx files (encoder + decoder required; decoder-trk/memenc/memattn enable the memory tracker)
             curl -fL --retry 3 -o "$RUNNER_TEMP/sam.zip" "$SAM_MODELS_URL"
             unzip -o -j "$RUNNER_TEMP/sam.zip" "*.onnx" -d "$d"
           else
             # Editable install from a clone: the pip wheel of EdgeTAM leaves out configs/edgetam.yaml (build_sam2 then cannot find it).
             # It installs a package named `sam2`: never next to facebookresearch/sam2.
             git clone --depth 1 https://github.com/facebookresearch/EdgeTAM.git "$RUNNER_TEMP/EdgeTAM"
-            pip install onnx -e "$RUNNER_TEMP/EdgeTAM"
-            python scripts/export_sam2.py "$d" edgetam
+            pip install onnx onnxruntime -e "$RUNNER_TEMP/EdgeTAM"
+            # Five static graphs (encoder, decoder, decoder-trk, memenc, memattn); the script checks every file against PyTorch.
+            # If the memory export fails (e.g. another RoPE variant), still ship encoder + decoder: the app then tracks per frame.
+            python scripts/export_sam2.py "$d" edgetam || {
+              echo "::warning::EdgeTAM memory export failed: exporting encoder + decoder only"
+              rm -f "$d"/sam-*.onnx
+              python scripts/export_sam2.py "$d" edgetam --no-memory
+            }
           fi
           ls -l "$d"
           for m in sam-encoder sam-decoder; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
+          for m in sam-decoder-trk sam-memenc sam-memattn; do test -s "$d/$m.onnx" || echo "::warning::$m.onnx missing: scans use the prompt-per-frame tracker"; done
+      - name: int8 EdgeTAM encoder for the NPU (only if android/calib has frames AND the accuracy gate passes; optional)
+        if: matrix.flavor == 'sam'
+        continue-on-error: true
+        run: |
+          n=$(ls android/calib/*.jpg android/calib/*.jpeg android/calib/*.png 2>/dev/null | wc -l)
+          if [ "$n" -lt 10 ]; then echo "android/calib has $n frames (<10): keeping the fp16 encoder"; exit 0; fi
+          pip install onnxruntime opencv-python-headless
+          d=android/app/src/sam/assets/models
+          set +e
+          python scripts/quantize_edgetam.py "$d/sam-encoder.onnx" "$RUNNER_TEMP/sam-encoder-int8.onnx" android/calib
+          rc=$?
+          if [ $rc -eq 0 ]; then mv "$RUNNER_TEMP/sam-encoder-int8.onnx" "$d/sam-encoder.onnx"; echo "int8 encoder in use"
+          elif [ $rc -eq 3 ]; then echo "accuracy gate failed: fp16 encoder kept"
+          else exit $rc; fi
       - name: int8 QDQ pose models for the NPU (only if android/calib has frames; optional)
         continue-on-error: true
         run: |

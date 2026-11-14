@@ -111,4 +111,12 @@
     <string name="update_error">Güncelleme başarısız: %1$s</string>
     <string name="update_no_repo">Depoyu sahip/ad biçiminde gir.</string>
     <string name="update_hint">Güncelleme yalnız aynı anahtarla imzalı sürümün üstüne kurulur (GitHub Releases içindeki imzalı sürüm).</string>
+    <string name="sam_bench_title">EdgeTAM ölçümü — grafik başına CPU ve NPU</string>
+    <string name="sam_bench_memory_ok">Beş EdgeTAM grafiğinin hepsi APK içinde: taramalar bellekli izleyiciyi kullanır.</string>
+    <string name="sam_bench_memory_missing">Bellek grafikleri eksik (sam-decoder-trk, sam-memenc, sam-memattn): taramalar kare başına istemli izleyiciyi kullanır. CI dışa aktarmasını yeniden çalıştırın.</string>
+    <string name="sam_bench_npu_scans">EdgeTAM taramalarında NPU kullan</string>
+    <string name="sam_bench_run">EdgeTAM ölç (grafik başına 20 koşu)</string>
+    <string name="sam_bench_running">%1$s çalışıyor …</string>
+    <string name="sam_bench_failed">EdgeTAM ölçümü başarısız (ana ekrandaki hata günlüğüne bakın).</string>
+    <string name="sam_bench_synthetic">Fotoğraf seçilmedi: doğruluk, parlak daireli gri bir karede karşılaştırılır. Gerçekçi karşılaştırma için yukarıdan fotoğraf seçin.</string>
 </resources>

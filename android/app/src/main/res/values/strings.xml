@@ -111,4 +111,12 @@
     <string name="update_error">Update failed: %1$s</string>
     <string name="update_no_repo">Enter the repository as owner/name.</string>
     <string name="update_hint">Updates only install over a build signed with the same key (the signed release from GitHub Releases).</string>
+    <string name="sam_bench_title">EdgeTAM benchmark — CPU vs NPU per graph</string>
+    <string name="sam_bench_memory_ok">All five EdgeTAM graphs are in the APK: scans use the memory tracker.</string>
+    <string name="sam_bench_memory_missing">Memory graphs missing (sam-decoder-trk, sam-memenc, sam-memattn): scans use the prompt-per-frame tracker. Re-run the CI export.</string>
+    <string name="sam_bench_npu_scans">Use NPU for EdgeTAM scans</string>
+    <string name="sam_bench_run">Bench EdgeTAM (20 runs per graph)</string>
+    <string name="sam_bench_running">Running %1$s …</string>
+    <string name="sam_bench_failed">EdgeTAM bench failed (see the error log on the home screen).</string>
+    <string name="sam_bench_synthetic">No photo picked: accuracy is compared on a gray frame with a bright disc. Pick a photo above for a realistic comparison.</string>
 </resources>

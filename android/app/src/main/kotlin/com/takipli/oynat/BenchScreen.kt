@@ -245,6 +245,7 @@ fun BenchScreen(onBack: () -> Unit) {
                     ?.setPrimaryClip(ClipData.newPlainText("bench", benchLineText))
             }) { Text(stringResource(R.string.bench_copy)) }
         }
+        SamBenchSection(image, locked = busy)
     }
 }
 
