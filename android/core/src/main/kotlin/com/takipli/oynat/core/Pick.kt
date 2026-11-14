@@ -21,6 +21,8 @@ data class TargetPick(
     /** Part 16: follow this exact spot (not a joint/person); `zoom` = log2 chosen by the user. */
     val free: Boolean = false,
     val zoom: Double? = null,
+    /** Part 18: freehand region polygons `[x, y]` normalized (free = true); x/y = centre of their bounds. */
+    val shapes: List<List<List<Double>>> = emptyList(),
 )
 
 /**
@@ -47,6 +49,7 @@ fun presetForJoint(j: Int): String? = when (j) {
 fun resolvePick(doc: TrackDoc, pick: TargetPick, cfg: Config): Target? {
     if (pick.free) { // Part 16: any spot; the person under it (if any) is only the anchor
         val id = resolveTap(doc, pick.t, pick.x, pick.y, cfg)?.first
+        if (pick.shapes.isNotEmpty()) return Target(id ?: -1, free = regionPick(pick.t, pick.shapes, id).copy(zoom = pick.zoom))
         return Target(id ?: -1, free = FreePick(pick.t, pick.x, pick.y, id, pick.zoom))
     }
     val hit = if (pick.x2 != null && pick.y2 != null) resolveRect(doc, pick.t, pick.x, pick.y, pick.x2, pick.y2, cfg)

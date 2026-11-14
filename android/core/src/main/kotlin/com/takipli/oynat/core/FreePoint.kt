@@ -12,8 +12,8 @@ import kotlin.math.pow
 /** User pick: normalized frame point at time `t`; `id` = person it sits on (null = smallest box containing it); `zoom` = log2. */
 @Serializable
 data class FreePick(val t: Double, val x: Double, val y: Double, val id: Int? = null, val zoom: Double? = null,
-    /** Manual corrections (Part 17): rows `[t, x, y]`, exact ground truth at their sample, sorted by time. */
-    val pins: List<List<Double>> = emptyList(),
+    /** Part 18: freehand region(s): polygons of `[x, y]` normalized; x/y above = centre of their bounds. */
+    val shapes: List<List<List<Double>>> = emptyList(),
 )
 
 /**
@@ -25,7 +25,7 @@ data class FreePick(val t: Double, val x: Double, val y: Double, val id: Int? = 
 data class PointTrack(val a: List<List<Double>> = emptyList(), val b: List<List<Double>> = emptyList())
 
 /** Point stored relative to the person (nearest <= 2 confident joints, offsets in person-height units; box fraction as fallback). */
-class Anchor(val id: Int, val joints: IntArray, val offX: DoubleArray, val offY: DoubleArray, val u: Double, val v: Double)
+class Anchor(val id: Int, val joints: IntArray, val offX: DoubleArray, val offY: DoubleArray, val u: Double, val v: Double, val hPx0: Double = 0.0)
 
 class AnchorPos(val x: Double, val y: Double, val conf: Double, val hPx: Double)
 
@@ -53,7 +53,7 @@ fun makeAnchor(doc: TrackDoc, pick: FreePick, cfg: Config): Anchor? {
         id, IntArray(near.size) { near[it].first },
         DoubleArray(near.size) { (pick.x - near[it].second.x) * w / hPx },
         DoubleArray(near.size) { (pick.y - near[it].second.y) * h / hPx },
-        (pick.x - row[1]) / max(row[3] - row[1], 1e-6), (pick.y - row[2]) / max(row[4] - row[2], 1e-6),
+        (pick.x - row[1]) / max(row[3] - row[1], 1e-6), (pick.y - row[2]) / max(row[4] - row[2], 1e-6), hPx,
     )
 }
 
@@ -86,13 +86,11 @@ fun fuseFreePoint(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleAr
     val n = doc.samples.size
     val (w, h) = videoSize(doc)
     val anchor = makeAnchor(doc, pick, cfg)
+    val base = shapeBounds(pick.shapes)
     val i0 = if (n > 0) nearestIndex(doc, pick.t) else 0
     fun obs(l: List<List<Double>>?, i: Int) = l?.getOrNull(i)?.takeIf { it.size >= 3 && it[2] > 0.0 }
     val raw = HashMap<Int, DoubleArray>()
-    val pinned = pick.pins.filter { it.size >= 3 }.associate { nearestIndex(doc, it[0]) to it }
     for (i in 0 until n) {
-        val pin = pinned[i]
-        if (pin != null) { raw[i] = doubleArrayOf(pin[1], pin[2], 1.0); continue }
         val an = anchor?.let { anchorAt(doc, it, i, cfg) }
         fun ok(p: List<Double>?): Boolean =
             p != null && (an == null || hypot((p[0] - an.x) * w, (p[1] - an.y) * h) / an.hPx <= GATE_HEIGHTS)
@@ -103,25 +101,37 @@ fun fuseFreePoint(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleAr
             if (keepA) b = null else a = null
         }
         var sx = 0.0; var sy = 0.0; var sw = 0.0; var conf = 0.0
-        for (p in listOf(a, b)) if (p != null) { val wt = p[2] * p[2] + 1e-6; sx += p[0] * wt; sy += p[1] * wt; sw += wt; conf = max(conf, p[2]) }
+        var zw = 0.0; var zh = 0.0; var zs = 0.0 // region size, only from rows that carry it (`[x, y, conf, w, h]`)
+        for (p in listOf(a, b)) if (p != null) {
+            val wt = p[2] * p[2] + 1e-6; sx += p[0] * wt; sy += p[1] * wt; sw += wt; conf = max(conf, p[2])
+            if (p.size >= 5) { zw += p[3] * wt; zh += p[4] * wt; zs += wt }
+        }
         if (an != null) { val wt = 0.15 * an.conf; sx += an.x * wt; sy += an.y * wt; sw += wt; if (sw == wt) conf = an.conf }
         if (i == i0) { sx += pick.x * 4.0; sy += pick.y * 4.0; sw += 4.0; conf = 1.0 } // the user's tap is ground truth
-        if (sw > 0) raw[i] = doubleArrayOf(sx / sw, sy / sw, conf)
+        if (sw > 0) {
+            if (base == null) raw[i] = doubleArrayOf(sx / sw, sy / sw, conf)
+            else { // region: without tracker size, the pick-time size scaled with the person (anchor), else unchanged
+                val sc = if (an != null && anchor != null && anchor.hPx0 > 0) an.hPx / anchor.hPx0 else 1.0
+                raw[i] = doubleArrayOf(sx / sw, sy / sw, conf, if (zs > 0) zw / zs else base[2] * sc, if (zs > 0) zh / zs else base[3] * sc)
+            }
+        }
     }
     val idx = raw.keys.sorted()
     val out = HashMap<Int, DoubleArray>()
     for ((q, i) in idx.withIndex()) {
         val p = raw.getValue(i)
-        if (i in pinned || q == 0 || q == idx.size - 1 || idx[q + 1] - idx[q - 1] != 2) { out[i] = p; continue }
+        if (q == 0 || q == idx.size - 1 || idx[q + 1] - idx[q - 1] != 2) { out[i] = p; continue }
         val l = raw.getValue(idx[q - 1]); val r = raw.getValue(idx[q + 1])
         val mx = listOf(l[0], p[0], r[0]).sorted()[1]; val my = listOf(l[1], p[1], r[1]).sorted()[1]
-        out[i] = if (hypot(p[0] - mx, p[1] - my) > SPIKE) doubleArrayOf(mx, my, p[2] * 0.5) else p
+        out[i] = if (hypot(p[0] - mx, p[1] - my) > SPIKE) p.copyOf().also { it[0] = mx; it[1] = my; it[2] = p[2] * 0.5 } else p
     }
     return out
 }
 
 /** Square boxes `[cx, cy, s, s]` around the fused point so `computeView` yields exactly the chosen zoom (log2), clamped to the config. */
 fun freePointBoxes(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleArray> {
+    if (pick.shapes.isNotEmpty()) // Part 18: frame the drawn region itself (the `targetFill` tuning decides how tight)
+        return fuseFreePoint(doc, pick, cfg).mapValues { (_, p) -> doubleArrayOf(p[0], p[1], max(p.getOrElse(3) { 0.1 } * 1.15, 0.02), max(p.getOrElse(4) { 0.1 } * 1.15, 0.02)) }
     val z = (pick.zoom ?: 1.5).coerceIn(cfg.minZoom, cfg.maxZoom)
     val s = cfg.targetFill / 2.0.pow(z)
     return fuseFreePoint(doc, pick, cfg).mapValues { (_, p) -> doubleArrayOf(p[0], p[1], s, s) }
@@ -150,23 +160,37 @@ fun viewAtSmooth(views: List<ViewKey>, t: Double): View {
     return View(ch(1), ch(2), ch(3))
 }
 
-// ---- Part 17: manual corrections ("pins") ----
+// ---- Part 18: freehand region ----
 
-/** Adds a pin at time `t` (replacing one within `tolS`); coordinates clamped to the frame. */
-fun FreePick.withPin(t: Double, x: Double, y: Double, tolS: Double): FreePick =
-    copy(pins = (pins.filter { abs(it[0] - t) > tolS } + listOf(listOf(t, x.coerceIn(0.0, 1.0), y.coerceIn(0.0, 1.0)))).sortedBy { it[0] })
-
-fun FreePick.withoutPin(t: Double, tolS: Double): FreePick = copy(pins = pins.filter { abs(it[0] - t) > tolS })
-
-/** Fused confidence per sample (0 = lost, 1 = pinned) for the editor timeline. */
-fun freePointConfidence(doc: TrackDoc, pick: FreePick, cfg: Config): DoubleArray {
-    val f = fuseFreePoint(doc, pick, cfg)
-    return DoubleArray(doc.samples.size) { f[it]?.get(2) ?: 0.0 }
+/** `[cx, cy, w, h]` (normalized) of all polygon points, or null when there are none. */
+fun shapeBounds(shapes: List<List<List<Double>>>): DoubleArray? {
+    val pts = shapes.flatten().filter { it.size >= 2 }
+    if (pts.isEmpty()) return null
+    val x1 = pts.minOf { it[0] }; val x2 = pts.maxOf { it[0] }; val y1 = pts.minOf { it[1] }; val y2 = pts.maxOf { it[1] }
+    return doubleArrayOf((x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1)
 }
 
-/** Next sample after/before `from` (dir = +1/-1) whose confidence is below `thr`, or null. */
-fun nextWeak(conf: DoubleArray, from: Int, dir: Int, thr: Double = 0.4): Int? {
-    var i = from + dir
-    while (i in conf.indices) { if (conf[i] < thr) return i; i += dir }
-    return null
+/** Douglas-Peucker: drops points closer than `eps` (normalized) to the simplified line, keeps the ends. */
+fun simplifyStroke(pts: List<List<Double>>, eps: Double): List<List<Double>> {
+    if (pts.size < 3) return pts
+    val keep = BooleanArray(pts.size); keep[0] = true; keep[pts.size - 1] = true
+    val stack = ArrayDeque<Pair<Int, Int>>(); stack.add(0 to pts.size - 1)
+    while (stack.isNotEmpty()) {
+        val (a, b) = stack.removeLast()
+        var far = -1; var fd = eps
+        val dx = pts[b][0] - pts[a][0]; val dy = pts[b][1] - pts[a][1]; val len = hypot(dx, dy)
+        for (i in a + 1 until b) {
+            val d = if (len < 1e-12) hypot(pts[i][0] - pts[a][0], pts[i][1] - pts[a][1])
+            else abs(dy * (pts[i][0] - pts[a][0]) - dx * (pts[i][1] - pts[a][1])) / len
+            if (d > fd) { fd = d; far = i }
+        }
+        if (far >= 0) { keep[far] = true; stack.add(a to far); stack.add(far to b) }
+    }
+    return pts.filterIndexed { i, _ -> keep[i] }
+}
+
+/** Free pick for drawn region(s): position = centre of their bounds. */
+fun regionPick(t: Double, shapes: List<List<List<Double>>>, id: Int? = null): FreePick {
+    val b = shapeBounds(shapes) ?: return FreePick(t, 0.5, 0.5, id)
+    return FreePick(t, b[0], b[1], id, shapes = shapes)
 }

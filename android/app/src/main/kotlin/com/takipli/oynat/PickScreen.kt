@@ -77,6 +77,9 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     var tap by remember { mutableStateOf<Offset?>(null) } // normalized 0..1
     var preset by remember { mutableStateOf<String?>(null) } // null = automatic (tapped joint decides)
     var exact by remember { mutableStateOf(false) }
+    var draw by remember { mutableStateOf(false) } // Part 18: freehand region instead of a tap
+    val strokes = remember { androidx.compose.runtime.mutableStateListOf<List<Offset>>() }
+    var curStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var free by remember { mutableStateOf(false) } // Part 16: follow the exact tapped spot
     var zoomLog2 by remember { mutableStateOf(1.5f) }
     var fps by remember { mutableStateOf(PICK_FPS[1]) }
@@ -141,8 +144,14 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
             Box(Modifier.fillMaxWidth().aspectRatio(bmp.width / bmp.height.toFloat())) {
                 Image(bmp.asImageBitmap(), null, Modifier.matchParentSize())
                 Canvas(
-                    Modifier.matchParentSize().pointerInput(Unit) {
-                        detectTapGestures { o -> tap = Offset((o.x / size.width).coerceIn(0f, 1f), (o.y / size.height).coerceIn(0f, 1f)) }
+                    Modifier.matchParentSize().pointerInput(draw) {
+                        fun nrm(o: Offset) = Offset((o.x / size.width).coerceIn(0f, 1f), (o.y / size.height).coerceIn(0f, 1f))
+                        if (draw) androidx.compose.foundation.gestures.detectDragGestures(
+                            onDragStart = { o -> curStroke = listOf(nrm(o)) },
+                            onDrag = { c, _ -> curStroke = curStroke + nrm(c.position) },
+                            onDragEnd = { if (curStroke.size >= 3) strokes.add(curStroke); curStroke = emptyList() },
+                            onDragCancel = { curStroke = emptyList() },
+                        ) else detectTapGestures { o -> tap = nrm(o) }
                     },
                 ) {
                     found?.forEach { p ->
@@ -154,7 +163,13 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                             if (p.conf(a) >= 0.35 && p.conf(c) >= 0.35) drawLine(Color.Yellow, Offset(fx(p.x(a)), fy(p.y(a))), Offset(fx(p.x(c)), fy(p.y(c))), 3f)
                         }
                     }
-                    tap?.let { c ->
+                    for (st in strokes + listOf(curStroke)) if (st.size >= 2) {
+                        val path = androidx.compose.ui.graphics.Path()
+                        st.forEachIndexed { i, o -> if (i == 0) path.moveTo(o.x * size.width, o.y * size.height) else path.lineTo(o.x * size.width, o.y * size.height) }
+                        path.close()
+                        drawPath(path, Color(0x4400E5FF)); drawPath(path, Color.Cyan, style = Stroke(3f))
+                    }
+                    if (!draw) tap?.let { c ->
                         val p = Offset(c.x * size.width, c.y * size.height)
                         drawCircle(Color.Red, 14f, p, style = Stroke(width = 4f)); drawCircle(Color.White, 4f, p)
                     }
@@ -177,18 +192,30 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                 FilterChip(selected = npu, onClick = { npu = !npu }, label = { Text("NPU") })
                 FilterChip(selected = preview, onClick = { preview = !preview }, label = { Text(stringResource(R.string.pick_preview)) })
             }
-            FilterChip(selected = free, onClick = { free = !free }, label = { Text(stringResource(R.string.pick_free)) })
+            FilterChip(selected = free, onClick = { free = !free; if (!free) draw = false }, label = { Text(stringResource(R.string.pick_free)) })
             if (free) {
+                FilterChip(selected = draw, onClick = { draw = !draw }, label = { Text(stringResource(R.string.pick_draw)) })
+            }
+            if (draw) {
+                Text(stringResource(R.string.pick_draw_hint), fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(enabled = strokes.isNotEmpty(), onClick = { strokes.removeLastOrNull() }) { Text(stringResource(R.string.pick_undo)) }
+                    OutlinedButton(enabled = strokes.isNotEmpty(), onClick = { strokes.clear() }) { Text(stringResource(R.string.pick_clear)) }
+                }
+            }
+            if (free && !draw) {
                 Text(stringResource(R.string.pick_zoom, Math.pow(2.0, zoomLog2.toDouble())), style = MaterialTheme.typography.labelLarge)
                 androidx.compose.material3.Slider(value = zoomLog2, onValueChange = { zoomLog2 = it }, valueRange = 0.5f..2.5f)
             }
             BatteryWarning()
             Button(
-                enabled = tap != null && model.isNotEmpty(),
+                enabled = (if (draw) strokes.isNotEmpty() else tap != null) && model.isNotEmpty(),
                 onClick = {
-                    val t = tap ?: return@Button
+                    val shapes = if (draw) strokes.map { st -> com.takipli.oynat.core.simplifyStroke(st.map { listOf(it.x.toDouble(), it.y.toDouble()) }, 0.004) }.filter { it.size >= 3 } else emptyList()
+                    if (draw && shapes.isEmpty()) return@Button
+                    val t = if (draw) com.takipli.oynat.core.shapeBounds(shapes)!!.let { Offset(it[0].toFloat(), it[1].toFloat()) } else tap ?: return@Button
                     notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = preset, exact = exact && preset == null, free = free, zoom = if (free) zoomLog2.toDouble() else null), preview)
+                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = preset, exact = exact && preset == null, free = free, zoom = if (free && !draw) zoomLog2.toDouble() else null, shapes = shapes), preview)
                 },
             ) { Text(stringResource(R.string.pick_start)) }
         }

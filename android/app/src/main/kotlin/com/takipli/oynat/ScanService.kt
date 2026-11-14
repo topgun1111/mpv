@@ -82,7 +82,6 @@ class ScanService : Service() {
             val fp = picked?.target?.free
             if (picked != null && fp != null && OpenCvFlow.available) { // Part 16b: tracker passes for the tapped spot
                 try {
-                    PointScanner.clearCache(this)
                     val pt = PointScanner.run(this, uri, picked, fp) { d, tot, t -> post(ScanUi.Running(ScanProgress(d, tot, t, 0, 0), null)) }
                     val d2 = picked.copy(pt = pt)
                     picked = d2.copy(views = buildTargetViews(d2, d2.target!!, cfg))

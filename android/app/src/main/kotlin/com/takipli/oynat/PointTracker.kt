@@ -179,10 +179,8 @@ class PointTracker(private val store: GrayStore, private val cam: List<List<Doub
     }
 
     /**
-     * Passes over all pins (`seeds` = sample index, x, y; the pick is one of them). A: from each pin forward to the next pin
-     * (before the first pin: backward; after the last: forward). B: from each pin back to the previous one, plus a reverse run
-     * from the last confident sample back to the outer pins. Pins are written back as exact rows. `onStep` counts stages
-     * (seeds + 3).
+     * Passes from the seed(s) (`seeds` = sample index, x, y; one seed = the pick). A: forward and backward in time from the seed.
+     * B: reverse run from the last confident sample back to the seed. `onStep` counts stages (seeds + 3).
      */
     fun multiPass(seeds: List<Triple<Int, Double, Double>>, onStep: (Int) -> Unit = {}, isCancelled: () -> Unit = {}): Pair<List<List<Double>>, List<List<Double>>> {
         val n = store.n

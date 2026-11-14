@@ -66,26 +66,30 @@ class FreePickResolveTest {
     }
 }
 
-class PinTest {
-    private val pick = FreePick(t = 0.0, x = 0.3, y = 0.5)
-
+class RegionTest {
     @Test
-    fun pinsReplaceNearOnesAndStaySorted() {
-        val p = pick.withPin(1.0, 0.5, 0.5, 0.05).withPin(0.5, 0.4, 0.4, 0.05).withPin(1.02, 0.6, 0.6, 0.05)
-        assertEquals(listOf(0.5, 1.02), p.pins.map { it[0] })
-        assertEquals(0.6, p.pins[1][1])
-        assertEquals(1, p.withoutPin(0.5, 0.05).pins.size)
+    fun boundsAndPick() {
+        val shapes = listOf(listOf(listOf(0.2, 0.4), listOf(0.3, 0.9), listOf(0.25, 0.6)), listOf(listOf(0.5, 0.4), listOf(0.6, 0.9)))
+        val b = shapeBounds(shapes)!!
+        assertEquals(0.4, b[0], 1e-9); assertEquals(0.65, b[1], 1e-9); assertEquals(0.4, b[2], 1e-9); assertEquals(0.5, b[3], 1e-9)
+        assertEquals(0.4, regionPick(1.0, shapes).x, 1e-9)
     }
 
     @Test
-    fun pinIsExactAndWeakSamplesAreFound() {
-        val samples = (0 until 10).map { Sample(it / 10.0) }
-        val d = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples)
-        val p = pick.withPin(0.5, 0.8, 0.2, 0.05)
-        val f = fuseFreePoint(d, p, Config())
-        assertEquals(0.8, f.getValue(5)[0], 1e-9); assertEquals(1.0, f.getValue(5)[2])
-        val c = freePointConfidence(d, p, Config())
-        assertEquals(1.0, c[5]); assertEquals(1, nextWeak(c, 0, +1)?.let { 1 }) // samples without data are weak
-        assertEquals(null, nextWeak(doubleArrayOf(1.0, 1.0), 0, +1))
+    fun simplifyKeepsCornersDropsCollinear() {
+        val line = (0..10).map { listOf(it / 10.0, 0.0) } + (1..10).map { listOf(1.0, it / 10.0) }
+        val s = simplifyStroke(line, 0.01)
+        assertEquals(3, s.size)
+    }
+
+    @Test
+    fun regionRowsGiveSizedBoxes() {
+        val samples = (0 until 6).map { Sample(it / 10.0) }
+        val rows = (0 until 6).map { listOf(0.4 + 0.01 * it, 0.5, 0.9, 0.2, 0.3) }
+        val d = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples, pt = PointTrack(a = rows))
+        val pick = regionPick(0.0, listOf(listOf(listOf(0.3, 0.35), listOf(0.5, 0.65), listOf(0.4, 0.5))))
+        val boxes = freePointBoxes(d, pick, Config())
+        val b = boxes.getValue(3)
+        assertTrue(abs(b[2] - 0.2 * 1.15) < 0.01 && abs(b[3] - 0.3 * 1.15) < 0.01, "size ${b[2]} x ${b[3]}")
     }
 }

@@ -19,9 +19,6 @@ import kotlin.math.abs
  * `onProgress(done, total, t)`: first `n` steps decode, then the 4 tracker steps.
  */
 object PointScanner {
-    /** Delete decoded-frame caches (call when a new video/scan starts). */
-    fun clearCache(ctx: Context) { ctx.cacheDir.listFiles { f -> f.name.startsWith("pt-") }?.forEach { it.delete() } }
-
     private const val SIDE = 640
 
     suspend fun run(ctx: Context, uri: Uri, doc: TrackDoc, pick: FreePick, onProgress: (Int, Int, Double) -> Unit = { _, _, _ -> }): PointTrack =
@@ -33,7 +30,7 @@ object PointScanner {
             val sc = SIDE.toDouble() / maxOf(vw, vh)
             val gw = (vw * sc).toInt().coerceAtLeast(64) and 1.inv(); val gh = (vh * sc).toInt().coerceAtLeast(64) and 1.inv()
             val fps = doc.sampleFps.takeIf { it > 0 } ?: 10.0
-            val file = File(ctx.cacheDir, "pt-${(doc.video.path + n + gw).hashCode()}.gray") // kept: manual re-tracks reuse the decoded frames
+            val file = File(ctx.cacheDir, "pt-${System.nanoTime()}.gray")
             val ts = doc.samples.map { it.t }
             val job = currentCoroutineContext()[kotlinx.coroutines.Job]
             fun nearest(t: Double): Int {
@@ -42,8 +39,8 @@ object PointScanner {
                 return if (abs(ts[lo] - t) <= abs(ts[hi] - t)) lo else hi
             }
             try {
-                GrayStore(file, gw, gh, n, resume = true).use { store ->
-                    if (!store.complete) VideoDecoder.sample(ctx, uri, fps, 0.0, maxSide = 960) { f ->
+                GrayStore(file, gw, gh, n).use { store ->
+                    VideoDecoder.sample(ctx, uri, fps, 0.0, maxSide = 960) { f ->
                         currentCoroutineContext().ensureActive()
                         val i = nearest(f.t)
                         if (abs(ts[i] - f.t) <= 0.6 / fps && !store.has(i)) {
@@ -51,18 +48,20 @@ object PointScanner {
                             val px = IntArray(gw * gh); small.getPixels(px, 0, gw, 0, 0, gw, gh)
                             if (small !== f.bitmap) small.recycle()
                             store.put(i, ByteArray(gw * gh) { k -> val p = px[k]; ((((p shr 16) and 255) * 77 + ((p shr 8) and 255) * 150 + (p and 255) * 29) shr 8).toByte() })
-                            onProgress(i, n + pick.pins.size + 4, f.t)
+                            onProgress(i, n + 4, f.t)
                         }
                         f.bitmap.recycle()
                         true
                     }
-                    store.saveIndex()
-                    val seeds = pick.pins.filter { it.size >= 3 }.map { Triple(nearest(it[0]), it[1], it[2]) } + Triple(nearest(pick.t), pick.x, pick.y) // pins first: they win a tie
+                    val seeds = listOf(Triple(nearest(pick.t), pick.x, pick.y))
                     val pi = nearest(pick.t)
-                    val tracker = PointTracker(store, doc.samples.map { it.cam })
-                    val (a, b) = tracker.multiPass(seeds, { s -> onProgress(n + s, n + seeds.size + 3, ts[pi]) }) { job?.ensureActive() }
+                    val cams = doc.samples.map { it.cam }
+                    val (a, b) = if (pick.shapes.isNotEmpty()) { // Part 18: drawn region
+                        val polys = pick.shapes.filter { it.size >= 3 }.map { poly -> DoubleArray(poly.size * 2) { i -> if (i % 2 == 0) poly[i / 2][0] * gw else poly[i / 2][1] * gh } }
+                        RegionTracker(store, cams).twoPass(pi, polys, { s -> onProgress(n + s, n + 4, ts[pi]) }) { job?.ensureActive() }
+                    } else PointTracker(store, cams).multiPass(seeds, { s -> onProgress(n + s, n + seeds.size + 3, ts[pi]) }) { job?.ensureActive() }
                     PointTrack(a, b)
                 }
-            } catch (e: Throwable) { file.delete(); File(file.path + ".has").delete(); throw e }
+            } finally { file.delete() }
         }
 }

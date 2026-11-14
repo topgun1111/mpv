@@ -89,16 +89,8 @@
     <string name="pick_found">%1$d person(s) detected (boxes and skeletons shown). Tap the one to follow.</string>
     <string name="pick_free">Follow exact spot (any point)</string>
     <string name="pick_zoom">Zoom %1$.1fx</string>
-    <string name="edit_title">Correct the point</string>
-    <string name="edit_hint">Tap or drag on the frame to place the point, then Pin. Pins are exact; Re-track lets the tracker follow between pins.</string>
-    <string name="edit_prev_weak">◀ Weak</string>
-    <string name="edit_next_weak">Weak ▶</string>
-    <string name="edit_prev_pin">◀ Pin</string>
-    <string name="edit_next_pin">Pin ▶</string>
-    <string name="edit_pin">Pin here</string>
-    <string name="edit_unpin">Remove pin</string>
-    <string name="edit_clear">Clear pins</string>
-    <string name="edit_zoom">Zoom %1$.1fx</string>
-    <string name="edit_retrack">Re-track with pins</string>
-    <string name="edit_done">Re-tracked.</string>
+    <string name="pick_draw">Draw region</string>
+    <string name="pick_draw_hint">Draw around the object (e.g. both legs) with your finger; several strokes are allowed. The camera follows the whole drawn area.</string>
+    <string name="pick_undo">Undo stroke</string>
+    <string name="pick_clear">Clear drawing</string>
 </resources>
