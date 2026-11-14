@@ -71,7 +71,7 @@ def _patch_rope_real(sam) -> int:
         ka, kb = split(xk)
         if repeat_freqs_k:
             r = ka.shape[-2] // qa.shape[-2]
-            c, s = c.repeat_interleave(r, dim=-2), s.repeat_interleave(r, dim=-2)
+            c, s = c.repeat(*([1] * (c.ndim - 2)), r, 1), s.repeat(*([1] * (s.ndim - 2)), r, 1)  # tiled like the original, not interleaved
         k = torch.stack([ka * c - kb * s, ka * s + kb * c], -1).flatten(3)
         return q.type_as(xq), k.type_as(xk)
 
@@ -190,6 +190,12 @@ def main(argv: list[str]) -> int:
             self.register_buffer("mem_pos", mem_pos)
 
         def forward(self, image_feat, mem_feats, ptrs):
+            out = self._forward(image_feat, mem_feats, ptrs)
+            if not getattr(self.m, "use_obj_ptrs_in_encoder", True):
+                out = out + 0.0 * ptrs.sum()  # an unused input would be dropped from the ONNX graph and the app's run() would fail
+            return out
+
+        def _forward(self, image_feat, mem_feats, ptrs):
             fi = self.p  # cond frame at 0 is exactly P back: inside max_obj_ptrs_in_encoder, so its pointer is used
             cond = {0: {"maskmem_features": mem_feats[0:1], "maskmem_pos_enc": [self.mem_pos], "obj_ptr": ptrs[0:1]}}
             non = {}
@@ -227,11 +233,14 @@ def main(argv: list[str]) -> int:
         got = sess.run(None, {n: a.numpy() for n, a in zip(names, args)})
         ref = model(*args)
         ref = [ref] if isinstance(ref, torch.Tensor) else list(ref)
+        bad = []
         for i, (g, r) in enumerate(zip(got, ref)):
             d = float(np.abs(g - r.numpy()).max())
             print(f"  check {path.name} out{i}: max|onnx-torch| = {d:.2e} (max|ref| = {float(r.abs().max()):.2f})")
             if not d <= tol * max(1.0, float(r.abs().max())):
-                raise SystemExit(f"ERROR: {path.name} output {i} differs from PyTorch ({d:.3g})")
+                bad.append(f"output {i} ({d:.3g})")
+        if bad:  # every output is printed first, so one CI run shows the whole picture
+            raise SystemExit(f"ERROR: {path.name} differs from PyTorch: " + ", ".join(bad))
 
     check = "--no-check" not in flags
     rnd = torch.randn
@@ -270,10 +279,13 @@ def main(argv: list[str]) -> int:
             if int(getattr(sam, "max_obj_ptrs_in_encoder", p)) < p:
                 raise SystemExit("ERROR: max_obj_ptrs_in_encoder < 16, the slot layout needs it")
             pos_flat = o["vision_pos_enc"][-1].flatten(2).permute(2, 0, 1).detach()
-            ma = MemAttn(sam, pos_flat, mem_pos.detach(), k, p)
+            ma = MemAttn(sam, pos_flat, mem_pos.detach(), k, p).eval()
+            sam.eval()
             a = (feats[3], rnd(k, *mf.shape[1:]), rnd(p, 256))
             ref = ma(*a)  # original complex RoPE
             n = _patch_rope_real(sam)
+            if n == 0:
+                raise SystemExit("ERROR: no apply_rotary_enc found in the sam2 package: cannot rewrite RoPE real-valued")
             new = ma(*a)
             d = float((ref - new).abs().max())
             print(f"RoPE real-valued rewrite: {n} function(s) patched, max|diff| = {d:.2e}")
