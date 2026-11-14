@@ -95,4 +95,20 @@
     <string name="pick_clear">Çizimi temizle</string>
     <string name="pick_frame_time">Kare: %1$s / %2$s</string>
     <string name="pick_frame_hint">İlk kare siyah veya videonun geri kalanıyla ilgisiz mi? Hedefin göründüğü bir kareye gidip onu seçin. Takip o kareden hem ileri hem geri yönde çalışır.</string>
+    <string name="open_update">Güncellemeler</string>
+    <string name="update_title">Uygulama güncellemeleri</string>
+    <string name="update_installed">Kurulu: %1$s (yapı %2$d)</string>
+    <string name="update_repo">GitHub deposu (sahip/ad)</string>
+    <string name="update_token">Erişim anahtarı (özel depo, salt okunur)</string>
+    <string name="update_check">Güncellemeleri denetle</string>
+    <string name="update_checking">Denetleniyor…</string>
+    <string name="update_uptodate">En son sürümü kullanıyorsun.</string>
+    <string name="update_found">Yeni sürüm: %1$s</string>
+    <string name="update_download">İndir ve kur</string>
+    <string name="update_downloading">İndiriliyor… %1$d%%</string>
+    <string name="update_install">Yeniden kur</string>
+    <string name="update_allow">Açılan ekranda bu uygulamaya uygulama yükleme izni ver, sonra Kur düğmesine yeniden bas.</string>
+    <string name="update_error">Güncelleme başarısız: %1$s</string>
+    <string name="update_no_repo">Depoyu sahip/ad biçiminde gir.</string>
+    <string name="update_hint">Güncelleme yalnız aynı anahtarla imzalı sürümün üstüne kurulur (GitHub Releases içindeki imzalı sürüm).</string>
 </resources>

@@ -11,8 +11,11 @@ val versionText: String = rootProject.projectDir.resolve("../VERSION")
     .takeIf { it.isFile }?.readText()?.trim().orEmpty().ifEmpty { "0.0.0" }
 val versionParts: List<Int> = versionText.split(".")
     .map { s -> s.takeWhile { it.isDigit() }.toIntOrNull() ?: 0 }
-val computedVersionCode: Int = versionParts.getOrElse(0) { 0 } * 10000 +
-    versionParts.getOrElse(1) { 0 } * 100 + versionParts.getOrElse(2) { 0 }
+// CI passes BUILD_NUMBER (= GitHub run number); locally 0. versionCode = (X*10000 + Y*100 + Z) * 1000 + build, so every CI build
+// is newer than the one before and phones accept it as an update (same formula as core `updateVersionCode`).
+val buildNumber: Int = (System.getenv("BUILD_NUMBER") ?: "0").toIntOrNull()?.coerceIn(0, 999) ?: 0
+val computedVersionCode: Int = (versionParts.getOrElse(0) { 0 } * 10000 +
+    versionParts.getOrElse(1) { 0 } * 100 + versionParts.getOrElse(2) { 0 }) * 1000 + buildNumber
 
 android {
     namespace = "com.takipli.oynat"
@@ -24,6 +27,9 @@ android {
         targetSdk = 36
         versionCode = computedVersionCode
         versionName = versionText
+        buildConfigField("int", "BUILD_NUMBER", buildNumber.toString())
+        // GITHUB_REPOSITORY ("owner/name") exists on the CI runner; locally empty (type it in the Updates screen).
+        buildConfigField("String", "UPDATE_REPO", "\"${System.getenv("GITHUB_REPOSITORY") ?: ""}\"")
         ndk { abiFilters += "arm64-v8a" } // phone only (Snapdragon 8 Gen 3); no x86 emulator
     }
 

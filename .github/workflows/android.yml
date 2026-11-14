@@ -27,6 +27,8 @@ jobs:
     name: android-${{ matrix.flavor }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      BUILD_NUMBER: ${{ github.run_number }}  # app/build.gradle.kts: versionCode = (X*10000+Y*100+Z)*1000 + build, so builds update each other
     strategy:
       fail-fast: false
       matrix:
@@ -99,8 +101,8 @@ jobs:
           v=$(tr -d "[:space:]" < VERSION)
           mkdir -p dist-android/release
           cp android/app/build/outputs/apk/${{ matrix.flavor }}/debug/app-${{ matrix.flavor }}-debug.apk "dist-android/TakipliOynat-Android-${{ matrix.flavor }}-$v-debug.apk"
-      - name: Signed release APK (v* tags; needs the keystore secrets, otherwise skipped with a warning)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Signed release APK (every push to main and v* tags; needs the keystore secrets, otherwise skipped with a warning)
+        if: github.event_name == 'push'
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -118,7 +120,7 @@ jobs:
           apk=android/app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk
           test -s "$apk" || { echo "release APK was not produced (unsigned?)"; ls -l android/app/build/outputs/apk/${{ matrix.flavor }}/release; exit 1; }
           v=$(tr -d "[:space:]" < VERSION)
-          cp "$apk" "dist-android/release/TakipliOynat-Android-${{ matrix.flavor }}-$v.apk"
+          cp "$apk" "dist-android/release/TakipliOynat-Android-${{ matrix.flavor }}-$v-b${{ github.run_number }}.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: TakipliOynat-Android-${{ matrix.flavor }}
@@ -129,15 +131,28 @@ jobs:
           name: TakipliOynat-Android-${{ matrix.flavor }}-Release
           path: dist-android/release/*.apk
           if-no-files-found: ignore
-      - name: Attach the signed APK to the GitHub Release (private repositories only; AGPL models inside)
-        if: startsWith(github.ref, 'refs/tags/v') && github.event.repository.private == true && hashFiles('dist-android/release/*.apk') != ''
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist-android/release/*.apk
-      - name: Public repository - APK stays an artifact
-        if: startsWith(github.ref, 'refs/tags/v') && github.event.repository.private != true
+      - name: Publish to GitHub Releases (private repositories only; AGPL models inside). main = prerelease, v* tag = release. The app updates from these.
+        if: github.event_name == 'push' && github.event.repository.private == true && hashFiles('dist-android/release/*.apk') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "::notice::Public repository: the APK contains AGPL-3.0 pose models (personal use), so it is not attached to the Release. Download it from the workflow artifacts."
+          v=$(tr -d "[:space:]" < VERSION)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes "Android release $tag" || true
+          else
+            tag="v$v-b${{ github.run_number }}"
+            gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --target "$GITHUB_SHA" --prerelease --title "$tag" --notes "Android build ${{ github.run_number }} ($GITHUB_SHA)" || true
+          fi
+          gh release upload "$tag" dist-android/release/*.apk --clobber
+          # keep the newest 8 prereleases (their tags go too)
+          gh release list --limit 100 --json tagName,isPrerelease,createdAt \
+            -q '[.[] | select(.isPrerelease)] | sort_by(.createdAt) | reverse | .[8:] | .[].tagName' \
+            | while read -r old; do gh release delete "$old" --cleanup-tag --yes || true; done
+      - name: Public repository - APK stays an artifact (no Release, so no in-app updates)
+        if: github.event_name == 'push' && github.event.repository.private != true
+        run: |
+          echo "::notice::Public repository: the APK contains AGPL-3.0 models (personal use), so it is not published to Releases. Download it from the workflow artifacts."
       - name: Test reports on failure
         if: failure()
         uses: actions/upload-artifact@v4

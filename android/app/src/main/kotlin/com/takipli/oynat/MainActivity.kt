@@ -40,7 +40,8 @@ class MainActivity : ComponentActivity() {
                         "scan" -> ScanScreen(onBack = { screen = "home" })
                         "pick" -> PickScreen(onBack = { screen = "home" }, onResult = { resultFile = it; screen = "result" })
                         "result" -> ResultScreen(resultFile, onBack = { screen = "pick" })
-                        else -> HomeScreen(onBench = { screen = "bench" }, onDecode = { screen = "decode" }, onScan = { screen = "scan" }, onPick = { screen = "pick" })
+                        "update" -> UpdateScreen(onBack = { screen = "home" })
+                        else -> HomeScreen(onBench = { screen = "bench" }, onDecode = { screen = "decode" }, onScan = { screen = "scan" }, onPick = { screen = "pick" }, onUpdate = { screen = "update" })
                     }
                 }
             }
@@ -49,7 +50,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit, onScan: () -> Unit, onPick: () -> Unit) {
+fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit, onScan: () -> Unit, onPick: () -> Unit, onUpdate: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp, alignment = androidx.compose.ui.Alignment.CenterVertically),
@@ -62,6 +63,7 @@ fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit, onScan: () -> Unit, on
         Button(onClick = onBench) { Text(stringResource(R.string.open_bench)) }
         Button(onClick = onDecode) { Text(stringResource(R.string.open_decode)) }
         Button(onClick = onScan) { Text(stringResource(R.string.open_scan)) }
+        Button(onClick = onUpdate) { Text(stringResource(R.string.open_update)) }
         AboutSection()
     }
 }

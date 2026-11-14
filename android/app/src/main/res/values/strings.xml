@@ -95,4 +95,20 @@
     <string name="pick_clear">Clear drawing</string>
     <string name="pick_frame_time">Frame at %1$s of %2$s</string>
     <string name="pick_frame_hint">The first frame black or unrelated to the rest of the video? Move to a frame where the target is visible, then pick it. Tracking runs both ways in time from that frame.</string>
+    <string name="open_update">Updates</string>
+    <string name="update_title">App updates</string>
+    <string name="update_installed">Installed: %1$s (build %2$d)</string>
+    <string name="update_repo">GitHub repository (owner/name)</string>
+    <string name="update_token">Access token (private repository, read-only)</string>
+    <string name="update_check">Check for updates</string>
+    <string name="update_checking">Checking…</string>
+    <string name="update_uptodate">You have the latest version.</string>
+    <string name="update_found">New version: %1$s</string>
+    <string name="update_download">Download and install</string>
+    <string name="update_downloading">Downloading… %1$d%%</string>
+    <string name="update_install">Install again</string>
+    <string name="update_allow">Allow this app to install apps in the screen that opened, then press Install again.</string>
+    <string name="update_error">Update failed: %1$s</string>
+    <string name="update_no_repo">Enter the repository as owner/name.</string>
+    <string name="update_hint">Updates only install over a build signed with the same key (the signed release from GitHub Releases).</string>
 </resources>

@@ -53,3 +53,15 @@ in a public repository it stays a workflow artifact (`TakipliOynat-Android-Relea
 
 Home screen footer: **Share error log** sends a text with the app version, device and the latest errors (scan, export, player,
 crashes); **Clear error log** empties it. The file is `files/logs/error.log` (capped at 100 KB).
+
+## Versioning and in-app updates
+
+- **Version:** `VERSION` (X.Y.Z, shared with the PC app) is the public number. `python scripts/bump_version.py patch|minor|major|X.Y.Z` changes it everywhere it is pinned.
+  CI adds a build number (GitHub run number): `versionCode = (X*10000 + Y*100 + Z) * 1000 + build` (build capped at 999, 0 locally), so every CI build is newer than the last.
+- **Releases (private repository only, signed):** every push to `main` publishes a prerelease `vX.Y.Z-b<run>` (newest 8 kept); a `v*` tag publishes a normal Release.
+  Files: `TakipliOynat-Android-<pose|sam>-X.Y.Z-b<run>.apk`. Needs the four keystore secrets (see Release build); without them nothing is published.
+- **App:** Home -> Updates: enter the repository (`owner/name`, filled by CI builds) and, for a private repository, a fine-grained read-only token
+  (Contents: read). Check -> Download and install. Each build only offers its own flavor (`pose` or `sam`).
+- **Rules the phone enforces:** the update must be signed with the same key as the installed app, and its versionCode must be higher.
+  CI **debug** APKs get a random debug key each run, so they can never update each other: install the signed release once (uninstall a debug build first), then update in-app.
+  Allow "install unknown apps" for the app when asked.
