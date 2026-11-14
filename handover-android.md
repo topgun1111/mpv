@@ -37,7 +37,7 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 | 5 | ONNX Runtime on device (CPU) + bench screen | ✅ written 2026-11-14 (never compiled here; CI run + first bench numbers pending) |
 | 6 | NPU: model prep + QNN provider + CPU/NPU bench + licence decision | ✅ written 2026-11-14 (never compiled; NPU numbers + keypoint-jitter check pending; licence decision provisional) |
 | 7 | Video decode + frame sampling (configurable fps) | ✅ written 2026-11-14 (never compiled; device check pending) |
-| 8 | Camera-motion compensation + cut detection | ⬜ |
+| 8 | Camera-motion compensation + cut detection | ✅ written 2026-11-14 (never compiled; phone pan check pending) |
 | 9 | Offline scan engine: pose + tracking + keypoints (resumable) | ⬜ |
 | 10 | Part targets + view building | ⬜ |
 | 11 | Scan service + scan UI (choose person/part) | ⬜ |
@@ -228,7 +228,12 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - MediaExtractor/MediaCodec to frames at a **configurable scan fps** (`offline_fps`, and `scan_fps_part` for part mode), correct timestamps for variable frame rate, rotation metadata, seek/resume from a time, Storage Access Framework (file picker) input.
 - Exit: scan-order frames from a real clip with correct `t`; resume from the middle works.
 
-**Part 8 — Camera motion + cut detection** (~300)
+**Part 8 — Camera motion + cut detection** (~300) ✅ written, phone check pending
+- Files: `core/.../Gmc.kt` (`estimateSimilarity` = seeded RANSAC + least squares like `cv2.estimateAffinePartial2D`, `CameraMotion` with the `gmc.py` step/W/MAX_SHIFT/reset logic, `FlowTracker` interface, 3x3 helpers, `camSize`), `Cuts.kt` (`CutDetector` port with OpenCV's integer HSV/gray maths, `cutThumbSize`, `areaResize`), `GmcTest.kt`, `CutsTest.kt`, new golden `cuts.json` (from `gen_golden.py::_cuts`: 6 synthetic frames incl. 2 cuts and a relaxed-threshold case); app: `FrameAnalyzer.kt` (`OpenCvFlow` = goodFeaturesToTrack + forward/backward LK on OpenCV, `FrameAnalyzer` = motion then cut then reset-on-cut like `Pipeline.step`), `DecodeScreen.kt` (chip "Camera motion + cut detection": ok steps, ms/frame, pan since last cut, cut times); `libs.versions.toml` + `app/build.gradle.kts` (`org.opencv:opencv` 4.11.0, `pickFirsts libc++_shared.so`).
+- Split: only feature tracking is OpenCV (phone); everything else (RANSAC, matrices, cut logic) is pure Kotlin and unit-tested on the JVM with a fake tracker. `CameraMotion.step` returns the 3x3 prev→cur in full-res pixels: feed it to `ByteTracker.update(dets, motion)` (Part 9); on `FrameAnalysis.cut` call `ByteTracker.clear()` and pass no motion (the analyzer already returns identity then).
+- Differences from Python: corners are integer pixels (Java `goodFeaturesToTrack` returns `MatOfPoint`); cut thumbnail is a box average (`areaResize`) of the 480-px gray-colour frame, not INTER_AREA from full res; gray differs ≤1/255 from OpenCV (test tolerance 3e-3). Thresholds (0.35 / 0.18) are still untuned on real footage (same open point as PC G4).
+- Never compiled. **`org.opencv:opencv` 4.11.0 not verified on Maven Central** (no network): change `opencv` in `libs.versions.toml` if it does not resolve. `OpenCVLoader.initLocal()` is used; if it returns false the Decode screen says so.
+- Exit (open, on the phone): Decode screen with "Camera motion + cut detection" on a clip with a camera pan: motion ok ≈ most steps, pan px plausible and grows in the pan direction; a clip with a hard cut lists the cut time; record ms/frame at 10 fps here.
 - OpenCV Android dependency, port `gmc.py` (LK + RANSAC) and the cut detection (`cuts.py`); feed ByteTrack prediction and the world position used when a part leaves the frame.
 - Exit: unit tests on synthetic shifts; one real clip with a camera pan checked on the phone.
 

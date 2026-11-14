@@ -30,4 +30,5 @@
     <string name="decode_from_start">Sample 20 s from start</string>
     <string name="decode_from_middle">Resume from middle</string>
     <string name="decode_running">Decoding …</string>
+    <string name="decode_analyze">Camera motion + cut detection</string>
 </resources>

@@ -45,6 +45,7 @@ android {
     packaging {
         // QNN/HTP must load its skel libs from disk (ADSP_LIBRARY_PATH = nativeLibraryDir): extract the .so files.
         jniLibs.useLegacyPackaging = true
+        jniLibs.pickFirsts += "**/libc++_shared.so" // ORT-QNN and OpenCV both ship it
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }
@@ -65,6 +66,7 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.opencv) // Part 8: LK optical flow for camera-motion compensation (arm64 only via abiFilters)
     implementation(libs.onnxruntime.android.qnn) // ORT with CPU + QNN (Hexagon HTP) providers; pulls com.qualcomm.qti:qnn-runtime
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

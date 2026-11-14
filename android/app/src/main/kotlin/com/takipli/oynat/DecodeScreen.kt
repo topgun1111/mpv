@@ -52,6 +52,7 @@ fun DecodeScreen(onBack: () -> Unit) {
     var uri by remember { mutableStateOf<Uri?>(null) }
     var info by remember { mutableStateOf<VideoInfo?>(null) }
     var fps by remember { mutableStateOf(10) }
+    var analyze by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var report by remember { mutableStateOf("") }
     var last by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
@@ -72,11 +73,23 @@ fun DecodeScreen(onBack: () -> Unit) {
         report = ""
         scope.launch {
             val ts = ArrayList<Double>()
+            val cutTimes = ArrayList<Double>()
+            var okSteps = 0
+            var analysisNs = 0L
+            val an = if (analyze && OpenCvFlow.available) FrameAnalyzer() else null
+            val note = if (analyze && an == null) "OpenCV failed to load: motion analysis skipped\n" else ""
             val t0 = SystemClock.elapsedRealtime()
             try {
                 val n = VideoDecoder.sample(ctx, u, fps.toDouble(), startS, startS + TEST_SECONDS) { f ->
                     ts.add(f.t)
                     last = f.bitmap
+                    an?.let { a ->
+                        val a0 = System.nanoTime()
+                        val r = a.analyze(f.bitmap)
+                        analysisNs += System.nanoTime() - a0
+                        if (r.motionOk) okSteps++
+                        if (r.cut) cutTimes.add(f.t)
+                    }
                     true
                 }
                 val wall = (SystemClock.elapsedRealtime() - t0) / 1000.0
@@ -88,7 +101,14 @@ fun DecodeScreen(onBack: () -> Unit) {
                     appendLine("first t: ${ts.firstOrNull()?.let(::f)} | last t: ${ts.lastOrNull()?.let(::f)}")
                     if (gaps.isNotEmpty()) appendLine("gap min/max: ${f(gaps.min())} / ${f(gaps.max())} s (grid ${f(1.0 / fps)})")
                     appendLine("wall ${f(wall)} s for ${f(span)} s of video = ${f(if (wall > 0) span / wall else 0.0)} x realtime")
-                    append("head: " + ts.take(6).joinToString { f(it) })
+                    appendLine("head: " + ts.take(6).joinToString { f(it) })
+                    append(note)
+                    if (an != null && ts.isNotEmpty()) {
+                        val w = an.world
+                        appendLine("motion: ok ${okSteps}/${ts.size} steps | ${f(analysisNs / 1e6 / ts.size)} ms/frame")
+                        appendLine("camera pan since last cut/start: x ${f(w[2])} px, y ${f(w[5])} px (frame px, + = camera moved right/down)")
+                        append("cuts: " + if (cutTimes.isEmpty()) "none" else cutTimes.joinToString { f(it) })
+                    }
                 }
             } catch (e: Exception) {
                 report = ctx.getString(R.string.bench_error, e.message ?: e.javaClass.simpleName)
@@ -119,6 +139,7 @@ fun DecodeScreen(onBack: () -> Unit) {
                     FilterChip(selected = c == fps, enabled = !busy, onClick = { fps = c }, label = { Text("$c") })
                 }
             }
+            FilterChip(selected = analyze, enabled = !busy, onClick = { analyze = !analyze }, label = { Text(stringResource(R.string.decode_analyze)) })
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(enabled = !busy, onClick = { run(0.0) }) { Text(stringResource(R.string.decode_from_start)) }
                 Button(enabled = !busy && i.durationS > 2 * TEST_SECONDS / 10, onClick = { run(i.durationS / 2) }) {

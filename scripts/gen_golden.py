@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 
 from tracker.bytetrack import ByteTracker, KalmanBox, linear_assignment  # noqa: E402
 from tracker.config import Config  # noqa: E402
+from tracker.cuts import CutDetector  # noqa: E402
 from tracker.detector import LetterboxInfo, letterbox  # noqa: E402
 from tracker.export import crop_rect  # noqa: E402
 from tracker.geometry import BBox  # noqa: E402
@@ -241,6 +242,28 @@ def _pose() -> dict:
             "cases": cases, "picks": picks}
 
 
+def _cuts() -> dict:
+    """Cut detector on small synthetic BGR frames (width 32 so the fixture stays small; frames are already thumbnail-sized)."""
+    rng = np.random.default_rng(7)
+    w, h = 32, 18
+    scene_a = np.stack([rng.integers(150, 256, (h, w)), rng.integers(0, 80, (h, w)), rng.integers(0, 80, (h, w))],
+                       axis=2).astype(np.uint8)  # BGR: dark blue
+    scene_b = np.stack([rng.integers(0, 60, (h, w)), rng.integers(180, 256, (h, w)), rng.integers(180, 256, (h, w))],
+                       axis=2).astype(np.uint8)  # bright yellow
+    noisy = np.clip(scene_a.astype(int) + rng.integers(-6, 7, scene_a.shape), 0, 255).astype(np.uint8)
+    frames = [scene_a, noisy, np.roll(scene_a, 3, axis=1), scene_b, scene_b, scene_a]
+    cam_ok = [None, None, True, None, False, False]
+    det = CutDetector(0.35, 0.18, 0.7, width=w)
+    steps = []
+    for f, ok in zip(frames, cam_ok):
+        cut = det.step(f, ok)
+        argb = [(255 << 24) | (int(p[2]) << 16) | (int(p[1]) << 8) | int(p[0]) for p in f.reshape(-1, 3)]
+        argb = [v - (1 << 32) if v >= (1 << 31) else v for v in argb]
+        steps.append({"argb": argb, "cam_ok": ok, "cut": bool(cut),
+                      "hist": round(det.last_hist, 6), "diff": round(det.last_diff, 6)})
+    return {"w": w, "h": h, "hist_thr": 0.35, "diff_thr": 0.18, "relax": 0.7, "steps": steps}
+
+
 def _docs() -> dict:
     kp = [round(0.01 * i, 4) if j < 2 else 0.9 for i in range(17) for j in range(3)]
     samples = [
@@ -265,7 +288,7 @@ def build() -> dict[str, str]:
     parts = {"view_at": _view_at(), "crop_rect": _crop_rect(), "one_euro": _one_euro(),
              "config": _config(), "assignment": _assignment(), "kalman_box": _kalman_box(),
              "kalman_1d": _kalman_1d(), "box_filter": _box_filter(), "bytetrack": _bytetrack(),
-             "letterbox": _letterbox(), "pose": _pose(),
+             "letterbox": _letterbox(), "pose": _pose(), "cuts": _cuts(),
              **_docs()}
     return {f"{k}.json": json.dumps(v, indent=1, sort_keys=True) + "\n" for k, v in parts.items()}
 

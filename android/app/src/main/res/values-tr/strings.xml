@@ -30,4 +30,5 @@
     <string name="decode_from_start">Baştan 20 sn örnekle</string>
     <string name="decode_from_middle">Ortadan devam et</string>
     <string name="decode_running">Çözülüyor …</string>
+    <string name="decode_analyze">Kamera hareketi + kesme algılama</string>
 </resources>
