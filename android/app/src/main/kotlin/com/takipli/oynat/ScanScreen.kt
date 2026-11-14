@@ -135,7 +135,7 @@ fun ScanScreen(onBack: () -> Unit) {
 }
 
 /** uri + size + modified time: changes when the file is replaced, stable across app restarts. */
-private fun videoIdOf(ctx: android.content.Context, u: Uri): String {
+internal fun videoIdOf(ctx: android.content.Context, u: Uri): String {
     var size = -1L
     var mtime = -1L
     runCatching {

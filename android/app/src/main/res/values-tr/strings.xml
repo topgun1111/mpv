@@ -36,4 +36,19 @@
     <string name="scan_start">Tara / devam et</string>
     <string name="scan_cancel">İptal</string>
     <string name="scan_cancelled">İptal edildi. Kısmi tarama kaydedildi; Tara / devam et buradan sürdürür.</string>
+    <string name="open_pick">Videoyu takip et (hedef seç, tara)</string>
+    <string name="pick_title">Hedef seç ve tara</string>
+    <string name="pick_hint">Takip edilecek kişiye veya vücut parçasına bu ilk karede dokun.</string>
+    <string name="pick_part">Vücut parçası</string>
+    <string name="pick_auto">Otomatik (dokunuştan)</string>
+    <string name="pick_exact">Tam eklem, grup yok</string>
+    <string name="pick_start">Taramayı başlat</string>
+    <string name="pick_preparing">Model hazırlanıyor …</string>
+    <string name="pick_background">Tarama ekran kapalıyken veya uygulama kapatılsa da sürer; bildirimde ilerleme ve İptal düğmesi var.</string>
+    <string name="pick_done">Bitti. Hedef: %1$s (%2$d örnek). Görünümler kaydedildi; önizleme ve dışa aktarma sonraki parçalarda.</string>
+    <string name="pick_nobody">Tarama bitti (%1$d örnek) ama dokunulan noktada kimse bulunamadı. Tarama saklandı: yeniden seç.</string>
+    <string name="pick_again">Yeni seçim / tarama</string>
+    <string name="scan_channel">Video taraması</string>
+    <string name="scan_notify_start">Tarama başlıyor …</string>
+    <string name="scan_notify_run">Taranıyor: %1$d / %2$d örnek</string>
 </resources>

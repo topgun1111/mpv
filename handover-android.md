@@ -41,7 +41,7 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 | 9 | Offline scan engine: pose + tracking + keypoints (resumable) | ✅ written 2026-11-14 (never compiled; Part 8 test fix needed first; device scan check pending) |
 | 10a | Part presets, group boxes, view building (Python-first + Kotlin port, golden) | ✅ written 2026-11-14 (never compiled; CI run pending) |
 | 10b | Per-keypoint One-Euro, off-screen propagation (camera-compensated), parent-joint inference, rectangle selection | ✅ written 2026-11-14 (Python tests green; Kotlin core compiled + golden-checked outside Gradle; Gradle/CI run pending) |
-| 11 | Scan service + scan UI (choose person/part) | ⬜ |
+| 11 | Scan service + scan UI (choose person/part) | ✅ written 2026-11-14 (never compiled; CI run + phone check pending) |
 | 12 | Live scan preview (low fps, skeleton + part box) | ⬜ |
 | 13 | Result preview player + tuning sliders | ⬜ |
 | 14 | Export (Media3 Transformer) | ⬜ |
@@ -268,14 +268,24 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - Exit still open: a real clip where a foot leaves and re-enters the frame (also with a panning camera): compare the views with and without `kp_world`; tune `kp_hold_s`, the limb ratios and `part_margin` by measurement.
 - Rounding: views are rounded to 4 decimals in both languages; a value exactly on a rounding boundary could differ by one digit (see Part 9 note).
 
-- **Next: Part 11** needs from you: the CI result of this push (paste the Gradle error if any, including the open Part 8 test fix), and a decision whether a tapped joint should map to a preset in the UI (e.g. ankle -> foot, wrist -> hands) or stay a single-joint target.
+- **Next: Part 12** (live scan preview). Needs from you: the CI result of the Part 11 push (paste the Gradle/Kotlin error if any), and one phone check of Part 11 (see its exit below).
+- (old note, answered by Part 11) **Part 11 needed:** the CI result of this push (paste the Gradle error if any, including the open Part 8 test fix), and a decision whether a tapped joint should map to a preset in the UI (e.g. ankle -> foot, wrist -> hands) or stay a single-joint target.
 
 **Part 10 (original text, kept for reference)** (~400, may split)
 - `tracker/parts.py` (presets and group boxes, also usable on the PC) + Kotlin port; **target = {person ID, part}**; pick by tap (nearest keypoint within tolerance → part, else person); `part_boxes` for joint groups; per-keypoint One-Euro; gap fill; occlusion fallback chain (neighbouring joints → person sub-box → person → zoom-out); hold `kp_hold_s` and camera-compensated propagation when the part leaves the frame; zero-phase smoothing; hold then zoom-out on long loss; `target_fill`, zoom limits; cut handling.
 - Exit: golden test: same track doc + target + part → same views as Python (within tolerance); test of a part that exits and re-enters the frame.
 
 ### Phase D — Phone app: scan, preview, export
-**Part 11 — Scan service + scan UI** (~300)
+**Part 11 — Scan service + scan UI** (~300) ✅ written, CI run + phone check pending
+- Files: `core/.../Pick.kt` (NEW: `TargetPick`, `presetForJoint`, `resolvePick`, `applyPick`) + `PickTest.kt` (9 tests on a synthetic 1-person doc); app: `ScanService.kt` (NEW, foreground service type `dataSync`), `PickScreen.kt` (NEW), `Scanner.kt` (`writeAtomic` now `internal`), `ScanScreen.kt` (`videoIdOf` now `internal`), `MainActivity.kt` (home button + `pick` route), manifest (FOREGROUND_SERVICE, FOREGROUND_SERVICE_DATA_SYNC, POST_NOTIFICATIONS, WAKE_LOCK, `<service>`), strings en/tr.
+- Flow: open video (`OpenDocument`, persistable read permission taken) -> first frame (decoded at t = first sample, 960 px) -> tap on it (red marker) -> optional part chip (Auto / person / head / ... / hands) -> model, fps 10/15/20, NPU chip -> Start. The pick is stored as `TargetPick(t, x, y, preset, exact)` (normalized point; rectangle fields exist in the core but the UI has no rectangle yet).
+- The tap cannot be turned into a person ID before the scan (IDs come from ByteTrack), so it travels with the intent and is resolved **after** the scan with `resolveTap`/`resolveRect` on the finished doc (PC A1 does the same). Result: `files/scans/<id>.track.json` gets `target` + `views` (samples and `sig` untouched, so the Part 9 cache still matches). A scan where nobody is at the tap is kept without target (UI says so; pick again = new scan call, cached = instant).
+- **Decision (provisional, you did not answer):** a tapped joint maps to its preset group: nose/eyes/ears -> head; shoulders/hips -> torso; elbow/wrist -> left/right arm; knee -> left/right leg; ankle -> left/right foot. A chosen preset chip always wins over the tapped joint; chip "Exact joint" keeps the single joint (`target.part`). Change `presetForJoint` (one `when`) if you prefer e.g. wrist -> hands.
+- Service: `startForegroundService` + `startForeground(dataSync)`; PARTIAL wake lock (max 4 h); `START_REDELIVER_INTENT` (an interrupted scan restarts and resumes from `.partial`); notification with progress (updated ~1/s) and a Cancel action; UI state is a `StateFlow` (`ScanUi`) in the service's companion, so closing and reopening the activity shows the running scan. File per video: `files/scans/<SHA-1(videoId)>.track.json` (same naming as the Part 9 test screen).
+- Limits to know: Android 15 limits `dataSync` foreground services to ~6 h per 24 h (fine for these scans). The UI state is in memory: if the whole process is killed and the service is redelivered, the UI shows Idle until the next state update (the notification still shows progress). Preset names on the chips are not translated (shown as `left foot`).
+- Never compiled. Likeliest failures: `Notification.Action.Builder(int, ...)` deprecation, Compose imports in `PickScreen.kt`, `ScanUi` sealed `data object` (Kotlin 2.2 ok).
+- Exit (open, on the phone): pick a clip, tap a foot, start, switch the screen off for a few minutes, come back: the notification showed progress, the scan finished, the UI says `Target: #n left foot`; then Cancel mid-scan and start again: it resumes (progress starts above 0). Check `files/scans/*.track.json` has `target` and `views`.
+- (original plan:)
 - Foreground service (notification, cancel, resume). Screens: open video → first frame → tap a person or part, or pick a preset (head / leg / foot / …) → start scan. Survives app kill/restart through the resumable scan.
 - Exit: a long clip scans with the screen off and the app in the background.
 
@@ -368,6 +378,7 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 | 2026-11-14 | Part 9: scan files live in `files/scans/` (finished `.track.json` + `.partial`), signature = SHA-1(video id, fps, model[:npu]); resume restarts the tracker (new IDs), no tracker state on disk |
 | 2026-11-14 | Part 10: split into 10a (presets, group boxes, view building, tap resolve) and 10b (filters, off-screen propagation, rect selection); `target.preset` added beside `target.part`; `kp_tol` is now a shared config key |
 | 2026-11-14 | Part 10b: samples get optional `cam` = [a, b, tx/h, ty/h] (frame-height units, not full-res pixels); new shared key `kp_infer` (default true); off-screen propagation is forward-only, <= `kp_hold_s`, skips gaps the linear fill covers, stops at cuts; golden cfgs `default`/`custom` pin 10a, `b`/`b_custom` are 10b |
+| 2026-11-14 | Part 11: scan runs in a `dataSync` foreground service; the tap is resolved to {person, part} after the scan (`applyPick`); tapped joint -> preset group by default (provisional), chip overrides, "exact joint" option |
 | 2026-11-14 | Part 2: `part_margin` = 0.02 and `scan_fps_part` = 15.0 are **provisional** placeholders, final values by measurement (Parts 9/10/13) |
 
 **Open (decide in the named part)**

@@ -43,7 +43,7 @@ object Scanner {
     private fun readDoc(f: File, sig: String): TrackDoc? =
         runCatching { Formats.parseTrack(f.readText()) }.getOrNull()?.takeIf { it.sig == sig && it.samples.isNotEmpty() }
 
-    private fun writeAtomic(f: File, doc: TrackDoc) {
+    internal fun writeAtomic(f: File, doc: TrackDoc) {
         f.parentFile?.mkdirs()
         val tmp = File(f.path + ".tmp")
         tmp.writeText(Formats.encodeTrack(doc))

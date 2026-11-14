@@ -36,4 +36,19 @@
     <string name="scan_start">Scan / resume</string>
     <string name="scan_cancel">Cancel</string>
     <string name="scan_cancelled">Cancelled. The partial scan is saved; Scan / resume continues from it.</string>
+    <string name="open_pick">Track a video (pick target, scan)</string>
+    <string name="pick_title">Pick a target and scan</string>
+    <string name="pick_hint">Tap the person or the body part to follow (on this first frame).</string>
+    <string name="pick_part">Body part</string>
+    <string name="pick_auto">Auto (from tap)</string>
+    <string name="pick_exact">Exact joint, no group</string>
+    <string name="pick_start">Start scan</string>
+    <string name="pick_preparing">Preparing the model …</string>
+    <string name="pick_background">The scan keeps running with the screen off or the app closed; a notification shows progress and a Cancel button.</string>
+    <string name="pick_done">Done. Target: %1$s (%2$d samples). Views are saved; the preview and export come next.</string>
+    <string name="pick_nobody">Scan done (%1$d samples), but nobody was found at the tapped point. The scan is kept: pick again.</string>
+    <string name="pick_again">New pick / scan</string>
+    <string name="scan_channel">Video scan</string>
+    <string name="scan_notify_start">Starting scan …</string>
+    <string name="scan_notify_run">Scanning: %1$d / %2$d samples</string>
 </resources>
