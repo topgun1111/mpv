@@ -5,7 +5,7 @@ name: Android
 # (keystore from the ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
 # secrets) and, in a PRIVATE repository only, attaches it to the same GitHub Release as the Windows files.
 # Why private only: the APK contains the Ultralytics pose models (AGPL-3.0, personal use; handover-android.md, decisions log).
-# Two builds from one job (matrix): `pose` (pose models + optical-flow trackers) and `sam` (adds SAM 2.1 for free-point / region targets;
+# Two builds from one job (matrix): `pose` (pose models + optical-flow trackers) and `sam` (adds EdgeTAM for free-point / region targets;
 # own applicationId com.takipli.oynat.sam, so both install side by side). One failing flavor does not cancel the other.
 on:
   push:
@@ -54,22 +54,22 @@ jobs:
           for m in $models; do python scripts/export_pose.py "$d" "$m"; done
           ls -l "$d"
           for m in $models; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
-      - name: SAM 2.1 models (sam build only; Apache-2.0; exported from the official checkpoint)
+      - name: EdgeTAM models (sam build only; Apache-2.0; exported from the official checkpoint)
         if: matrix.flavor == 'sam'
         env:
           SAM_MODELS_URL: ${{ vars.SAM_MODELS_URL }}
         run: |
           d=android/app/src/sam/assets/models
           mkdir -p "$d"
-          if [ -n "$SAM_MODELS_URL" ]; then # optional override: a zip with sam2-encoder.onnx + sam2-decoder.onnx
+          if [ -n "$SAM_MODELS_URL" ]; then # optional override: a zip with sam-encoder.onnx + sam-decoder.onnx
             curl -fL --retry 3 -o "$RUNNER_TEMP/sam.zip" "$SAM_MODELS_URL"
             unzip -o -j "$RUNNER_TEMP/sam.zip" "*.onnx" -d "$d"
           else
-            pip install onnx git+https://github.com/facebookresearch/sam2.git
-            python scripts/export_sam2.py "$d" base_plus
+            pip install onnx git+https://github.com/facebookresearch/EdgeTAM.git  # installs the `sam2` package: never next to facebookresearch/sam2
+            python scripts/export_sam2.py "$d" edgetam
           fi
           ls -l "$d"
-          for m in sam2-encoder sam2-decoder; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
+          for m in sam-encoder sam-decoder; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
       - name: int8 QDQ pose models for the NPU (only if android/calib has frames; optional)
         continue-on-error: true
         run: |

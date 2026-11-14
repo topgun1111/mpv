@@ -22,17 +22,17 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * `sam` build: accuracy-first tracker for free-point / drawn-region targets, using SAM 2.1 (image encoder + prompt decoder).
- * Per sampled frame (SAM_FPS, default 3; slow on purpose): predict the object's box from the last good step (constant
+ * `sam` build: tracker for free-point / drawn-region targets, using EdgeTAM (a SAM 2 variant for phones; image encoder +
+ * prompt decoder; SAM 2.1 exports with the same tensor names also work). Per sampled frame (SAM_FPS): predict the object's box from the last good step (constant
  * velocity, grown while lost), prompt SAM with that box + a positive point inside the previous mask, take the 3 candidate
  * masks and keep the one that agrees best with the prediction (predicted IoU x box overlap x area sanity). Runs forward and
  * backward from the pick, then interpolates to the scan's sample grid. Output rows `[x, y, conf]` = mask centroid, same
  * format as `PointTracker`, so views building is unchanged. This is track-by-prompting, not SAM 2's memory tracker.
  */
 object SamEngine {
-    private const val ENC = "sam2-encoder.onnx"
-    private const val DEC = "sam2-decoder.onnx"
-    private const val SAM_FPS = 3.0
+    private const val ENC = "sam-encoder.onnx"
+    private const val DEC = "sam-decoder.onnx"
+    private const val SAM_FPS = 6.0 // EdgeTAM is fast enough for a denser grid: less motion per step = steadier tracking
     private const val S = 1024          // SAM input side (frame is resized to S x S, aspect ignored, like SAM 2)
     private const val M = 256           // mask logits side
     private const val MIN_CONF = 0.35
@@ -106,6 +106,7 @@ object SamEngine {
                     s.dec.run(inputs).use { dr ->
                         val m = dr.get("low_res_masks").get() as OnnxTensor
                         val q = dr.get("iou_predictions").get() as OnnxTensor
+                        check(m.info.shape.let { it.size == 4 && it[2].toInt() == M && it[3].toInt() == M }) { "unexpected mask size ${m.info.shape.toList()}" }
                         val mb = m.floatBuffer; val qb = q.floatBuffer
                         val masks = FloatArray(mb.remaining()).also { mb.get(it) }
                         val iou = FloatArray(qb.remaining()).also { qb.get(it) }
