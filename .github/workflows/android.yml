@@ -27,6 +27,18 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Pose models into app assets (explicit list; AGPL-3.0, personal use)
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install ultralytics onnx
+          d=android/app/src/main/assets/models
+          python scripts/export_pose.py "$d" yolov8s-pose
+          python scripts/export_pose.py "$d" yolo11m-pose
+          ls -l "$d"
+          for m in yolov8s-pose yolo11m-pose; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
       - name: Android SDK (accepts licences)
         uses: android-actions/setup-android@v3
         with:
@@ -38,6 +50,9 @@ jobs:
       - name: Unit tests + debug APK
         working-directory: android
         run: gradle --no-daemon --stacktrace :core:test :app:assembleDebug
+      - name: Models are inside the APK
+        run: |
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/models/.*\.onnx"
       - name: Name the APK
         run: |
           v=$(tr -d "[:space:]" < VERSION)

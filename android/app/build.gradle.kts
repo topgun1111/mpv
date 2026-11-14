@@ -37,6 +37,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // .onnx stays uncompressed: openFd() gives the size for the copy check and loading is faster.
+    androidResources {
+        noCompress += "onnx"
+    }
+
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
@@ -57,5 +62,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.onnxruntime.android) // CPU provider (Part 5); QNN artifact replaces it in Part 6
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

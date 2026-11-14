@@ -34,7 +34,7 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 | 2 | Core data, geometry, formats (incl. keypoints), One-Euro filter + golden tests | ✅ written 2026-11-14 (Kotlin never compiled here: first CI run pending) |
 | 3 | ByteTrack + Kalman port | ✅ written 2026-11-14 (Kotlin never compiled here: CI run pending) |
 | 4 | Pose model decoding (person box + 17 keypoints) | ✅ written 2026-11-14 (synthetic golden; real-tensor golden pending; CI run pending) |
-| 5 | ONNX Runtime on device (CPU) + bench screen | ⬜ |
+| 5 | ONNX Runtime on device (CPU) + bench screen | ✅ written 2026-11-14 (never compiled here; CI run + first bench numbers pending) |
 | 6 | NPU: model prep + QNN provider + CPU/NPU bench + licence decision | ⬜ |
 | 7 | Video decode + frame sampling (configurable fps) | ⬜ |
 | 8 | Camera-motion compensation + cut detection | ⬜ |
@@ -47,6 +47,8 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 | 15 | Hardening + release build | ⬜ |
 
 Bench lines (fill after Part 5, 6, 9, 14): one line per real clip, device, model, provider, ms/frame, scan x-realtime, export x-realtime.
+Format (the app's "Copy bench line" button produces it): `device | model | provider | input | image | mean ms/frame (median, p95, n) | fps`.
+- (empty: run the Bench screen on the phone, paste lines here)
 
 ---
 
@@ -197,7 +199,12 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - Golden: record a real pose-model output tensor for one test image in Python; Kotlin decode must match boxes and keypoints within a documented tolerance.
 
 ### Phase B — Inference on the phone
-**Part 5 — ONNX Runtime on device (CPU) + bench screen** (~250)
+**Part 5 — ONNX Runtime on device (CPU) + bench screen** (~250) ✅ written, CI run + device numbers pending
+- Files: `core/.../Bench.kt` (`benchStats`, `benchLine`, `COCO_SKELETON`) + `BenchTest.kt`; `app/.../PoseRunner.kt` (`ModelStore`, `PoseRunner.detect/bench`, ORT CPU session, threads option), `BenchScreen.kt` (model + thread chips, photo picker, boxes/skeleton overlay, 50-run bench with pre/infer/decode split, copy bench line), `MainActivity.kt` (home → bench), strings en/tr, manifest `configChanges`; `app/build.gradle.kts` (+ `onnxruntime-android` 1.22.0, coroutines 1.10.2, `.onnx` uncompressed); `android.yml` (python + `export_pose.py` for yolov8s-pose and yolo11m-pose into `android/app/src/main/assets/models/`, check the models are in the APK).
+- **Never compiled** (no Maven access when written). First action: push, open the Android run, paste any Kotlin/Gradle/export error. Likeliest failures: ORT version string, `ultralytics` export step, Compose API names.
+- Models: CI exports fp32 only (`export_pose.py`, opset 12, no simplify); fp16/int8 + simplified static graph belong to Part 6. APK grows by ~130 MB (debug). Side-load alternative: copy `.onnx` to `Android/data/com.takipli.oynat/files/models/` (listed first, no rebuild).
+- Bench measures the full per-frame path: bitmap resize + letterbox/CHW + `session.run` + decode/NMS (3 warm-up runs, then 50). A gray synthetic frame is used if no photo is picked (cheap decode: pick a photo with people for real numbers). Result shows thermal status (0 = none … 6 = shutdown): rerun after cooling if > 1.
+- Exit (open): run both models at 1/2/4/6/8 threads on the phone, paste the lines into "Bench lines" above, pick the default thread count.
 - Load the pose model from assets, run on a still image, draw boxes + skeleton. Bench screen: ms/frame over 50 runs. Compare yolov8s-pose and yolo11m-pose on CPU.
 - Exit: first real numbers on the phone; record in bench lines.
 
