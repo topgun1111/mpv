@@ -32,7 +32,7 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 |---|------|--------|
 | 1 | Android skeleton + CI workflow | ✅ written 2026-11-14 (first CI run pending) |
 | 2 | Core data, geometry, formats (incl. keypoints), One-Euro filter + golden tests | ✅ written 2026-11-14 (Kotlin never compiled here: first CI run pending) |
-| 3 | ByteTrack + Kalman port | ⬜ |
+| 3 | ByteTrack + Kalman port | ✅ written 2026-11-14 (Kotlin never compiled here: CI run pending) |
 | 4 | Pose model decoding (person box + 17 keypoints) | ⬜ |
 | 5 | ONNX Runtime on device (CPU) + bench screen | ⬜ |
 | 6 | NPU: model prep + QNN provider + CPU/NPU bench + licence decision | ⬜ |
@@ -179,7 +179,11 @@ Each part: ≤ 3–4 files changed, ≈ 300 changed lines, tests included, hando
 - Kotlin `Config` (same keys/defaults), `viewAt`, `cropRect`, views.json and track.json v1+v2 read/write (kotlinx.serialization), **One-Euro filter** (for keypoints), `scripts/gen_golden.py`, golden tests, pytest stale check.
 - Exit: Kotlin `viewAt`/`cropRect` match golden values; a PC-made `views.json` and a v2 `track.json` (with `kp`) load.
 
-**Part 3 — ByteTrack + Kalman** (~350)
+**Part 3 — ByteTrack + Kalman** (~350) ✅ written, CI run pending
+- Files: `core/.../{Tracking,Kalman,ByteTrack}.kt` (BBox, Detection, Track, Hungarian, IoU, `KalmanBox`, `Kalman1D`, `BoxFilter`, `ByteTracker` incl. `motion` hook, `clear`, `setNextId`), `TrackingTest.kt`, 5 new fixtures (`assignment`, `kalman_box`, `kalman_1d`, `box_filter`, `bytetrack`; scenario has low-score stage, 4-frame loss, camera motion frames, `clear`, 2 param sets), `scripts/gen_golden.py`.
+- Tolerance in tests: 1e-6 relative (matrix inverse differs from numpy at ~1e-12). Hungarian pairs compared exactly.
+- `Pipeline.step` (cut → `clear()`, GMC) is NOT ported here; it belongs to Part 9 (scan engine) with GMC from Part 8.
+- **Never compiled.** First action: push, open the Android run, paste any Kotlin error.
 - Port `tracker/bytetrack.py` and the Kalman part of `smooth.py` (person IDs across frames). Camera compensation is a hook only.
 - Exit: golden test on synthetic detections identical to Python.
 
