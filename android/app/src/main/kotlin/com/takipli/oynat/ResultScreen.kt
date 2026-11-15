@@ -162,6 +162,10 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
 
     val player = remember { ExoPlayer.Builder(ctx).build() }
     DisposableEffect(Unit) { onDispose { player.release() } }
+    // The preview player keeps a 4K decoder and tens of MB of Java-heap buffers. The export (Media3 Transformer, 4K + stabilization)
+    // needs that memory: build #50 died with OutOfMemoryError (heap 255/256 MB) right after Export. Park it while exporting.
+    fun parkPlayer() { runCatching { player.pause(); player.stop(); player.clearMediaItems() } }
+    fun resumePlayer() { runCatching { player.setMediaItem(MediaItem.fromUri(Uri.parse(doc.video.path))); player.prepare() } }
     LaunchedEffect(Unit) {
         readable = withContext(Dispatchers.IO) { Safety.videoReadable(ctx, Uri.parse(doc.video.path)) }
         player.addListener(object : Player.Listener {
@@ -274,7 +278,11 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
             val t0 = SystemClock.elapsedRealtime()
             val tmp = File(ctx.cacheDir, "export/out.mp4")
             var finished = false // an error can arrive before start() returns: then there is no running exporter to remember
-            fun finish(msg: String) { finished = true; exporter = null; exportMsg = msg }
+            fun finish(msg: String) { finished = true; exporter = null; exportMsg = msg; resumePlayer() }
+            val rt = Runtime.getRuntime()
+            val heapBefore = (rt.totalMemory() - rt.freeMemory()) shr 20
+            parkPlayer(); System.gc()
+            Diag.note(ctx, "export", "EXPORT_PREP", "player parked; heap $heapBefore -> ${(rt.totalMemory() - rt.freeMemory()) shr 20} of ${rt.maxMemory() shr 20} MB, stab=$stab")
             val started = try { Exporter.start(
                 ctx, Uri.parse(doc.video.path), views, tmp, vw, vh, doc.video.fps, hevc,
                 plan = if (stab) camPath?.let { StabPlan(it, views, vw, vh) } else null,
@@ -307,7 +315,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
             }
             if (started != null && !finished) exporter = started
         }) { Text(stringResource(R.string.export_start)) }
-        OutlinedButton(enabled = exporting, onClick = { Diag.note(ctx, "export", "EXPORT_CANCEL", "cancelled by user at ${(exportP * 100).toInt()} %"); exporter?.cancel(); exporter = null; exportMsg = ctx.getString(R.string.export_cancelled) }) { Text(stringResource(R.string.scan_cancel)) }
+        OutlinedButton(enabled = exporting, onClick = { Diag.note(ctx, "export", "EXPORT_CANCEL", "cancelled by user at ${(exportP * 100).toInt()} %"); exporter?.cancel(); exporter = null; exportMsg = ctx.getString(R.string.export_cancelled); resumePlayer() }) { Text(stringResource(R.string.scan_cancel)) }
     }
     if (exporting) {
         if (exportP >= 0f) LinearProgressIndicator(progress = { exportP.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
