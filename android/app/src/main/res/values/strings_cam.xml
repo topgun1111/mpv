@@ -31,4 +31,6 @@
     <string name="rec_start">● Start recording</string>
     <string name="rec_stop">■ Stop recording</string>
     <string name="rec_count">Recorded takes: %1$d</string>
+    <string name="cam_hud_manual">Manual camera (you)</string>
+    <string name="cam_hud_off">Camera off (original)</string>
 </resources>

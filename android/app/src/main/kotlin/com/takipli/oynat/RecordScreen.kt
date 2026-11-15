@@ -214,6 +214,12 @@ fun RecordScreen(onBack: () -> Unit) {
                         translationX = (tr[1] * size.width).toFloat(); translationY = (tr[2] * size.height).toFloat()
                     })
                     if (recording) Text("● REC", color = Color.Red, modifier = Modifier.padding(12.dp))
+                    Text(
+                        "Manual camera \u00b7 " + String.format(Locale.ROOT, "%.2f", 2.0.pow(maxOf(view.zoom, 0.0))) + "\u00d7",
+                        color = Color.White, fontSize = 11.sp,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)
+                            .background(Color(0x99000000), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp)
+                    )
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

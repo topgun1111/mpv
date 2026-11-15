@@ -31,4 +31,6 @@
     <string name="rec_start">● Kaydı başlat</string>
     <string name="rec_stop">■ Kaydı durdur</string>
     <string name="rec_count">Kayıtlı çekim sayısı: %1$d</string>
+    <string name="cam_hud_manual">Elle kamera (sen)</string>
+    <string name="cam_hud_off">Kamera kapalı (orijinal)</string>
 </resources>

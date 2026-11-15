@@ -6,6 +6,7 @@ import android.view.TextureView
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.height
@@ -273,6 +274,25 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                 },
             )
             if (recording) Text(stringResource(R.string.rec_badge), color = androidx.compose.ui.graphics.Color.Red, modifier = Modifier.align(Alignment.TopStart).padding(8.dp))
+            // HUD: which camera is driving the preview right now (behaviour, zoom strategy, live zoom)
+            run {
+                val auto = !recording && follow && views.isNotEmpty()
+                val cv = if (recording) recView else if (auto) viewAtSmooth(views, posMs / 1000.0) else null
+                val zoomX = String.format(Locale.ROOT, "%.2f", Math.pow(2.0, Math.max(cv?.zoom ?: 0.0, 0.0)))
+                val dir = tuning.director
+                val modeRes = when (dir.mode) { CamMode.SIZE -> R.string.cam_mode_size; CamMode.CINEMATIC -> R.string.cam_mode_cine; CamMode.FOLLOW -> R.string.cam_mode_follow }
+                val zoomRes = when (dir.zoom) { CamZoom.ZOOM_CROP -> R.string.cam_zoom_crop; CamZoom.CROP_ONLY -> R.string.cam_zoom_only_crop; CamZoom.ZOOM_ONLY -> R.string.cam_zoom_only }
+                val line1 = stringResource(if (recording) R.string.cam_hud_manual else if (auto) modeRes else R.string.cam_hud_off)
+                val line2 = if (auto) stringResource(zoomRes) + " \u00b7 " + zoomX + "\u00d7" else zoomX + "\u00d7"
+                Column(
+                    Modifier.align(Alignment.BottomStart).padding(6.dp)
+                        .background(androidx.compose.ui.graphics.Color(0x99000000), androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Text(line1, color = androidx.compose.ui.graphics.Color.White, fontSize = 11.sp)
+                    Text(line2, color = androidx.compose.ui.graphics.Color.White, fontSize = 11.sp)
+                }
+            }
         }
     }
     if (!readable) Text(stringResource(R.string.err_video), color = MaterialTheme.colorScheme.error)
