@@ -152,7 +152,7 @@ private fun runsOf(idx: List<Int>): List<List<Int>> {
  * gaps hold, then zoom out, and zoom back in before the target returns, 4) repeated keyframes are dropped.
  * Nothing is filled, smoothed or eased across a cut (`cuts` = indices of samples that start a new shot).
  */
-fun viewsFromBoxes(ts: List<Double>, boxes: Map<Int, DoubleArray>, cfg: Config, cuts: Set<Int> = emptySet(), minFit: Double = 0.0): List<ViewKey> {
+fun viewsFromBoxes(ts: List<Double>, boxes: Map<Int, DoubleArray>, cfg: Config, cuts: Set<Int> = emptySet(), minFit: Double = 0.0, director: Director = Director()): List<ViewKey> {
     val n = ts.size
     val bx = HashMap<Int, DoubleArray>()
     for ((k, v) in boxes) bx[k] = v.copyOf()
@@ -182,6 +182,11 @@ fun viewsFromBoxes(ts: List<Double>, boxes: Map<Int, DoubleArray>, cfg: Config, 
     for (run in runs) {
         val sm = (0 until 4).map { k ->
             smoothZeroPhase(DoubleArray(run.size) { bx.getValue(run[it])[k] }, cfg.offlineAlpha * (if (k < 2) 1.0 else 0.4))
+        }
+        if (!director.isDefault) { // otomatik kameraman: mod, konum, zoom stratejisi, look-ahead (Director.kt)
+            val dt = if (run.size > 1) (ts[run.last()] - ts[run.first()]) / (run.size - 1) else 0.0
+            for ((j, v) in directRun(sm, dt, cfg, minFit, director).withIndex()) views[run[j]] = v
+            continue
         }
         for ((j, i) in run.withIndex()) {
             val cx = sm[0][j]; val cy = sm[1][j]; val w = sm[2][j]; val h = sm[3][j]
@@ -304,7 +309,7 @@ fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config, kps: 
 }
 
 /** Views for a target: preset group, single joint (`part`) or the whole person; linked IDs count as the same target. */
-fun buildTargetViews(doc: TrackDoc, target: Target, cfg: Config): List<ViewKey> {
+fun buildTargetViews(doc: TrackDoc, target: Target, cfg: Config, director: Director = Director()): List<ViewKey> {
     val ts = doc.samples.map { it.t }
     val ids = setOf(target.id) + target.linked
     var minFit = 0.0
@@ -325,7 +330,7 @@ fun buildTargetViews(doc: TrackDoc, target: Target, cfg: Config): List<ViewKey> 
         target.part != null -> jointBoxes(doc, ids, target.part, cfg)
         else -> personBoxes(doc, ids)
     }
-    return viewsFromBoxes(ts, boxes, cfg, cutIndices(doc), minFit)
+    return viewsFromBoxes(ts, boxes, cfg, cutIndices(doc), minFit, director)
 }
 
 /** `live.py::pick_track` on pixel boxes: inside a box -> smallest centre offset (then area); else nearest within `tol`. */

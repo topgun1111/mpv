@@ -49,6 +49,8 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 
 **Debug track (predictive debugging, error log): see `handover-debug.md`.** Part D1 ✅ written 2026-11-15 (core compiled + 10 tests green outside Gradle; app side never compiled, CI pending). Part D2 ✅ written 2026-11-15 (core 13 tests green; app side never compiled). Part D3 ✅ 2026-11-15 (type-checked without Gradle via `android/tools/typecheck/run.sh`: no errors in core, Diag, Scanner, ScanService, PoseRunner, QnnSessions, VideoDecoder, Updater, SamEngine; Compose/Media3 files only read by hand). Part D4 ✅ 2026-11-15 (first real report: CI compiled, self-check clean, NPU parity exact, pose 7.3 ms on NPU). Next: D5 = report after a real scan and export.
 
+**Otomatik kameraman (Director) ✅ 2026-11-15:** `core/Director.kt` (mod SIZE/CINEMATIC/FOLLOW, konum sol/orta/sağ, zoom stratejisi, look-ahead), `Tuning.director`, sonuç ekranında chip'ler. Varsayılan = eski görüntüler (testle sabit). Core `DirectorTest` kotlinc ile derlenip koşuldu; Compose kısmı (ResultScreen) derlenmedi, CI bekliyor. Fiziksel mesafe tahmini yok: yalnız görünür özne boyutu.
+
 Bench lines (fill after Part 5, 6, 9, 14): one line per real clip, device, model, provider, ms/frame, scan x-realtime, export x-realtime.
 Format (the app's "Copy bench line" button produces it): `device | model | provider | input | image | mean ms/frame (median, p95, n) | fps`.
 - vivo V2436A (SM8650, Android 17) | yolov8s-pose | NPU (QNN HTP v75) vs CPU | 640x640 random | self-check 2026-11-15 | NPU 7.3 ms median (max 7.4), CPU 222.3 ms | power-save ON, 20 % battery

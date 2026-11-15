@@ -47,7 +47,10 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.transformer.Transformer
+import com.takipli.oynat.core.CamMode
 import com.takipli.oynat.core.CamPath
+import com.takipli.oynat.core.CamPos
+import com.takipli.oynat.core.CamZoom
 import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.Formats
 import com.takipli.oynat.core.PRESETS
@@ -229,7 +232,19 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
         Text(stringResource(label, String.format(Locale.ROOT, "%.2f", v)))
         Slider(value = v.toFloat(), valueRange = r, onValueChange = { tuning = set(it.toDouble()) }, onValueChangeFinished = { rebuild(target, tuning) })
     }
-    tune(R.string.tune_fill, tuning.targetFill, 0.15f..0.7f) { tuning.copy(targetFill = it) }
+    // Otomatik kameraman: davranış, özne konumu, zoom stratejisi (hepsi kayıtlı taramadan yeniden hesaplanır, tarama tekrarlanmaz)
+    @Composable
+    fun <T> camRow(title: Int, cur: T, opts: List<Pair<T, Int>>, set: (T) -> Tuning) {
+        Text(stringResource(title), style = MaterialTheme.typography.labelLarge)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            opts.forEach { (v, label) -> FilterChip(selected = cur == v, onClick = { tuning = set(v); rebuild(target, tuning) }, label = { Text(stringResource(label)) }) }
+        }
+    }
+    Text(stringResource(R.string.cam_title), style = MaterialTheme.typography.titleSmall)
+    camRow(R.string.cam_mode, tuning.director.mode, listOf(CamMode.SIZE to R.string.cam_mode_size, CamMode.CINEMATIC to R.string.cam_mode_cine, CamMode.FOLLOW to R.string.cam_mode_follow)) { tuning.copy(director = tuning.director.copy(mode = it)) }
+    camRow(R.string.cam_pos, tuning.director.pos, listOf(CamPos.LEFT to R.string.cam_pos_left, CamPos.CENTER to R.string.cam_pos_center, CamPos.RIGHT to R.string.cam_pos_right)) { tuning.copy(director = tuning.director.copy(pos = it)) }
+    camRow(R.string.cam_zoom, tuning.director.zoom, listOf(CamZoom.ZOOM_CROP to R.string.cam_zoom_crop, CamZoom.CROP_ONLY to R.string.cam_zoom_only_crop, CamZoom.ZOOM_ONLY to R.string.cam_zoom_only)) { tuning.copy(director = tuning.director.copy(zoom = it)) }
+    tune(R.string.tune_fill, tuning.targetFill, 0.10f..0.85f) { tuning.copy(targetFill = it) }
     tune(R.string.tune_box, tuning.kpBox, 0.04f..0.4f) { tuning.copy(kpBox = it) }
     tune(R.string.tune_maxzoom, tuning.maxZoom, 0.5f..3.5f) { tuning.copy(maxZoom = it) }
     tune(R.string.tune_follow, tuning.followAlpha, 0.1f..0.9f) { tuning.copy(followAlpha = it) }

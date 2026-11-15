@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cam_title">Otomatik kameraman</string>
+    <string name="cam_mode">Kamera davranışı</string>
+    <string name="cam_mode_size">Sabit boyut</string>
+    <string name="cam_mode_cine">Sinematik</string>
+    <string name="cam_mode_follow">Yalnız takip (zoom yok)</string>
+    <string name="cam_pos">Özne konumu</string>
+    <string name="cam_pos_left">Sol</string>
+    <string name="cam_pos_center">Orta</string>
+    <string name="cam_pos_right">Sağ</string>
+    <string name="cam_zoom">Zoom stratejisi</string>
+    <string name="cam_zoom_crop">Zoom + kırpma</string>
+    <string name="cam_zoom_only_crop">Yalnız kırpma</string>
+    <string name="cam_zoom_only">Yalnız zoom</string>
+</resources>

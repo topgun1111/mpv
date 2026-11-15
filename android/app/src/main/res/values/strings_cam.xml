@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cam_title">Automatic cameraman</string>
+    <string name="cam_mode">Camera behaviour</string>
+    <string name="cam_mode_size">Constant size</string>
+    <string name="cam_mode_cine">Cinematic</string>
+    <string name="cam_mode_follow">Follow only (no zoom)</string>
+    <string name="cam_pos">Subject position</string>
+    <string name="cam_pos_left">Left</string>
+    <string name="cam_pos_center">Centre</string>
+    <string name="cam_pos_right">Right</string>
+    <string name="cam_zoom">Zoom strategy</string>
+    <string name="cam_zoom_crop">Zoom + crop</string>
+    <string name="cam_zoom_only_crop">Crop only</string>
+    <string name="cam_zoom_only">Zoom only</string>
+</resources>

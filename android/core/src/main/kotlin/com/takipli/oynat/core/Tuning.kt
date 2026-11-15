@@ -14,6 +14,8 @@ data class Tuning(
     /** EMA alpha of the zero-phase smoothing: higher = the camera follows tighter, lower = calmer. */
     val followAlpha: Double = 0.4,
     val lostHoldS: Double = 1.0,
+    /** Otomatik kameraman (mod, konum, zoom stratejisi, look-ahead); varsayılan = eski davranış. */
+    val director: Director = Director(),
 ) {
     companion object
 }
@@ -24,7 +26,7 @@ fun Config.withTuning(t: Tuning): Config =
 fun Tuning.Companion.of(c: Config) = Tuning(c.targetFill, c.kpBox, c.maxZoom, c.offlineAlpha, c.lostHoldS)
 
 /** Scan doc + (possibly changed) target + tuning -> new views; the doc is not modified. Same call the export will use. */
-fun rebuildViews(doc: TrackDoc, target: Target, cfg: Config, t: Tuning): List<ViewKey> = buildTargetViews(doc, target, cfg.withTuning(t))
+fun rebuildViews(doc: TrackDoc, target: Target, cfg: Config, t: Tuning): List<ViewKey> = buildTargetViews(doc, target, cfg.withTuning(t), t.director)
 
 /**
  * How to show a view on a full-frame video surface (Part 13 player, same crop as `cropRect`): scale about the centre,
