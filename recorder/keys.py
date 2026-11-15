@@ -53,6 +53,26 @@ def normalize_keys(keys: list[list[float]]) -> list[list[float]]:
     return out
 
 
+def split_segments(keys: list[list[float]], breaks=()) -> list[list[list[float]]]:
+    """Kayıt sırasıyla anahtarları parçalara böler (geri sarma / atlama = yeni parça).
+
+    `breaks` = yeni parçanın İLK anahtarının indeksleri (kayit.lua yazar); ayrıca zaman geri
+    giderse de otomatik bölünür. Her parça kendi içinde normalize edilir (tek anahtar → +40 ms).
+    Dışa aktarma parçaları kaydedildiği SIRAYLA art arda ekler → aynı yer 10 kez tekrarlandıysa
+    çıktıda 10 kez görünür."""
+    br = {int(b) for b in breaks if isinstance(b, (int, float))}
+    segs: list[list[list[float]]] = []
+    cur: list[list[float]] = []
+    for i, row in enumerate(keys):
+        if cur and (i in br or row[0] < cur[-1][0] - 1e-6):
+            segs.append(cur)
+            cur = []
+        cur.append(row)
+    if cur:
+        segs.append(cur)
+    return [normalize_keys(sg) for sg in segs]
+
+
 def file_sig(path: str | os.PathLike) -> str:
     """Video kimliği (ana varyantın `cache.file_sig`'i ile aynı): yol + boyut + mtime."""
     p = os.path.abspath(path)
@@ -74,15 +94,18 @@ def default_out(video: str | os.PathLike) -> str:
 
 
 def save_recording(path: str | os.PathLike, video: str, keys: list[list[float]], *,
-                   rotate: int = 0, speed: float = 1.0) -> None:
-    """Kaydı atomik yazar (tmp + replace). Anahtar yoksa ValueError."""
-    keys = normalize_keys(keys)
+                   rotate: int = 0, speed: float = 1.0, breaks: list[int] | None = None) -> None:
+    """Kaydı atomik yazar (tmp + replace). Anahtar yoksa ValueError.
+    `breaks` verilirse parçalı kayıt (geri sarma dahil, sıra korunur); verilmezse eski tek parça."""
+    keys = normalize_keys(keys) if breaks is None else [[float(x) for x in r] for r in keys]
     if not keys:
         raise ValueError("kayıtta kamera hareketi yok")
     if rotate not in ROTATIONS:
         raise ValueError(f"geçersiz döndürme: {rotate}")
     doc = {"version": REC_VERSION, "kind": "manual-camera", "video": os.path.basename(video),
            "vsig": file_sig(video), "rotate": rotate, "speed": clamp_speed(speed), "views": keys}
+    if breaks is not None:
+        doc["breaks"] = [int(b) for b in breaks]
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.name + ".tmp")
@@ -108,5 +131,10 @@ def load_recording(path: str | os.PathLike, video: str | None = None) -> dict:
         raise ValueError(f"{path}: bu kayıt başka bir videoya (ya da değişmiş dosyaya) ait")
     rot = d.get("rotate", 0)
     d["rotate"] = rot if rot in ROTATIONS else 0
-    d["views"] = normalize_keys(keys)
+    if isinstance(d.get("breaks"), list):  # parçalı kayıt: sıra korunur (geri sarma tekrarlanır)
+        d["views"] = keys
+        d["segments"] = split_segments(keys, d["breaks"])
+    else:  # eski tek parça kayıt: zamana göre sıralı, tüm video
+        d["views"] = normalize_keys(keys)
+        d["segments"] = None
     return d

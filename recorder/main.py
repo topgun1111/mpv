@@ -54,7 +54,8 @@ def run_export(args: argparse.Namespace) -> int:
     try:
         rec = load_recording(args.rec or rec_path(args.video), video=args.video)
         r = export_video(args.video, rec["views"], out, rotate=rec["rotate"], ffmpeg=args.ffmpeg,
-                         audio=not args.no_audio, crf=args.crf, preset=args.preset)
+                         audio=not args.no_audio, crf=args.crf, preset=args.preset,
+                         segments=rec.get("segments"))
     except (OSError, ValueError, RuntimeError) as e:
         _report_failure(out, str(e))
         raise
@@ -68,8 +69,13 @@ def run_export(args: argparse.Namespace) -> int:
 
 def run_info(args: argparse.Namespace) -> int:
     rec = load_recording(args.rec)
-    v = rec["views"]
+    v, segs = rec["views"], rec.get("segments")
     zmax = max(k[1] for k in v)
+    if segs:
+        dur = sum(sg[-1][0] - sg[0][0] for sg in segs)
+        print(f"{len(v)} anahtar kare, {len(segs)} parça, toplam {dur:.2f} sn, "
+              f"en çok {2 ** zmax:.1f}×, döndürme {rec['rotate']}°")
+        return 0
     print(f"{len(v)} anahtar kare, {v[0][0]:.2f}–{v[-1][0]:.2f} sn, en çok {2 ** zmax:.1f}×, "
           f"döndürme {rec['rotate']}°")
     return 0

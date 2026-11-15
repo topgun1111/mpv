@@ -33,7 +33,7 @@ def run(tmp_path_factory):
     d: dict[str, list[str]] = {}
     for ln in r.stdout.splitlines():
         key, *rest = ln.split("\t")
-        d.setdefault(key, []).append("\t".join(rest) if key == "JSON" else rest)
+        d.setdefault(key, []).append("\t".join(rest) if key in ("JSON", "SEG_JSON") else rest)
     return d, video
 
 
@@ -86,7 +86,7 @@ def test_recording_writes_rec_json_readable_by_python(run):
     d, video = run
     assert d["PREARM"][0] == ["0"]  # seek bitmeden (playback-restart öncesi) anahtar yok
     before, after = d["NOKEY"][0]
-    assert before == after  # duraklatma ve geri sarma anahtar üretmez
+    assert before == after  # duraklatma (saat ilerlemedi) anahtar üretmez
     assert d["HUDREC"][0] == ["true", "true"]  # ● KAYIT ... 1.2× (zoom göstergesi)
     assert d["ROT_REC"][0] == ["0", "true"]  # kayıt sırasında döndürme reddedilir
     assert d["STOP"][0] == ["false", "true"] and d["TMP"][0] == ["true"]
@@ -110,11 +110,24 @@ def test_rotate_speed_and_write_failure(run):
     assert d["WRITEFAIL"][0] == ["true"]
 
 
+def test_rewinds_are_recorded_as_repeated_segments(run):
+    d, _ = run
+    assert d["SEG_PRE"][0] == ["11"]  # seek bitmeden (playback-restart öncesi) anahtar yok
+    doc = json.loads(d["SEG_JSON"][0])
+    assert doc["breaks"] == [11, 17, 21]  # 4 parça: 0→1.0, 0.5→1.0, 0.5→0.8, 0.2→0.3 (duraklıyken geri sarma dahil)
+    ts = [r[0] for r in doc["views"]]
+    assert ts[:11] == pytest.approx([i / 10 for i in range(11)]) and ts[11] == pytest.approx(0.5)
+    assert ts[-2:] == pytest.approx([0.2, 0.3])
+    assert d["SEG_T"][0] == ["1.90"]  # HUD: toplam kayıt süresi = parçaların toplamı
+    segs = k.split_segments(doc["views"], doc["breaks"])
+    assert [len(x) for x in segs] == [11, 6, 4, 2]
+
+
 def test_rotate_buttons(run):
     d, _ = run
     # hazırken ► = +90°, ◄ = geri 0°; düğmeler HUD'da görünür
     assert d["ROT_BTN_READY"][0] == ["90", "0", "true"]
-    # geri sayım başlayınca düğmeler gizli, tık ve K döndürmez, K uyarı verir
+    # Space ile kayıt başlayınca düğmeler gizli, tık ve K döndürmez, K uyarı verir
     assert d["ROT_LOCK"][0] == ["0", "0", "false", "true"]
 
 
@@ -141,9 +154,7 @@ def test_ready_space_pause_resume_flow(run):
     d, _ = run
     # KAYDET/R: hazır — oynatma durur, kayıt henüz yok (HUD «HAZIR», ● yok)
     assert d["READY"][0] == ["yes", "true", "false", "true", "false"]
-    # Space: 5 sn geri sayım — bu sürede video durur, kayıt yok, HUD «BAŞLIYOR…»
-    assert d["COUNT"][0][:5] == ["5", "yes", "false", "true", "1"]  # yalnız KAYDET'in seek'i
-    # geri sayım bitince kayıt başlar (video başa sarılır ve oynar)
+    # Space: geri sayım YOK — kayıt hemen başlar (video başa sarılır ve oynar)
     assert d["START"][0] == ["seek 0 absolute exact", "no", "true", "true"]
     # kayıtta Space = duraklat, anahtar yok
     assert d["PAUSED"][0] == ["false", "yes", "true", "true"]
@@ -161,8 +172,6 @@ def test_screen_buttons_right_drag_and_s_export(run):
     assert d["SPACE_IDLE"][0] == ["yes", "true", "false"]
     # düğme → hazır, DURDUR yazar
     assert d["BTN_READY"][0] == ["true", "false", "yes", "true", "true"]
-    # geri sayım: Space başlatır (5), tekrar Space iptal eder; video duraklı, kayıt yok
-    assert d["COUNT_CANCEL"][0] == ["5", "nil", "false", "yes", "true"]
     # sol tuş kaydırır; sağ tuş kaydırmaz; oynatma değişmez
     assert d["DRAG_BTN"][0] == ["true", "true", "yes"]
     assert d["BTN_STOP"][0] == ["false", "true", "true", "true"]  # durdu, otomatik dışa aktarma YOK

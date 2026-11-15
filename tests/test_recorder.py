@@ -244,6 +244,89 @@ def test_export_missing_video_and_cancel(tmp_path, monkeypatch):
     assert json.loads((tmp_path / "o.mp4.export.json").read_text())["state"] == "cancelled"
 
 
+def test_split_segments_by_breaks_and_backward_time():
+    ks = [[0.0, 0, 0, 0], [0.1, 0, 0, 0], [0.5, 1, 0, 0], [0.6, 1, 0, 0], [0.2, 2, 0, 0]]
+    assert [len(x) for x in k.split_segments(ks, [2])] == [2, 2, 2]  # 0.6→0.2 otomatik bölünür
+    assert [len(x) for x in k.split_segments(ks[:4], [])] == [4]
+    one = k.split_segments([[1.0, 0, 0, 0], [0.5, 0, 0, 0], [0.6, 0, 0, 0]], [1])
+    assert one[0] == [[1.0, 0, 0, 0], [1.04, 0, 0, 0]]  # tek anahtarlı parça +40 ms
+
+
+def test_segmented_recording_roundtrip_keeps_order(tmp_path):
+    vid = tmp_path / "c.mp4"
+    vid.write_bytes(b"x")
+    ks = [[0, 0, 0, 0], [1, 1, 0, 0], [0.5, 2, 0, 0], [1, 2, 0, 0]]
+    k.save_recording(k.rec_path(vid), str(vid), ks, breaks=[2])
+    d = k.load_recording(k.rec_path(vid), video=str(vid))
+    assert d["views"] == ks and [len(x) for x in d["segments"]] == [2, 2]  # sıra korunur
+    old = tmp_path / "old.rec.json"
+    k.save_recording(old, str(vid), [[1, 0, 0, 0], [0, 1, 0, 0]])  # eski biçim: sıralanır, tüm video
+    assert k.load_recording(old)["segments"] is None
+
+
+def _make_gray_clip(path, n=15, w=64, h=36, fps=10.0):
+    wr = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+    assert wr.isOpened()
+    for i in range(n):
+        wr.write(np.full((h, w, 3), 16 * i + 8, np.uint8))  # parlaklık = indeks (sıkıştırmaya dayanıklı adım)
+    wr.release()
+
+
+def test_export_segments_repeat_rewound_parts_in_order(tmp_path, monkeypatch):
+    monkeypatch.setattr(rex, "find_ffmpeg", lambda explicit=None: None)  # cv2 yedeği
+    vid, out = tmp_path / "c.mp4", tmp_path / "o.mp4"
+    _make_gray_clip(vid)
+    v = [0.0, 0.0, 0.0]
+    # 0→0.9 sn, geri 0.5→0.9, geri 0.5→0.7 (fps 10 → kare 0..9, 5..9, 5..7)
+    segs = [[[0.0, *v], [0.9, *v]], [[0.5, *v], [0.9, *v]], [[0.5, *v], [0.7, *v]]]
+    r = rex.export_video(str(vid), [], str(out), segments=segs)
+    assert r["frames"] == 10 + 5 + 3
+    cap = cv2.VideoCapture(str(out))
+    levels = []
+    while True:
+        ok, img = cap.read()
+        if not ok:
+            break
+        levels.append(int(img.mean()))
+    cap.release()
+    idx = [round((x - 8) / 16) for x in levels]
+    assert idx == list(range(10)) + list(range(5, 10)) + [5, 6, 7]
+
+
+def test_export_segments_with_audio_concatenates_in_recorded_order(tmp_path):
+    ff = rex.find_ffmpeg()
+    if not ff:
+        pytest.skip("ffmpeg yok")
+    import subprocess
+
+    vid, out = tmp_path / "c.mp4", tmp_path / "o.mp4"
+    subprocess.run([ff, "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "testsrc=size=64x36:rate=10:duration=3", "-f", "lavfi", "-i",
+                    "sine=frequency=440:duration=3", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-shortest", str(vid)], check=True)
+    v = [0.0, 0.0, 0.0]
+    segs = [[[0.0, *v], [1.0, *v]], [[0.5, *v], [1.5, *v]]]  # 1. parça + geri sarıp 2. parça
+    r = rex.export_video(str(vid), [], str(out), segments=segs)
+    assert r["audio"] is True and r["frames"] == 11 + 11
+    probe = subprocess.run([ff, "-hide_banner", "-i", str(out)], capture_output=True)
+    assert b"Audio:" in probe.stderr and b"Video:" in probe.stderr
+    assert b"Duration: 00:00:02.2" in probe.stderr or b"Duration: 00:00:02.1" in probe.stderr
+
+
+def test_audio_filter_splits_and_concats_segments():
+    plan = [(0, 11, []), (5, 16, [])]
+    f = rex.audio_filter(plan, 10.0)
+    assert f.startswith("[1:a]asplit=2[s0][s1];") and "concat=n=2:v=0:a=1[aout]" in f
+    assert "atrim=start=0.500000:end=1.600000" in f
+    assert rex.audio_filter(plan[:1], 10.0).startswith("[1:a]atrim=")  # tek parça: split yok
+
+
+def test_segment_plan_clamps_to_video_length():
+    segs = [[[2.8, 0, 0, 0], [9.0, 0, 0, 0]], [[50.0, 0, 0, 0], [51.0, 0, 0, 0]]]
+    plan = rex.segment_plan(segs, 10.0, total=30)
+    assert [(a, b) for a, b, _k in plan] == [(28, 30)]  # video dışındaki parça atlanır
+
+
 # ---- CLI ----
 
 def test_cli_info_export_and_errors(tmp_path, monkeypatch, capsys):

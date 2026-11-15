@@ -229,10 +229,11 @@ Ana uygulamadan ayrı, **model içermeyen** küçük paket (`dist/TakipliOynatKa
 | Sol tuş basılı + sürükle | Videoyu kaydır (tekerlekle aynı anda olabilir) |
 | Sağ üst **KAYDET** düğmesi (veya `R`) | Kayıt oturumunu aç: **hazır**, oynatma başlamaz → tekrar basınca kaydı durdurur (`<video>.rec.json`) |
 | **HIZ** düğmesi (sol tık = ileri / sağ tık = geri) | Önizleme hızı 0.25×–2×: ileri / geri döner (`[` `]` aynı işi yapar) |
-| `Space` | Hazırken **5 sn geri sayım**, sonra kayıt + oynatma başlar (sayarken `Space` = vazgeç); kayıtta duraklatır; tekrar basınca sürdürür |
+| `Space` | Hazırken kaydı **hemen** başlatır (geri sayım yok); kayıtta duraklatır; tekrar basınca sürdürür |
+| Kayıt sırasında **geri sarma / ileri atlama** | Sarma kayda girer: geri sarıp tekrar oynattığın yer çıktıya tekrar eklenir (10 kez geri sarıp oynattıysan 10 tekrar). Çıktı = oynattığın parçalar kaydedilen sırayla, kesintisiz; ses de aynı kesim ve sırayla. Ekrandaki süre toplam kayıt süresidir |
 | `S` | Kaydı yeni videoya aktar → `<video>.kamera.mp4` (yüksek kalite; ilerleme OSD'de, `Esc` = iptal) |
 | Alttaki oynat düğmesi | Videoyu oynatır/durdurur (Space, `P`, tık, çift tık oynatmaz); video açılınca duraklı başlar |
 | **◄ 90° / 90° ►** düğmeleri (üstte, HIZ'ın solu) | Videoyu saat yönü tersi / saat yönünde 90° döndür. **Kayıttan önce** (boşta ya da hazırken) yapılır; kayıt başlayınca gizlenir. Dönüş kayda yazılır, dışa aktarılan `.kamera.mp4` döndürülmüş çıkar |
 | `K` | Videoyu 90° döndür (düğmeyle aynı; kayıt başlayınca yok) |
 
-Akış: `Kayit.bat` ya da kısayol → video aç → **KAYDET** (hazır) → gerekirse **◄ 90° / 90° ►** ile döndür → hızı ayarla → `Space` (5 sn geri sayım, başlar) → zoom + sol tuşla sürükle → **KAYDET** (durdur) → `S`. Çıktı özgün hızda, özgün sesle (`-shortest`) ve kaynakla aynı boyutta yazılır; önizleme hızı çıktıyı etkilemez. Komut satırından: `python -m recorder export video.mp4 [--rec F] [--out F] [--crf 14] [--preset medium] [--no-audio]`; sürükle-bırak için `Disa-Aktar.bat`. Derleme: `build-recording.yml` (etiket `kayit-v*` Release'i açar; ana `v*` etiketinden bağımsız). Lisanslar: `THIRD_PARTY_NOTICES.md` Madde 3c.
+Akış: `Kayit.bat` ya da kısayol → video aç → **KAYDET** (hazır) → gerekirse **◄ 90° / 90° ►** ile döndür → hızı ayarla → `Space` (kayıt hemen başlar) → zoom + sol tuşla sürükle → **KAYDET** (durdur) → `S`. Çıktı özgün hızda, özgün sesle (`-shortest`) ve kaynakla aynı boyutta yazılır; önizleme hızı çıktıyı etkilemez. Komut satırından: `python -m recorder export video.mp4 [--rec F] [--out F] [--crf 14] [--preset medium] [--no-audio]`; sürükle-bırak için `Disa-Aktar.bat`. Derleme: `build-recording.yml` (etiket `kayit-v*` Release'i açar; ana `v*` etiketinden bağımsız). Lisanslar: `THIRD_PARTY_NOTICES.md` Madde 3c.

@@ -15,7 +15,6 @@ local function out(...) print(table.concat({ ... }, "\t")) end
 local function f(x) return string.format("%.9f", x) end
 local function has(s, pat) return s ~= nil and s:find(pat, 1, true) ~= nil end
 local function hud() return reg.ov[5] or "" end
-local function countdown() for _ = 1, 5 do reg.timers[#reg.timers]() end end -- 5 sn geri sayım (1 sn'lik zamanlayıcılar)
 local function frame_at(v, ax, ay) -- imlecin altındaki kare noktası
   local s = 2 ^ v[1]
   return (0.5 - v[2]) + (ax - 0.5) / s, (0.5 - v[3]) + (ay - 0.5) / s
@@ -80,9 +79,7 @@ reg.bind.record() -- hazır: oynatma BAŞLAMAZ, kayıt henüz yok
 local rec = A.state()
 out("READY", tostring(reg.props.pause), tostring(rec.on), tostring(rec.run), tostring(has(hud(), "HAZIR")), tostring(has(hud(), "●")))
 reg.props["time-pos"] = 10 -- seek tamamlanmadan eski saat
-reg.bind.space() -- Space = geri sayım başlar (oynatma + kayıt henüz yok)
-out("COUNT", tostring(rec.count), tostring(reg.props.pause), tostring(rec.run), tostring(has(hud(), "BAŞLIYOR")), tostring(#reg.cmds))
-countdown()
+reg.bind.space() -- Space = kayıt HEMEN başlar (geri sayım yok)
 out("START", reg.cmds[#reg.cmds], tostring(reg.props.pause), tostring(has(hud(), "KAYIT")), tostring(has(hud(), "●")))
 reg.timers[#reg.timers]()
 out("PREARM", tostring(#rec.keys))
@@ -94,9 +91,7 @@ for i = 0, 39 do
   reg.timers[#reg.timers]()
 end
 local n_play = #rec.keys
-reg.timers[#reg.timers]() -- duraklatma: saat ilerlemedi
-reg.props["time-pos"] = 0.2
-reg.timers[#reg.timers]() -- geri sarma
+reg.timers[#reg.timers]() -- duraklatma/aynı saat: yeni anahtar yok
 out("NOKEY", tostring(n_play), tostring(#rec.keys))
 out("HUDREC", tostring(has(hud(), "KAYIT")), tostring(has(hud(), "1.2×")))
 reg.props["video-rotate"] = 0
@@ -125,7 +120,7 @@ out("SPEED", tostring(up), tostring(reg.props.speed))
 
 -- 6) kayıt dosyası yazılamazsa uyarı; anahtar yoksa dosya yok
 reg.props.path = os.getenv("VIDEO") .. "-yok-dizin/x/clip.mp4"
-reg.bind.record(); reg.props["time-pos"] = 0; reg.bind.space(); countdown(); reg.ev["playback-restart"]()
+reg.bind.record(); reg.props["time-pos"] = 0; reg.bind.space(); reg.ev["playback-restart"]()
 reg.timers[#reg.timers]()
 reg.bind.record()
 out("WRITEFAIL", tostring(has(reg.osd[#reg.osd], "yazılamadı")))
@@ -195,13 +190,12 @@ move(848, 30); reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" }
 local rot_r = reg.props["video-rotate"]
 move(758, 30); reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" })
 out("ROT_BTN_READY", tostring(rot_r), tostring(reg.props["video-rotate"]), tostring(has(hud(), "◄ 90°")))
-reg.bind.space(); local counting = r8.count -- geri sayım başladı
-move(848, 30); reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" }) -- geri sayımda gizli: tık döndürmez
+reg.bind.space() -- Space: kayıt hemen başlar → döndürme düğmeleri gizli, tık ve K döndürmez
+move(848, 30); reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" })
 local rot_hidden = reg.props["video-rotate"]
 reg.bind.rotate() -- K de kilitli
 out("ROT_LOCK", tostring(rot_hidden), tostring(reg.props["video-rotate"]), tostring(has(hud(), "◄ 90°")), tostring(has(last_osd(), "döndürülemez")))
-reg.bind.space() -- sayarken Space = iptal
-out("COUNT_CANCEL", tostring(counting), tostring(r8.count), tostring(r8.run), tostring(reg.props.pause), tostring(r8.on))
+reg.bind.space() -- kayıtta Space = duraklat (video durur)
 move(640, 360)
 for _ = 1, 4 do reg.bind["wheel-in"]() end
 local _, px0 = vals()
@@ -212,7 +206,7 @@ reg.bind.rclick({ event = "down" }); move(420, 360); reg.bind.rclick({ event = "
 local _, pxr = vals()
 out("DRAG_BTN", tostring(pxl ~= px0), tostring(pxr == pxl), tostring(reg.props.pause))
 reg.props["time-pos"] = 0
-reg.bind.space(); countdown(); reg.ev["playback-restart"]()
+reg.bind.space(); reg.ev["playback-restart"]()
 for i = 0, 5 do reg.props["time-pos"] = i * 0.05; reg.timers[#reg.timers]() end
 move(1200, 30); reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" }) -- durdur
 out("BTN_STOP", tostring(r8.on), tostring(has(hud(), "KAYDET")), tostring(async == nil), tostring(#r8.keys >= 5))
@@ -222,3 +216,23 @@ async.cb(true, { status = 0 })
 reg.props.pause = "no"; reg.ev["file-loaded"]()
 out("LOADED_PAUSED", tostring(reg.props.pause))
 if keep_json then write(VID .. ".rec.json", keep_json) end -- bölüm 4'ün kaydı (Python testi okur) geri konur
+
+-- 9) geri sarma da kayda girer: 0→1.0, geri 0.5→1.0, geri 0.5→0.8, duraklıyken geri sarıp 0.2→0.3 (4 parça)
+reg.props.path = VID
+reg.props.speed, reg.props.pause = 1.0, "yes"
+reg.bind.record(); reg.props["time-pos"] = 0; reg.bind.space()
+local function play(from, to) for i = math.floor(from * 10 + 0.5), math.floor(to * 10 + 0.5) do
+  reg.props["time-pos"] = i / 10; reg.timers[#reg.timers]() end end
+local function seek_to(t) reg.props["time-pos"] = t; reg.ev.seek(); reg.timers[#reg.timers]() end -- seek bitmeden anahtar yok
+reg.ev["playback-restart"](); play(0, 1.0)
+seek_to(0.5); local n_pre = #A.state().keys; reg.ev["playback-restart"](); play(0.5, 1.0)
+seek_to(0.5); reg.ev["playback-restart"](); play(0.5, 0.8)
+reg.bind.space() -- duraklat
+reg.props["time-pos"] = 0.2; reg.ev.seek(); reg.ev["playback-restart"]() -- duraklıyken geri sar
+reg.bind.space(); play(0.2, 0.3) -- sürdür
+reg.bind.record() -- durdur
+local fh9 = io.open(VID .. ".rec.json", "rb"); local seg_json = fh9 and fh9:read("*a") or "<yok>"; if fh9 then fh9:close() end
+out("SEG_PRE", tostring(n_pre))
+out("SEG_JSON", seg_json)
+out("SEG_T", string.format("%.2f", A.state().t))
+if keep_json then write(VID .. ".rec.json", keep_json) end
