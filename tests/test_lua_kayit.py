@@ -84,7 +84,6 @@ def test_mouse_wheel_drag_and_keys(run):
 
 def test_recording_writes_rec_json_readable_by_python(run):
     d, video = run
-    assert d["START"][0] == ["seek 0 absolute exact", "true", "true"]
     assert d["PREARM"][0] == ["0"]  # seek bitmeden (playback-restart öncesi) anahtar yok
     before, after = d["NOKEY"][0]
     assert before == after  # duraklatma ve geri sarma anahtar üretmez
@@ -130,18 +129,50 @@ def test_export_flow_launches_recorder_and_reports(run):
     assert out == k.default_out(str(video))
 
 
+def test_ready_space_pause_resume_flow(run):
+    d, _ = run
+    # KAYDET/R: hazır — oynatma durur, kayıt henüz yok (HUD «HAZIR», ● yok)
+    assert d["READY"][0] == ["yes", "true", "false", "true", "false"]
+    # Space: kayıt başlar (video başa sarılır ve oynar)
+    assert d["START"][0] == ["seek 0 absolute exact", "no", "true", "true"]
+    assert d["PAUSED"][0] == ["false", "yes", "true", "true"]  # kayıtta Space = duraklat, anahtar yok
+    assert d["RESUMED"][0] == ["true", "no"]  # tekrar Space = sürdür
+
+
+def test_screen_buttons_right_drag_and_s_export(run):
+    d, video = run
+    out = str(video.with_name("clip.kamera.mp4"))
+    assert d["SPD_CLICK"][0] == ["1.5", "true"]  # sol tık: hız 1 → 1.5, düğmede görünür
+    assert d["SPD_RIGHT"][0] == ["1.0"] and d["SPD_WRAP"][0] == ["0.25"]  # sağ tık yavaşlatır; 2× → 0.25× (döner)
+    assert d["SPACE_IDLE"][0] == ["yes", "true", "false"]  # KAYDET'siz Space: oynatma/kayıt başlamaz
+    assert d["BTN_READY"][0] == ["true", "false", "yes", "true", "true"]  # düğme → hazır, DURDUR yazar
+    assert d["CLICK_VIDEO"][0] == ["yes", "false"]  # videoya tık oynatmayı değiştirmez
+    assert d["DRAG_BTN"][0] == ["true", "true"]  # sol tuş kaydırmaz; SAĞ tuş kaydırır
+    assert d["BTN_STOP"][0] == ["false", "true", "true", "true"]  # durdu, otomatik dışa aktarma YOK
+    assert d["S_EXPORT"][0] == [f"C:/app/python/pythonw.exe|-m|recorder|export|{video}|--out|{out}"]
+    assert d["LOADED_PAUSED"][0] == ["yes"]  # video açılınca duraklı
+
+
+def test_lua_has_screen_buttons():
+    lua = KAYIT_LUA.read_text(encoding="utf-8")
+    assert "KAYDET" in lua and "DURDUR" in lua and "HIZ" in lua and "modkeys" not in lua
+
+
 def test_wiring_in_config_and_no_tracking_code():
     inp = (CONF / "input.conf").read_text(encoding="utf-8")
     lines = {ln.split(None, 1)[0]: ln for ln in inp.splitlines()
              if ln.strip() and not ln.startswith("#")}
     lua = KAYIT_LUA.read_text(encoding="utf-8")
-    binds = {"MBTN_LEFT": "drag", "WHEEL_UP": "wheel-in", "WHEEL_DOWN": "wheel-out",
-             "+": "zoom-in", "-": "zoom-out", "0": "reset", "r": "record", "[": "slower",
-             "]": "faster", "k": "rotate", "e": "export"}
+    binds = {"MBTN_LEFT": "click", "MBTN_RIGHT": "drag", "WHEEL_UP": "wheel-in",
+             "WHEEL_DOWN": "wheel-out", "SPACE": "space", "+": "zoom-in", "-": "zoom-out",
+             "0": "reset", "r": "record", "[": "slower", "]": "faster", "k": "rotate", "s": "export"}
     for key, name in binds.items():
         assert lines[key].endswith(f"script-binding kayit/{name}"), key
         assert f'add_key_binding(nil, "{name}"' in lua
-    assert lines["MBTN_LEFT_DBL"].endswith("cycle pause")  # çift tık = oynat/duraklat
-    assert len(lua.splitlines()) <= 350
+    # oynat/durdur YALNIZ alttaki düğmeyle: çift tık, P ve oynat/duraklat tuşları etkisiz
+    for key in ("MBTN_LEFT_DBL", "p", "PAUSE", "PLAYPAUSE"):
+        assert lines[key].endswith("ignore"), key
+    assert "pause=yes" in (CONF / "mpv.conf").read_text(encoding="utf-8")  # açılışta oynatma başlamaz
+    assert len(lua.splitlines()) <= 470
     low = lua.lower()
     assert not any(w in low for w in ("onnx", "yolo", "tracker", "track-point", "models"))

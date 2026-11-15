@@ -46,12 +46,12 @@ def find_ffmpeg(explicit: str | None = None) -> str | None:
 
 
 def ffmpeg_cmd(ff: str, size: tuple[int, int], fps: float, src: str, out: str,
-               audio: bool = True, crf: int = 18) -> list[str]:
+               audio: bool = True, crf: int = 18, preset: str = "veryfast") -> list[str]:
     cmd = [ff, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgr24",
            "-s", f"{size[0]}x{size[1]}", "-r", f"{fps:.6f}", "-i", "-"]
     if audio:
         cmd += ["-i", src, "-map", "0:v:0", "-map", "1:a:0?", "-c:a", "copy", "-shortest"]
-    return cmd + ["-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast",
+    return cmd + ["-c:v", "libx264", "-crf", str(crf), "-preset", preset,
                   "-pix_fmt", "yuv420p", "-movflags", "+faststart", out]
 
 
@@ -77,7 +77,7 @@ def _write_state(path: Path, state: str, n: int, total: int, error: str | None =
 
 
 def export_video(video: str, views: list[list[float]], out: str, *, rotate: int = 0,
-                 ffmpeg: str | None = None, audio: bool = True, crf: int = 18,
+                 ffmpeg: str | None = None, audio: bool = True, crf: int = 18, preset: str = "veryfast",
                  progress=None, clock=time.monotonic) -> dict:
     """Videoyu anahtar karelerle dışa aktar → {frames, ffmpeg, audio, size, out}.
     `<out>.export.json` ilerleme, `<out>.export.cancel` varsa iptal (yarım çıktı silinir)."""
@@ -98,7 +98,7 @@ def export_video(video: str, views: list[list[float]], out: str, *, rotate: int 
     ff = find_ffmpeg(ffmpeg)
     proc = writer = None
     if ff:
-        proc = subprocess.Popen(ffmpeg_cmd(ff, size, fps, video, str(tmp), audio, crf),
+        proc = subprocess.Popen(ffmpeg_cmd(ff, size, fps, video, str(tmp), audio, crf, preset),
                                 stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     else:
         print("UYARI: ffmpeg bulunamadı; sessiz yedek yazıcı (mp4v) kullanılıyor",

@@ -74,11 +74,14 @@ out("RESET", rz, rx, ry, tostring(has(hud(), "1.0×")))
 
 -- 4) kayıt: R → başa sar; playback-restart'tan önce anahtar yok; geri sarma/duraklatma anahtar üretmez
 reg.cmds = {}
-reg.bind.record()
-out("START", reg.cmds[#reg.cmds], tostring(has(hud(), "KAYIT")), tostring(has(hud(), "●")))
-reg.props["time-pos"] = 10 -- seek tamamlanmadan eski saat
-reg.timers[#reg.timers]()
+reg.props.pause = "no"
+reg.bind.record() -- hazır: oynatma BAŞLAMAZ, kayıt henüz yok
 local rec = A.state()
+out("READY", tostring(reg.props.pause), tostring(rec.on), tostring(rec.run), tostring(has(hud(), "HAZIR")), tostring(has(hud(), "●")))
+reg.props["time-pos"] = 10 -- seek tamamlanmadan eski saat
+reg.bind.space() -- Space = kaydı başlat
+out("START", reg.cmds[#reg.cmds], tostring(reg.props.pause), tostring(has(hud(), "KAYIT")), tostring(has(hud(), "●")))
+reg.timers[#reg.timers]()
 out("PREARM", tostring(#rec.keys))
 reg.props["time-pos"] = 0
 reg.ev["playback-restart"]()
@@ -96,6 +99,12 @@ out("HUDREC", tostring(has(hud(), "KAYIT")), tostring(has(hud(), "1.2×")))
 reg.props["video-rotate"] = 0
 reg.bind.rotate()
 out("ROT_REC", tostring(reg.props["video-rotate"]), tostring(has(reg.osd[#reg.osd], "döndürülemez")))
+reg.bind.space() -- kayıtta Space = duraklat
+local nk = #rec.keys
+reg.timers[#reg.timers]() -- duraklatmadan kalan eski zamanlayıcı anahtar eklemez
+out("PAUSED", tostring(rec.run), tostring(reg.props.pause), tostring(has(hud(), "DURAKLADI")), tostring(#rec.keys == nk))
+reg.bind.space() -- tekrar Space = sürdür
+out("RESUMED", tostring(rec.run), tostring(reg.props.pause))
 reg.props["time-pos"] = 40 * 0.033
 reg.bind.record() -- durdur + kaydet
 out("STOP", tostring(has(hud(), "KAYIT")), tostring(has(reg.osd[#reg.osd], ".rec.json")))
@@ -113,7 +122,7 @@ out("SPEED", tostring(up), tostring(reg.props.speed))
 
 -- 6) kayıt dosyası yazılamazsa uyarı; anahtar yoksa dosya yok
 reg.props.path = os.getenv("VIDEO") .. "-yok-dizin/x/clip.mp4"
-reg.bind.record(); reg.ev["playback-restart"](); reg.props["time-pos"] = 0
+reg.bind.record(); reg.props["time-pos"] = 0; reg.bind.space(); reg.ev["playback-restart"]()
 reg.timers[#reg.timers]()
 reg.bind.record()
 out("WRITEFAIL", tostring(has(reg.osd[#reg.osd], "yazılamadı")))
@@ -156,3 +165,46 @@ out("EXP_ERROR", tostring(has(last_osd(), "başarısız: video açılamadı")))
 reg.bind.export(); async.cb(true, { status = 7 })
 out("EXP_NOJSON", tostring(has(last_osd(), "kod 7")))
 os.remove(OUT .. ".export.json")
+
+-- 8) ekrandaki düğmeler (sol tık), sağ tuşla sürükleme, Space akışı, S = dışa aktar, açılışta duraklatma
+local keep_json do local fh = io.open(VID .. ".rec.json", "rb"); keep_json = fh and fh:read("*a"); if fh then fh:close() end end
+have = { ["C:/app/python/pythonw.exe"] = true }
+reg.props.path = VID
+async = nil
+reg.props.speed = 1.0
+move(950, 30) -- HIZ düğmesi
+reg.bind.click({ event = "down" })
+out("SPD_CLICK", tostring(reg.props.speed), tostring(has(hud(), "HIZ 1.5×")))
+reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" }) -- sağ tık: yavaşlat
+out("SPD_RIGHT", tostring(reg.props.speed))
+reg.props.speed = 2.0; reg.bind.click({ event = "down" })
+out("SPD_WRAP", tostring(reg.props.speed)); reg.props.speed = 1.0
+out("SPACE_IDLE_BEFORE", tostring(reg.props.pause))
+reg.props.pause = "yes"; reg.bind.space() -- KAYDET'e basılmadan Space: kayıt/oynatma başlamaz
+out("SPACE_IDLE", tostring(reg.props.pause), tostring(has(last_osd(), "önce KAYDET")), tostring(A.state().on))
+move(1200, 30) -- KAYDET düğmesi
+reg.bind.click({ event = "down" })
+local r8 = A.state()
+out("BTN_READY", tostring(r8.on), tostring(r8.run), tostring(reg.props.pause), tostring(has(hud(), "DURDUR")), tostring(has(hud(), "HAZIR")))
+move(300, 300)
+reg.bind.click({ event = "down" }) -- videoya sol tık: oynatmayı değiştirmez, sürükleme başlatmaz
+out("CLICK_VIDEO", tostring(reg.props.pause), tostring(r8.run))
+move(640, 360)
+for _ = 1, 4 do reg.bind["wheel-in"]() end
+local _, px0 = vals()
+reg.bind.click({ event = "down" }); move(700, 380); reg.bind.click({ event = "up" })
+local _, pxl = vals()
+reg.bind.drag({ event = "down" }); move(760, 400); reg.bind.drag({ event = "up" }) -- SAĞ tuş sürükler
+local _, pxr = vals()
+out("DRAG_BTN", tostring(pxl == px0), tostring(pxr ~= px0))
+reg.props["time-pos"] = 0
+reg.bind.space(); reg.ev["playback-restart"]()
+for i = 0, 5 do reg.props["time-pos"] = i * 0.05; reg.timers[#reg.timers]() end
+move(1200, 30); reg.bind.click({ event = "down" }) -- durdur
+out("BTN_STOP", tostring(r8.on), tostring(has(hud(), "KAYDET")), tostring(async == nil), tostring(#r8.keys >= 5))
+reg.bind.export() -- S
+out("S_EXPORT", async and table.concat(async.t.args, "|") or "<yok>")
+async.cb(true, { status = 0 })
+reg.props.pause = "no"; reg.ev["file-loaded"]()
+out("LOADED_PAUSED", tostring(reg.props.pause))
+if keep_json then write(VID .. ".rec.json", keep_json) end -- bölüm 4'ün kaydı (Python testi okur) geri konur

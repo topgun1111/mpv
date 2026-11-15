@@ -144,7 +144,7 @@ python -m tracker bench video.mp4.track.json                          # yalnız 
 Ölçütler: kimlik sayısı, kısa izler, olası ID değişimi, hedefin görülme/kayıp yüzdesi, canlı-benzetimi ile offline görünüm arasındaki sapma ve titreme (`--target-id` yoksa en uzun iz). Diğer ortak bayraklar: `--model`, `--device`, `--fps`. Canlı modda ek bayraklar: `--wait SN` (mpv IPC'sini bekle), `--stats SN` (fps/gecikme satırı).
 
 ### Eklem (vücut parçası) takibi (Parça 22)
-**Takip kamerası dışa aktarma (E1)**: `python -m tracker export VIDEO [--views F] [--out F] [--no-audio] [--crf 18] [--ffmpeg yol]` (ya da Dosya → «Takip kamerası dışa aktar…») `<video>.views.json` anahtar karelerini her kareye uygular (zoom = 2^z, merkez = 0.5 − pan, kenar boşluğu yok), kareleri ffmpeg'e ham BGR olarak verir (`libx264 -crf 18 -preset veryfast`, `yuv420p`, `+faststart`) ve özgün sesi aynen ekler. Çıktı `<video>.takipli.mp4`, boyut kaynakla aynı (çift). ffmpeg sırası: `--ffmpeg`, `TAKIPLI_FFMPEG`, `ffmpeg\\ffmpeg.exe` (python klasörünün yanı), PATH; yoksa sessiz yedek (`cv2.VideoWriter` mp4v, uyarı). İlerleme `<çıktı>.export.json`; `<çıktı>.export.cancel` iptal eder (yarım çıktı silinir). Hedefli aç + tara (A1) → dışa aktar = iki menü adımı.
+**Takip kamerası dışa aktarma (E1)**: `python -m tracker export VIDEO [--views F] [--out F] [--no-audio] [--crf 14] [--preset medium] [--ffmpeg yol]` (ya da Dosya → «Takip kamerası dışa aktar…») `<video>.views.json` anahtar karelerini her kareye uygular (zoom = 2^z, merkez = 0.5 − pan, kenar boşluğu yok), kareleri ffmpeg'e ham BGR olarak verir (`libx264 -crf 18 -preset veryfast`, `yuv420p`, `+faststart`) ve özgün sesi aynen ekler. Çıktı `<video>.takipli.mp4`, boyut kaynakla aynı (çift). ffmpeg sırası: `--ffmpeg`, `TAKIPLI_FFMPEG`, `ffmpeg\\ffmpeg.exe` (python klasörünün yanı), PATH; yoksa sessiz yedek (`cv2.VideoWriter` mp4v, uyarı). İlerleme `<çıktı>.export.json`; `<çıktı>.export.cancel` iptal eder (yarım çıktı silinir). Hedefli aç + tara (A1) → dışa aktar = iki menü adımı.
 
 **Hedefle aç + arka plan taraması (A1)**: Dosya → «Hedefle video aç + tara…» videoyu açıp duraklatır; ilk sağ tık (nokta) ya da sağ tuşla sürükleme (alan) canlı takibi hemen başlatır ve arka planda `python -m tracker offline VIDEO --select-point SN NX NY` (ya da `--select-rect SN NX1 NY1 NX2 NY2`) taramasını başlatır. Hedef tarama o ana varınca çözülür: nokta bir eklemin yakınındaysa **eklem**, değilse noktadaki **kişi**; alan kişiyi büyük ölçüde kapsıyorsa kişi, küçük alan içinde eklem varsa o eklem (pose modeli varsa taramaya otomatik eklenir). Sonuç `<video>.track.json` + `<video>.views.json`; bitince `o` tuşu offline takibi açar. İlerleme `<video>.track.json.scan.json`'a (durum, %, hedef) yazılır, her 100 örnekte `.partial.json` kesinti noktası alınır: `offline VIDEO --resume` kaldığı yerden sürdürür; `<çıktı>.scan.cancel` dosyası oluşturulursa tarama durur. Konsolsuz çalışırken günlük masaüstünde `takipli-tarama-log.txt`. Not: sınıfsız nesneler (kişi/eklem olmayan) offline taranmaz; seçim en yakın kişiye çözülür, yoksa hata.
 
@@ -225,11 +225,13 @@ Ana uygulamadan ayrı, **model içermeyen** küçük paket (`dist/TakipliOynatKa
 
 | Tuş / eylem | İşlev |
 |---|---|
-| Sol tuş basılı + sürükle | Videoyu kaydır |
-| Tekerlek (sürüklerken de) | İmleç etrafında zoom (1×–16×) |
-| `+` / `-` / `0` | Zoom düzeyi (basılı tut = sürekli) / sıfırla |
-| `[` `]` / `K` | Önizleme hızı 0.25×–2× / videoyu 90° döndür (kayıt sırasında yok) |
-| `R` | Kaydı başlat (başa sarar) / durdur → `<video>.rec.json` |
-| `E` | Kaydı yeni videoya aktar → `<video>.kamera.mp4` (ilerleme OSD'de, `Esc` = iptal) |
+| Tekerlek | İmleç etrafında zoom (1×–16×); `+` / `-` / `0` = zoom düzeyi / sıfırla |
+| Sağ tuş basılı + sürükle | Videoyu kaydır (tekerlekle aynı anda olabilir) |
+| Sağ üst **KAYDET** düğmesi (veya `R`) | Kayıt oturumunu aç: **hazır**, oynatma başlamaz → tekrar basınca kaydı durdurur (`<video>.rec.json`) |
+| **HIZ** düğmesi (sol tık / sağ tık) | Önizleme hızı 0.25×–2×: ileri / geri döner (`[` `]` aynı işi yapar) |
+| `Space` | Hazırken kaydı başlatır; kayıtta duraklatır; tekrar basınca sürdürür |
+| `S` | Kaydı yeni videoya aktar → `<video>.kamera.mp4` (yüksek kalite; ilerleme OSD'de, `Esc` = iptal) |
+| Alttaki oynat düğmesi | Videoyu oynatır/durdurur (Space, `P`, tık, çift tık oynatmaz); video açılınca duraklı başlar |
+| `K` | Videoyu 90° döndür (kayıt sırasında yok) |
 
-Akış: `Kayit.bat` ya da kısayol → video aç → zoom + sürükle → `R` (kaydı bitir) → `E`. Çıktı özgün hızda, özgün sesle (`-shortest`) ve kaynakla aynı boyutta yazılır; önizleme hızı çıktıyı etkilemez. Komut satırından: `python -m recorder export video.mp4 [--rec F] [--out F] [--crf 18] [--no-audio]`; sürükle-bırak için `Disa-Aktar.bat`. Derleme: `build-recording.yml` (etiket `kayit-v*` Release'i açar; ana `v*` etiketinden bağımsız). Lisanslar: `THIRD_PARTY_NOTICES.md` Madde 3c.
+Akış: `Kayit.bat` ya da kısayol → video aç → **KAYDET** (hazır) → hızı ayarla → `Space` (başlat) → zoom + sağ tuşla sürükle → **KAYDET** (durdur) → `S`. Çıktı özgün hızda, özgün sesle (`-shortest`) ve kaynakla aynı boyutta yazılır; önizleme hızı çıktıyı etkilemez. Komut satırından: `python -m recorder export video.mp4 [--rec F] [--out F] [--crf 14] [--preset medium] [--no-audio]`; sürükle-bırak için `Disa-Aktar.bat`. Derleme: `build-recording.yml` (etiket `kayit-v*` Release'i açar; ana `v*` etiketinden bağımsız). Lisanslar: `THIRD_PARTY_NOTICES.md` Madde 3c.

@@ -76,3 +76,16 @@ Kodlama **üç parçaya** bölündü (aşağıda). **R1, R2, R3 yapıldı — ka
 - Yeni özellik EKLEME: yalnız «zoom düzeyi + sürükleme (aynı anda) → kaydet → dışa aktar». Poz/model/takip isteği gelirse ana varyanta.
 - Ana varyant dosyalarını (`tracker/`, `track.lua`, `installer.iss`, `build.yml`) değiştirme; gerekirse küçük, testli ve `handover.md`'ye yazılı.
 - Sürüm tek yerden: `VERSION` = `tracker.__version__` = `recorder.__version__` (test denetler; yükseltirken üçünü ve `tests/test_license.py`'ı birlikte güncelle).
+
+### R4 — Yapıldı (2026-11-15): düğmeler + hazır/Space akışı + sağ tuşla sürükleme + yüksek kalite
+(Alt/Ctrl zoom denendi ve KALDIRILDI: kullanıcı fikrini değiştirdi → zoom eskisi gibi tekerlek/`+`/`-`.)
+- **Fare**: tekerlek = zoom (aynen); **SAĞ tuş** basılı sürükle = kaydır (`kayit/drag` artık `MBTN_RIGHT`); **SOL tık** = ekrandaki düğmeler (`kayit/click`), videoya sol tık hiçbir şey yapmaz.
+- **Oynat/durdur YALNIZ alttaki OSC düğmesiyle**: `input.conf`'ta `MBTN_LEFT_DBL`, `p`, `PAUSE`, `PLAYPAUSE` = `ignore`; Space artık `kayit/space`. `mpv.conf` `pause=yes` + `file-loaded`'da `pause=yes` → video açılınca kendiliğinden oynamaz.
+- **Kayıt akışı**: KAYDET düğmesi (sağ üst) veya `R` = oturumu AÇ → **hazır** (video başa sarılır, duraklı; HUD «HAZIR», düğme «■ DURDUR»; kayıt henüz YOK) → bu aşamada **HIZ** düğmesiyle hız ayarlanır →
+  `Space` = kaydı başlat (oynatma başlar; anahtarlar `playback-restart`/time-pos<0.05 ile açılır) → kayıtta `Space` = **duraklat** (video da durur, anahtar üretilmez) → `Space` = sürdür →
+  KAYDET/`R` = **durdur** (`<video>.rec.json` yazılır) → **`S` = dışa aktar** (eski `E` kalktı; otomatik dışa aktarma YOK). KAYDET'e basmadan Space: «önce KAYDET düğmesine bas».
+- **HIZ düğmesi** (KAYDET'in solu; HUD x900 y12): sol tık ileri, sağ tık geri, 0.25×…2× arasında döner (`speed_cycle`); `[` `]` aynen (sınırda durur).
+- **Yüksek kalite**: CLI varsayılanı `--crf 14 --preset medium` (öncesi 18/veryfast); `ffmpeg_cmd(..., preset=)` varsayılanı `veryfast` KALDI (ana varyantla eşlik testi). Derin zoom kaynak pikselleri büyütür.
+- Testler: `lua_harness_kayit.lua` bölüm 4/6/8 yeniden yazıldı, `test_lua_kayit.py` (2 yeni akış testi, satır sınırı 470), `tests/test_recorder_quality.py` (2), README/`test_packaging_recording.py` (`S`). texlua ile yeşil; gerçek ffmpeg ile uçtan uca dışa aktarma doğrulandı.
+- **Gerçek Windows'ta DENENMEDİ**: (1) `MBTN_RIGHT`/`MBTN_LEFT` bağlarının OSC ve mpv bağlam menüsüyle çakışmaması; (2) `pause=yes` ile açılışta duraklı başlama (Kayit.bat `%*` ile açılan dosya dahil);
+  (3) Space'in OSC odağı varken de `kayit/space`'e gitmesi; (4) sağ üstteki iki düğmenin pencere boyutuna göre isabet/çizim konumu (HUD 1280×720 ölçekli); (5) `Esc` ile iptal hâlâ yalnız dışa aktarma sürerken.

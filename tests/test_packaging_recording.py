@@ -142,6 +142,6 @@ def test_docs_cover_recording_variant():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "Kayıt varyantı (R1–R3)" in readme and "<video>.kamera.mp4" in readme
     assert "Disa-Aktar.bat" in readme and "kayit-v*" in readme
-    assert "`E`" in (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "`S`" in (ROOT / "README.md").read_text(encoding="utf-8")
     inp = (CONF / "input.conf").read_text(encoding="utf-8")
-    assert re.search(r"^e script-binding kayit/export$", inp, re.M)
+    assert re.search(r"^s script-binding kayit/export$", inp, re.M)
