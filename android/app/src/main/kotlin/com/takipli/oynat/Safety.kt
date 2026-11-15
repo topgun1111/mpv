@@ -22,6 +22,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.ContentValues
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import com.takipli.oynat.core.ErrKind
 import com.takipli.oynat.core.classifyError
 import com.takipli.oynat.core.logLine
@@ -38,6 +54,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         ErrorLog.installCrashHandler(this)
+        Diag.install(this) // Debug Part 1: exit reasons, watchdog, thermal/memory events, previous logcat
         runCatching { File(cacheDir, "export").deleteRecursively() }
     }
 }
@@ -54,7 +71,17 @@ object ErrorLog {
             val kind = classifyError(codeName, t.message, t.javaClass.name)
             val frames = t.stackTrace.take(5).joinToString(" <- ") { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" }
             val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(Date())
-            val line = logLine(stamp, where, kind, "${t.javaClass.simpleName}: ${t.message.orEmpty()} [${codeName ?: "-"}] @ $frames")
+            // Debug Part 1: the cause chain (ORT/Media3 hide the real reason one level down), the thread, and the phone's state right now.
+            val causes = generateSequence(t.cause) { it.cause }.take(3).joinToString("") { " | caused by ${it.javaClass.simpleName}: ${it.message.orEmpty().take(160)}" }
+            val line = logLine(stamp, where, kind, "${t.javaClass.simpleName}: ${t.message.orEmpty()} [${codeName ?: "-"}] @ $frames$causes") +
+                " {thread ${Thread.currentThread().name} | ${Diag.vitals(ctx)}}"
+            appendLine(ctx, line)
+        }
+    }
+
+    /** Appends one finished line (also used by [Diag] for WARN/PREDICT/ERROR events). */
+    fun appendLine(ctx: Context, line: String) {
+        runCatching {
             synchronized(lock) {
                 val f = file(ctx)
                 f.parentFile?.mkdirs()
@@ -67,17 +94,17 @@ object ErrorLog {
 
     fun clear(ctx: Context) { runCatching { synchronized(lock) { file(ctx).delete() } } }
 
-    /** Version and device on the first line, then the end of the log: what to paste into the next session. */
-    fun report(ctx: Context): String {
-        val tr = Trace.read(ctx).takeLast(4000)
-        return "Takipli Oynat ${BuildConfig.VERSION_NAME} | ${Build.MANUFACTURER} ${Build.MODEL} | Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n" +
-            trimLog(read(ctx), SHARE_CHARS) + if (tr.isBlank()) "" else "\n--- last video trace ---\n$tr"
-    }
+    /** Compact report (about 9 KB, findings first, repeated lines collapsed): what to paste into the next session. */
+    fun report(ctx: Context): String = Diag.report(ctx, full = false)
+
+    /** Everything, up to 250 KB; goes to a file (Save full report). */
+    fun reportFull(ctx: Context): String = Diag.report(ctx, full = true)
 
     fun installCrashHandler(app: Application) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { th, e ->
             record(app, "crash:${th.name}", e)
+            Diag.crashContext(app, e)
             previous?.uncaughtException(th, e)
         }
     }
@@ -124,9 +151,44 @@ object Safety {
         return lowBattery(if (level >= 0 && scale > 0) level * 100 / scale else -1, charging)
     }
 
-    fun shareLog(ctx: Context) {
-        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, ErrorLog.report(ctx))
-        ctx.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    enum class LogOut { SHARE, COPY, SAVE }
+
+    /**
+     * Builds the report off the main thread (it reads logcat) and delivers it: SHARE = compact text through the share sheet,
+     * COPY = compact text to the clipboard, SAVE = full report as a .txt in Downloads. [done] gets a short status for the screen.
+     */
+    fun deliverLog(ctx: Context, how: LogOut, done: (String) -> Unit) {
+        val app = ctx.applicationContext
+        val ui = Handler(Looper.getMainLooper())
+        kotlin.concurrent.thread(name = "log-report", isDaemon = true) {
+            val msg = runCatching {
+                when (how) {
+                    LogOut.SHARE -> {
+                        val text = ErrorLog.report(app)
+                        ui.post { app.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        ""
+                    }
+                    LogOut.COPY -> {
+                        val text = ErrorLog.report(app)
+                        ui.post { app.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("takipli report", text)) }
+                        app.getString(R.string.log_copied, text.length / 1024 + 1)
+                    }
+                    LogOut.SAVE -> {
+                        val name = "takipli-debug-${Diag.stampForFile()}.txt"
+                        val cv = ContentValues().apply {
+                            put(MediaStore.Downloads.DISPLAY_NAME, name)
+                            put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                        }
+                        val uri = app.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv) ?: error("cannot create $name")
+                        app.contentResolver.openOutputStream(uri)?.use { it.write(ErrorLog.reportFull(app).toByteArray()) }
+                        Diag.persistReport(app)
+                        app.getString(R.string.log_saved, "Downloads/$name")
+                    }
+                }
+            }.getOrElse { "${it.javaClass.simpleName}: ${it.message}" }
+            ui.post { done(msg) }
+        }
     }
 }
 
@@ -139,17 +201,39 @@ fun BatteryWarning() {
     if (low) Text(stringResource(R.string.battery_low), color = MaterialTheme.colorScheme.error)
 }
 
-/** Home screen footer: licence summary and the error log buttons. */
+/** Home screen footer: licence summary and the error log / debug buttons (Debug Part 1). */
 @Composable
 fun AboutSection() {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var msg by remember { mutableStateOf("") }
+    var checking by remember { mutableStateOf(false) }
+    var job by remember { mutableStateOf<Job?>(null) }
+    var checkText by remember { mutableStateOf("") }
     Text(stringResource(R.string.about_licences), style = MaterialTheme.typography.bodySmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = {
-            if (ErrorLog.read(ctx).isBlank() && Trace.read(ctx).isBlank()) msg = ctx.getString(R.string.log_empty) else { msg = ""; Safety.shareLog(ctx) }
-        }) { Text(stringResource(R.string.log_share)) }
-        OutlinedButton(onClick = { ErrorLog.clear(ctx); msg = ctx.getString(R.string.log_cleared) }) { Text(stringResource(R.string.log_clear)) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Share = compact text (findings first, about 9 KB) for pasting; Copy = same to the clipboard; Save = everything as a file in Downloads.
+        OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { msg = ""; Safety.deliverLog(ctx, Safety.LogOut.SHARE) { if (it.isNotEmpty()) msg = it } }) { Text(stringResource(R.string.log_share)) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { Safety.deliverLog(ctx, Safety.LogOut.COPY) { msg = it } }) { Text(stringResource(R.string.log_copy)) }
+            OutlinedButton(onClick = { Safety.deliverLog(ctx, Safety.LogOut.SAVE) { msg = it } }) { Text(stringResource(R.string.log_save)) }
+        }
+        OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
+            if (checking) { job?.cancel(); return@OutlinedButton }
+            checking = true; checkText = ""; msg = ""
+            job = scope.launch {
+                try {
+                    checkText = Diag.selfCheck(ctx) { msg = ctx.getString(R.string.selfcheck_running, it) }
+                    msg = ctx.getString(R.string.selfcheck_done)
+                } catch (e: CancellationException) {
+                    msg = ctx.getString(R.string.selfcheck_stopped)
+                } catch (e: Throwable) {
+                    ErrorLog.record(ctx, "selfcheck", e); msg = Safety.friendly(ctx, e)
+                } finally { checking = false }
+            }
+        }) { Text(stringResource(if (checking) R.string.selfcheck_stop else R.string.selfcheck_run)) }
+        OutlinedButton(onClick = { ErrorLog.clear(ctx); runCatching { File(ctx.filesDir, "logs").listFiles()?.forEach { it.delete() } }; msg = ctx.getString(R.string.log_cleared) }) { Text(stringResource(R.string.log_clear)) }
     }
     if (msg.isNotEmpty()) Text(msg)
+    if (checkText.isNotEmpty()) Text(checkText, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
 }

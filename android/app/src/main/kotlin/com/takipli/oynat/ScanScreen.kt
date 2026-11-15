@@ -114,9 +114,9 @@ fun ScanScreen(onBack: () -> Unit) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 models.forEach { m -> FilterChip(selected = m == model, enabled = !busy, onClick = { model = m }, label = { Text(m.removeSuffix(".onnx")) }) }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SCAN_FPS.forEach { c -> FilterChip(selected = c == fps, enabled = !busy, onClick = { fps = c }, label = { Text("$c fps") }) }
-                FilterChip(selected = npu, enabled = !busy, onClick = { npu = !npu }, label = { Text("NPU") })
+                FilterChip(selected = npu, enabled = !busy, onClick = { npu = !npu }, label = { Text("NPU", maxLines = 1, softWrap = false) })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(enabled = !busy && model.isNotEmpty(), onClick = { start() }) { Text(stringResource(R.string.scan_start)) }

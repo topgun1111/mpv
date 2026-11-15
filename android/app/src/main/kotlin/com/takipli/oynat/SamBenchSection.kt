@@ -32,9 +32,26 @@ import com.takipli.oynat.core.BenchStats
 import kotlinx.coroutines.launch
 
 /** One EdgeTAM graph timed on CPU and on the NPU (`null` stats = could not run; the note says why). */
-class SamBenchRow(val component: String, val cpu: BenchStats?, val npu: BenchStats?, val npuNote: String?, val loadMs: Long)
+class SamBenchRow(
+    val component: String, val cpu: BenchStats?, val npu: BenchStats?, val npuNote: String?, val loadMs: Long,
+    /** the three timed warm-up runs (first = compile/first-run cost), kept out of the stats */
+    val cpuWarmMs: List<Double> = emptyList(), val npuWarmMs: List<Double> = emptyList(),
+)
 
 class SamBenchReport(val rows: List<SamBenchRow>, val parity: String, val thermal: Int, val lastRun: String) {
+    /** Debug Part 1: sanity findings (mean above p95, spikes, jitter, hot phone) for the screen and the error log. */
+    fun findings(): List<com.takipli.oynat.core.Finding> = buildList {
+        for (r in rows) {
+            val n = r.component.removePrefix("sam-").removeSuffix(".onnx")
+            r.cpu?.let { addAll(com.takipli.oynat.core.benchFindings("$n CPU", it)) }
+            r.npu?.let { addAll(com.takipli.oynat.core.benchFindings("$n NPU", it)) }
+            if (r.cpuWarmMs.size >= 2) com.takipli.oynat.core.firstRunFinding("$n CPU", r.cpuWarmMs.first(), r.cpuWarmMs.drop(1))?.let { add(it) }
+            if (r.npuWarmMs.size >= 2) com.takipli.oynat.core.firstRunFinding("$n NPU", r.npuWarmMs.first(), r.npuWarmMs.drop(1))?.let { add(it) }
+            if (r.npu == null && r.npuNote != null) add(com.takipli.oynat.core.Finding(com.takipli.oynat.core.Sev.WARN, "NPU_FAILED", "$n: ${r.npuNote}"))
+        }
+        if (thermal >= 2) add(com.takipli.oynat.core.Finding(com.takipli.oynat.core.Sev.WARN, "HOT_BENCH", "thermal $thermal: numbers are pessimistic"))
+    }
+
     /** Text for the screen / clipboard / "Bench lines" in handover-android.md. */
     fun text(device: String): String = buildString {
         appendLine("$device | thermal $thermal (rerun after cooling if > 1)")
@@ -46,6 +63,7 @@ class SamBenchReport(val rows: List<SamBenchRow>, val parity: String, val therma
         }
         appendLine(parity)
         if (lastRun.isNotEmpty()) appendLine("last scan: $lastRun")
+        findings().forEach { appendLine("! " + it.text()) }
     }
 }
 
@@ -81,6 +99,7 @@ fun SamBenchSection(image: Bitmap?, locked: Boolean) {
             scope.launch {
                 val rep = try { SamEngine.bench(ctx, image ?: synthetic, 20) { status = ctx.getString(R.string.sam_bench_running, it) } }
                 catch (e: Throwable) { ErrorLog.record(ctx, "sam-bench", e); null }
+                rep?.findings()?.forEach { Diag.event(ctx, "sam-bench", it) }
                 text = rep?.text("${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}") ?: ctx.getString(R.string.sam_bench_failed)
                 busy = false
             }

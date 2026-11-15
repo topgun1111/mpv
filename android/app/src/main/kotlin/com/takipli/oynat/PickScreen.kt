@@ -128,7 +128,15 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
         if (model.isEmpty()) return@LaunchedEffect
         found = null
         found = try {
-            withContext(Dispatchers.Default) { PoseRunner(ctx, model, threads = 4).use { it.detect(f).poses } }
+            withContext(Dispatchers.Default) {
+                PoseRunner(ctx, model, threads = 4).use { r ->
+                    val t0 = System.nanoTime()
+                    val poses = r.detect(f).poses
+                    Diag.note(ctx, "pick", "FIRST_FRAME_DETECT", "${poses.size} people in ${"%.0f".format(java.util.Locale.ROOT, (System.nanoTime() - t0) / 1e6)} ms (${f.width}x${f.height}, $model)")
+                    if (poses.isEmpty()) Diag.note(ctx, "pick", "NO_PEOPLE", "no person on the picked frame: black/blank frame? seek to another frame before scanning", com.takipli.oynat.core.Sev.WARN)
+                    poses
+                }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -203,7 +211,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                 VideoDecoder.sample(ctx, u, 1.0, 0.0) { f -> frame = f.bitmap; frameT = f.t; false }
                 uri = u
             } catch (e: Throwable) {
-                uri = null; ErrorLog.record(ctx, "open-video", e); error = Safety.friendly(ctx, e)
+                uri = null; Diag.note(ctx, "pick", "OPEN_VIDEO_FAIL", "${e.javaClass.simpleName}: ${(e.message ?: "").take(100)} uri=${u.scheme}", com.takipli.oynat.core.Sev.ERROR); ErrorLog.record(ctx, "open-video", e); error = Safety.friendly(ctx, e)
             }
         }
     }
@@ -411,7 +419,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PICK_FPS.forEach { c -> FilterChip(selected = c == fps, onClick = { fps = c }, label = { Text("$c fps") }) }
-                    FilterChip(selected = npu, onClick = { npu = !npu }, label = { Text("NPU") })
+                    FilterChip(selected = npu, onClick = { npu = !npu }, label = { Text("NPU", maxLines = 1, softWrap = false) })
                     FilterChip(selected = preview, onClick = { preview = !preview }, label = { Text(stringResource(R.string.pick_preview)) })
                 }
                 if (objectMode && !draw) {

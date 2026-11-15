@@ -82,6 +82,15 @@
     <string name="log_share">Hata günlüğünü paylaş</string>
     <string name="log_clear">Hata günlüğünü temizle</string>
     <string name="log_empty">Hata günlüğü boş.</string>
+    <string name="log_copy">Raporu kopyala</string>
+    <string name="log_copied">Rapor kopyalandı (%1$d KB). Sohbete yapıştır.</string>
+    <string name="log_save">Tam raporu kaydet</string>
+    <string name="log_saved">Kaydedildi: %1$s</string>
+    <string name="selfcheck_run">Kendi kendini sına (tüm modeller, CPU + NPU)</string>
+    <string name="selfcheck_stop">Sınamayı durdur</string>
+    <string name="selfcheck_running">Sınama: %1$s …</string>
+    <string name="selfcheck_done">Sınama bitti. Artık rapora dahil.</string>
+    <string name="selfcheck_stopped">Sınama durduruldu.</string>
     <string name="log_cleared">Hata günlüğü temizlendi.</string>
     <string name="about_licences">Kişisel kullanım sürümü. Pose modelleri: Ultralytics YOLOv8 / YOLO11 (AGPL-3.0), dağıtım için değil. ONNX Runtime (MIT), Qualcomm QNN çalışma zamanı (Qualcomm koşulları), OpenCV, AndroidX Media3 ve Compose (Apache-2.0). Ayrıntı: depodaki THIRD_PARTY_NOTICES.md.</string>
     <string name="pick_detecting">Bu karede kişiler aranıyor …</string>

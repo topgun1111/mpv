@@ -82,6 +82,15 @@
     <string name="log_share">Share error log</string>
     <string name="log_clear">Clear error log</string>
     <string name="log_empty">The error log is empty.</string>
+    <string name="log_copy">Copy report</string>
+    <string name="log_copied">Report copied (%1$d KB). Paste it into the chat.</string>
+    <string name="log_save">Save full report</string>
+    <string name="log_saved">Saved: %1$s</string>
+    <string name="selfcheck_run">Run self-check (all models, CPU + NPU)</string>
+    <string name="selfcheck_stop">Stop self-check</string>
+    <string name="selfcheck_running">Self-check: %1$s …</string>
+    <string name="selfcheck_done">Self-check finished. It is part of the report now.</string>
+    <string name="selfcheck_stopped">Self-check stopped.</string>
     <string name="log_cleared">Error log cleared.</string>
     <string name="about_licences">Personal-use build. Pose models: Ultralytics YOLOv8 / YOLO11 (AGPL-3.0), not for redistribution. ONNX Runtime (MIT), Qualcomm QNN runtime (Qualcomm terms), OpenCV, AndroidX Media3 and Compose (Apache-2.0). Details: THIRD_PARTY_NOTICES.md in the repository.</string>
     <string name="pick_detecting">Detecting people on this frame …</string>

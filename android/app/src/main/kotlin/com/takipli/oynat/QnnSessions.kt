@@ -54,8 +54,15 @@ object Qnn {
                     "enable_htp_fp16_precision" to "1",
                 ),
             )
-            val sess = env.createSession((if (cached) ctxFile else file).absolutePath, o)
+            val tc = System.nanoTime()
+            val sess = try {
+                env.createSession((if (cached) ctxFile else file).absolutePath, o)
+            } catch (e: Throwable) {
+                Diag.note(ctx, "qnn", "NPU_SESSION_FAIL", "$base (cached ctx=$cached) after ${(System.nanoTime() - tc) / 1_000_000} ms: ${(e.message ?: e.javaClass.simpleName).take(240)} | ${Diag.vitals(ctx)}", com.takipli.oynat.core.Sev.WARN)
+                throw e
+            }
             if (!cached && !ctxFile.isFile) ctxFile.delete()
+            Diag.note(ctx, "qnn", "NPU_SESSION", "$base ctx-cache ${if (cached) "hit" else "miss (compiled now)"} in ${(System.nanoTime() - tc) / 1_000_000} ms, ctx file ${if (ctxFile.isFile) ctxFile.length() shr 20 else 0} MB")
             sess
         }
     }

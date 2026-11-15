@@ -56,6 +56,7 @@ import com.takipli.oynat.core.TrackDoc
 import com.takipli.oynat.core.enoughSpaceForExport
 import com.takipli.oynat.core.exportBitrate
 import com.takipli.oynat.core.exportBytesNeeded
+import com.takipli.oynat.core.progressStallFinding
 import com.takipli.oynat.core.Tuning
 import com.takipli.oynat.core.rebuildViews
 import com.takipli.oynat.core.viewAtSmooth
@@ -142,7 +143,21 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     }
     LaunchedEffect(exporter) {
         val t = exporter ?: return@LaunchedEffect
-        while (exporter === t) { exportP = Exporter.progress(t); delay(300) }
+        val t0 = SystemClock.elapsedRealtime()
+        val hist = ArrayList<Pair<Double, Double>>()
+        var lastCheck = 0L
+        while (exporter === t) {
+            exportP = Exporter.progress(t)
+            val now = SystemClock.elapsedRealtime()
+            if (exportP >= 0f) hist.add((now - t0) / 1000.0 to exportP.toDouble())
+            if (hist.size > 400) hist.removeAt(0)
+            if (now - lastCheck >= 15_000) { // Debug Part 2: stall detector (progress frozen) + a progress line every 15 s
+                lastCheck = now
+                progressStallFinding("export", hist)?.let { Diag.event(ctx, "export", it) }
+                Diag.note(ctx, "export", "EXPORT_TICK", "${(exportP * 100).toInt()} % after ${(now - t0) / 1000} s | ${Diag.vitals(ctx)}")
+            }
+            delay(300)
+        }
     }
 
     val player = remember { ExoPlayer.Builder(ctx).build() }
@@ -151,6 +166,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
         readable = withContext(Dispatchers.IO) { Safety.videoReadable(ctx, Uri.parse(doc.video.path)) }
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                Diag.note(ctx, "player", "PLAYER_ERROR", "${error.errorCodeName} at ${player.currentPosition} ms of ${player.duration} | ${Diag.vitals(ctx)}", com.takipli.oynat.core.Sev.ERROR)
                 ErrorLog.record(ctx, "player", error, error.errorCodeName)
                 playerMsg = Safety.friendly(ctx, error, error.errorCodeName)
             }
@@ -249,6 +265,8 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
             val need = exportBytesNeeded(exportBitrate(vw, vh, doc.video.fps, hevc), durMs / 1000.0)
             val freeCache = Safety.freeBytes(ctx.cacheDir)
             val freeMovies = Safety.freeBytes(ctx.getExternalFilesDir(null) ?: ctx.cacheDir)
+            Diag.preflightStorage(ctx, "export (cache copy + Movies copy)", need * 2)
+            Diag.note(ctx, "export", "EXPORT_START", "${vw}x$vh ${doc.video.fps} fps ${if (hevc) "HEVC" else "H.264"} stab=$stab ${durMs / 1000} s, ~${need shr 20} MB | ${Diag.vitals(ctx)}")
             if (!enoughSpaceForExport(freeCache, freeMovies, need)) {
                 exportMsg = ctx.getString(R.string.err_no_space_export, need / 1_048_576L, minOf(freeCache, freeMovies) / 1_048_576L)
                 return@Button
@@ -267,6 +285,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                             withContext(Dispatchers.IO) { Exporter.saveToMovies(ctx, tmp, name); tmp.delete() }
                             val wall = (SystemClock.elapsedRealtime() - t0) / 1000.0
                             val x = if (wall > 0) durMs / 1000.0 / wall else 0.0
+                            Diag.event(ctx, "export", com.takipli.oynat.core.speedFinding("export", x, 0.3))
                             finish(ctx.getString(R.string.export_done, name, String.format(Locale.ROOT, "%.2f", x)))
                         } catch (e: Throwable) {
                             ErrorLog.record(ctx, "export-save", e)
@@ -276,6 +295,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                     }
                 },
                 onError = { e ->
+                    Diag.note(ctx, "export", "EXPORT_FAIL", "${e.errorCodeName} after ${(SystemClock.elapsedRealtime() - t0) / 1000} s | ${Diag.vitals(ctx)}", com.takipli.oynat.core.Sev.ERROR)
                     ErrorLog.record(ctx, "export", e, e.errorCodeName)
                     tmp.delete()
                     finish(Safety.friendly(ctx, e, e.errorCodeName))
@@ -287,7 +307,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
             }
             if (started != null && !finished) exporter = started
         }) { Text(stringResource(R.string.export_start)) }
-        OutlinedButton(enabled = exporting, onClick = { exporter?.cancel(); exporter = null; exportMsg = ctx.getString(R.string.export_cancelled) }) { Text(stringResource(R.string.scan_cancel)) }
+        OutlinedButton(enabled = exporting, onClick = { Diag.note(ctx, "export", "EXPORT_CANCEL", "cancelled by user at ${(exportP * 100).toInt()} %"); exporter?.cancel(); exporter = null; exportMsg = ctx.getString(R.string.export_cancelled) }) { Text(stringResource(R.string.scan_cancel)) }
     }
     if (exporting) {
         if (exportP >= 0f) LinearProgressIndicator(progress = { exportP.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())

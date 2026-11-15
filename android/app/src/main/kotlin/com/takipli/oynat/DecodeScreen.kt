@@ -140,10 +140,10 @@ fun DecodeScreen(onBack: () -> Unit) {
                 }
             }
             FilterChip(selected = analyze, enabled = !busy, onClick = { analyze = !analyze }, label = { Text(stringResource(R.string.decode_analyze)) })
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(enabled = !busy, onClick = { run(0.0) }) { Text(stringResource(R.string.decode_from_start)) }
                 Button(enabled = !busy && i.durationS > 2 * TEST_SECONDS / 10, onClick = { run(i.durationS / 2) }) {
-                    Text(stringResource(R.string.decode_from_middle))
+                    Text(stringResource(R.string.decode_from_middle), maxLines = 1, softWrap = false)
                 }
             }
         }

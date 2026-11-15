@@ -1,5 +1,6 @@
 package com.takipli.oynat
 
+import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -73,7 +74,9 @@ fun UpdateScreen(onBack: () -> Unit) {
                 busy = true; found = null; apk = null; status = ctx.getString(R.string.update_checking)
                 scope.launch {
                     try {
+                        val c0 = SystemClock.elapsedRealtime()
                         val f = Updater.check(ctx)
+                        Diag.note(ctx, "update", "UPDATE_CHECK", "${if (f == null) "up to date" else "found ${f.label}"} in ${SystemClock.elapsedRealtime() - c0} ms | repo ${Updater.repo(ctx)} token ${if (Updater.token(ctx).isEmpty()) "no" else "yes"} | installed ${BuildConfig.VERSION_NAME} b${BuildConfig.BUILD_NUMBER}")
                         found = f
                         status = if (f == null) ctx.getString(R.string.update_uptodate) else ctx.getString(R.string.update_found, f.label)
                     } catch (e: CancellationException) { throw e } catch (e: Throwable) { fail(e) } finally { busy = false }
@@ -87,11 +90,13 @@ fun UpdateScreen(onBack: () -> Unit) {
                     busy = true; progress = 0f
                     scope.launch {
                         try {
+                            val d0 = SystemClock.elapsedRealtime()
                             val file = Updater.download(ctx, f) { done, total ->
                                 progress = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else null
                                 status = ctx.getString(R.string.update_downloading, if (total > 0) (done * 100 / total).toInt() else 0)
                             }
                             apk = file; progress = null
+                            Diag.note(ctx, "update", "UPDATE_DOWNLOAD", "${file.length() shr 20} MB in ${(SystemClock.elapsedRealtime() - d0) / 1000} s | disk ${Safety.freeBytes(ctx.cacheDir) shr 20} MB free")
                             installNow(file)
                         } catch (e: CancellationException) { throw e } catch (e: Throwable) { progress = null; fail(e) } finally { busy = false }
                     }

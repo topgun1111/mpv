@@ -62,6 +62,7 @@ class BenchReport(
 
 /** YOLO-pose through ONNX Runtime (CPU). One instance = one session; calls must not overlap. */
 class PoseRunner(context: Context, val modelName: String, val threads: Int, val wantNpu: Boolean = false) : AutoCloseable {
+    private val appCtx: Context = context.applicationContext
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
     private val session: OrtSession
     private val inputName: String
@@ -92,12 +93,16 @@ class PoseRunner(context: Context, val modelName: String, val threads: Int, val 
         session = s ?: createCpuSession(file)
         npu = s != null
         npuFallback = fell
+        // Debug Part 1: read the declared shapes first; a graph that is not a pose model fails here with a clear sentence, not with ORT_INVALID_ARGUMENT
+        Diag.contract(appCtx, modelName, session, expectPose = true)?.let { session.close(); throw IllegalArgumentException(it) }
+        if (wantNpu && fell != null) Diag.note(appCtx, "pose", "NPU_FALLBACK", "$modelName runs on CPU: $fell", com.takipli.oynat.core.Sev.WARN)
         inputName = session.inputNames.first()
         val shape = (session.inputInfo.getValue(inputName).info as TensorInfo).shape // [1,3,H,W]
         inputH = shape.getOrNull(2)?.takeIf { it > 0 }?.toInt() ?: 640
         inputW = shape.getOrNull(3)?.takeIf { it > 0 }?.toInt() ?: 640
         chw = FloatArray(3 * inputH * inputW)
         loadMs = (System.nanoTime() - t0) / 1_000_000
+        Diag.note(appCtx, "pose", "MODEL_LOADED", "$modelName $provider ${modelMb.toInt()} MB in $loadMs ms | ${Diag.vitals(appCtx)}")
     }
 
     val provider: String get() = if (npu) "NPU QNN-HTP v75 fp16" else "CPU x$threads"
@@ -143,7 +148,8 @@ class PoseRunner(context: Context, val modelName: String, val threads: Int, val 
         warmup: Int = 3,
         onProgress: (Int) -> Unit = {},
     ): BenchReport = withContext(Dispatchers.Default) {
-        repeat(warmup) { ensureActive(); detect(bmp) }
+        val warmMs = ArrayList<Double>(warmup)
+        repeat(warmup) { ensureActive(); warmMs.add(detect(bmp).totalMs) }
         val all = ArrayList<Double>(runs)
         val pre = ArrayList<Double>(runs)
         val inf = ArrayList<Double>(runs)
@@ -156,7 +162,9 @@ class PoseRunner(context: Context, val modelName: String, val threads: Int, val 
             last = r.poses.size
             onProgress(i)
         }
-        BenchReport(benchStats(all), benchStats(pre), benchStats(inf), benchStats(post), last)
+        val rep = BenchReport(benchStats(all), benchStats(pre), benchStats(inf), benchStats(post), last)
+        Diag.bench(appCtx, "pose $modelName $provider", rep.total, warmMs)
+        rep
     }
 
     override fun close() {

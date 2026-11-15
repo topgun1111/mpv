@@ -14,7 +14,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import com.takipli.oynat.core.Sev
 import com.takipli.oynat.core.SampleSelector
+import com.takipli.oynat.core.decodeFindings
 import com.takipli.oynat.core.displaySize
 import com.takipli.oynat.core.normalizeRotation
 import com.takipli.oynat.core.scaledSize
@@ -99,6 +101,8 @@ object VideoDecoder {
         Trace.step(ctx, "retriever display=${info.width}x${info.height} coded=${info.codedW}x${info.codedH} rot=${info.rotation} fps=$fps startS=$startS dur=${info.durationS}")
         val r = MediaMetadataRetriever()
         var delivered = 0
+        val frameMs = ArrayList<Double>()
+        var allMisses = 0
         try {
             r.setDataSource(ctx, uri)
             Trace.step(ctx, "source ok")
@@ -109,11 +113,14 @@ object VideoDecoder {
                 val t = startS + k / fps
                 k++
                 if (t > lastT) break
+                val d0 = System.nanoTime()
                 val raw = fullFrame(r, (t * 1e6).toLong())
                 if (raw == null) {
+                    allMisses++
                     if (++misses >= 5) break
                     continue
                 }
+                if (frameMs.size < 200) frameMs += (System.nanoTime() - d0) / 1e6 // decode cost of the first 200 frames is enough to judge the clip
                 misses = 0
                 val bm = uprightScaled(raw, info, maxSide)
                 if (delivered < 3) Trace.step(ctx, "frame t=$t raw=${raw.width}x${raw.height} -> ${bm.width}x${bm.height}")
@@ -121,8 +128,19 @@ object VideoDecoder {
                 delivered++
                 if (!onFrame(SampledFrame(t, bm))) break
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Diag.note(ctx, "decode", "DECODE_ERROR", "${e.javaClass.simpleName}: ${(e.message ?: "").take(120)} after $delivered frames (${info.codedW}x${info.codedH} ${info.mime} rot ${info.rotation})", Sev.ERROR)
+            throw e
         } finally {
             runCatching { r.release() }
+        }
+        // Debug Part 2: decoder health (slow frames, misses, nothing decoded). One-frame calls (pick screen) are skipped.
+        if (delivered >= 2 || startS == 0.0 && delivered == 0) {
+            runCatching {
+                decodeFindings("decode ${info.codedW}x${info.codedH} ${info.mime}", frameMs, delivered, allMisses).forEach { Diag.event(ctx, "decode", it) }
+            }
         }
         delivered
     }

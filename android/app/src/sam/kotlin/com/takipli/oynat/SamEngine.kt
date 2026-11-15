@@ -435,9 +435,11 @@ object SamEngine {
         val env = OrtEnvironment.getEnvironment()
         val img = chw(bmp)
         val rows = ArrayList<SamBenchRow>()
+        val warm = ArrayList<Double>()
         val present = ModelStore.list(ctx)
         for (name in COMPONENTS.filter { it in present }) {
             fun time(npu: Boolean): Triple<BenchStats?, String?, Long> {
+                warm.clear()
                 onProgress("$name ${if (npu) "NPU" else "CPU"}")
                 var opened: OrtModel? = null
                 try {
@@ -445,7 +447,7 @@ object SamEngine {
                     opened = model
                     val inputs = randomInputs(env, model, img)
                     try {
-                        repeat(2) { model.run(inputs).close() }
+                        repeat(3) { val w0 = System.nanoTime(); model.run(inputs).close(); warm += (System.nanoTime() - w0) / 1e6 } // timed warm-up: first-run compile must not leak into the stats
                         val t = ArrayList<Double>(runs)
                         repeat(runs) { val t0 = System.nanoTime(); model.run(inputs).close(); t += (System.nanoTime() - t0) / 1e6 }
                         val note = if (npu) (model.fallback ?: if (!model.npu) "ran on CPU" else null) else null
@@ -455,8 +457,8 @@ object SamEngine {
                     return Triple(null, (e.message ?: e.javaClass.simpleName).take(120), opened?.loadMs ?: 0L)
                 } finally { opened?.close() }
             }
-            val cpu = time(false); val npu = time(true)
-            rows += SamBenchRow(name, cpu.first, npu.first, npu.second, npu.third)
+            val cpu = time(false); val cpuWarm = warm.toList(); val npu = time(true)
+            rows += SamBenchRow(name, cpu.first, npu.first, npu.second, npu.third, cpuWarm, warm.toList())
         }
         onProgress("accuracy")
         val parity = try {

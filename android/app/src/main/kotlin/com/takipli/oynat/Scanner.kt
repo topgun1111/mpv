@@ -89,6 +89,10 @@ object Scanner {
         var lastSave = SystemClock.elapsedRealtime()
         var lastPreview = 0L
         var liveTarget: Target? = null
+        // Debug Part 1: predictive watch (throttling, memory, battery) + where the time goes per frame
+        val watch = ScanWatch(ctx, "scan", total, fps)
+        var lastCb = 0L
+        Diag.preflightStorage(ctx, "scan files", ((info.durationS * fps).toLong() * 6_000L) + (8L shl 20))
 
         fun snapshot() = buildScanDoc(
             uri.toString(), info.width, info.height, info.frameRate ?: fps, info.durationS, fps,
@@ -98,10 +102,15 @@ object Scanner {
         try {
             VideoDecoder.sample(ctx, uri, fps, startS, maxSide = maxSide) { f ->
                 currentCoroutineContext().ensureActive()
+                val cb0 = System.nanoTime()
                 val bmp = f.bitmap
-                val poses = runner.detect(bmp, cfg.liveDetConf, cfg.detIou).poses
+                val pr = runner.detect(bmp, cfg.liveDetConf, cfg.detIou)
+                val poses = pr.poses
+                val an0 = System.nanoTime()
                 // Like Pipeline.step: a failed camera estimate never stops tracking.
                 val a = analyzer?.let { runCatching { it.analyze(bmp, pipe.boxes) }.getOrNull() }
+                val anMs = (System.nanoTime() - an0) / 1e6
+                var pvMs = 0.0
                 val cut = cfg.cutDetect && a?.cut == true
                 val motion = if (cfg.gmc && a != null && !cut && a.motionOk) a.motion else null
                 val s = pipe.step(f.t, bmp.width, bmp.height, poses, motion, cut)
@@ -109,18 +118,23 @@ object Scanner {
                 val now = SystemClock.elapsedRealtime()
                 if (onPreview != null && now - lastPreview >= PREVIEW_MIN_MS) {
                     lastPreview = now
+                    val pv0 = System.nanoTime()
                     if (liveTarget == null && pick != null) liveTarget = livePickTarget(pipe.samples, bmp.width, bmp.height, pick, cfg)
                     onPreview(ScanPreview(f.t, previewBitmap(bmp), previewOverlay(s, bmp.width, bmp.height, liveTarget, cfg)))
+                    pvMs = (System.nanoTime() - pv0) / 1e6
                 }
                 bmp.recycle()
                 if (s.cut == 1) cuts++
                 onProgress(ScanProgress(pipe.samples.size, total, f.t, cuts, prior.size))
+                if (lastCb != 0L) watch.frame((cb0 - lastCb) / 1e6, pr.totalMs, anMs, pvMs, pipe.samples.size)
+                lastCb = cb0
                 if (SystemClock.elapsedRealtime() - lastSave >= SAVE_EVERY_MS) {
                     writeAtomic(partial, snapshot()); lastSave = SystemClock.elapsedRealtime()
                 }
                 true
             }
         } catch (e: Throwable) {
+            watch.finish(false, "${e.javaClass.simpleName}: ${(e.message ?: "").take(120)} after ${pipe.samples.size} samples")
             withContext(NonCancellable) {
                 if (pipe.samples.isNotEmpty()) runCatching { writeAtomic(partial, snapshot()) }
                 Unit
@@ -131,6 +145,8 @@ object Scanner {
         writeAtomic(trackFile, doc)
         partial.delete()
         val newSamples = pipe.samples.size - prior.size
+        watch.finish(true, "$newSamples new samples, ${pipe.samples.size} total, cuts $cuts")
+        Diag.checkTimeline(ctx, pipe.samples.map { it.t }, 1.0 / fps)
         val videoS = if (newSamples > 0) pipe.samples.last().t - (prior.lastOrNull()?.t ?: pipe.samples.first().t) else 0.0
         ScanResult(doc, false, (SystemClock.elapsedRealtime() - t0) / 1000.0, newSamples, videoS)
     }
