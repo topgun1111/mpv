@@ -1,6 +1,6 @@
 # handover-debug.md — predictive debugging for the Android app
 
-Created 2026-11-15. Read together with `handover-android.md` (source of truth for the app). New session: do the next ⬜ part, update this file. **D4 = push to CI, paste the Gradle errors (if any) and the first real report from the phone. D3 already type-checked everything except the Compose/Media3/OpenCV files (see below).**
+Created 2026-11-15. Read together with `handover-android.md` (source of truth for the app). New session: do the next ⬜ part, update this file. **D4 read the first real report (build #45 runs on the phone, so CI compiled). Next: D5 = the failing real action (scan / export) with Copy report, not only the self-check.**
 
 ## Why
 The user is on mobile data and cannot download an APK for every test. One run must therefore leave enough data to diagnose it, and to predict what is about to fail. Everything extends the existing error log (`Safety.kt` -> `ErrorLog`), so the existing **Share error log** button now carries it all. The user pastes reports into chat: **keep reports small** (compact report ≈ 9 KB, repeated lines collapsed, findings first).
@@ -11,7 +11,8 @@ The user is on mobile data and cannot download an APK for every test. One run mu
 | D1 | Core predictors + device snapshot + exit reasons + watchdog + scan watch + self-check + report channels + hooks in Scanner / PoseRunner / Qnn / SAM bench | ✅ written 2026-11-15 |
 | D2 | Remaining hooks (decoder, export, player, pick, updater), post-pick target findings, SAM bench warm-up, chip layout | ✅ written 2026-11-15 (app side never compiled) |
 | D3 | Type-check D1+D2 without Gradle (`android/tools/typecheck/run.sh`), resource audit | ✅ 2026-11-15 (no errors found; no code changed) |
-| D4 | CI run: push, fix remaining compile errors (Compose/Media3 files only), read the first real report from the phone, update the code table | ⬜ |
+| D4 | First real report (self-check, build #45, sam flavor) read and recorded | ✅ 2026-11-15 (no code change) |
+| D5 | Report after a real scan and a real export (THROTTLE / MEM / SCAN_TICK / EXPORT_* lines); act on what it shows | ⬜ |
 
 Verification D1: `core/Diagnostics.kt` + `DiagnosticsTest.kt` (10 tests) compiled with Kotlin 2.0.21 and run outside Gradle (kotlin.test shim): all green. App files (`Diag.kt`, `Safety.kt`, `Scanner.kt`, `PoseRunner.kt`, `QnnSessions.kt`, `SamBenchSection.kt`) were NOT compiled (no Android SDK here); only checked for syntax-class errors. **First thing in D2: push, read the CI compile errors, fix.**
 
@@ -77,3 +78,20 @@ No CI log and no phone report were available, so D3 type-checked the code here. 
 - Resources: every `R.string.*` used in code exists in `values/` and `values-tr/` (150 each, same names, no duplicates across `strings*.xml`, valid XML, `%%` escapes fine).
 - Stub caveat: the ONNX Runtime stub follows the Java API from memory (`getInputInfo()`, `OnnxTensor.createTensor` overloads, `Result.get(int)`, `getAvailableProviders()` as `EnumSet`); if Gradle disagrees on one of these, fix it in `Diag.kt` (the only D1 file that touches the ORT API beyond `PoseRunner`/`QnnSessions`, which compiled before D1).
 - Still open for D4: first Gradle/CI run (Compose/Media3 files), `:core:test` (JUnit not available here; `DiagnosticsTest` ran only through the shim in D1/D2), first real report from the phone, update the code table.
+
+## D4 — first real report (2026-11-15, vivo V2436A, SM8650, Android 17 / API 37, 1.2.0-sam #45)
+CI compiled everything (the APK runs; no Gradle error was reported). Self-check finished in 190 s, **no WARN/ERROR finding at all**, all 4 models load on CPU and NPU, `NPU matches CPU` (cosine 1.0000) for every model, no NaN.
+| model | CPU median | NPU median | NPU first compile (ctx-cache miss) |
+|---|---|---|---|
+| yolov8s-pose | 222.3 ms | **7.3 ms** (30x) | 111 s |
+| sam-encoder | 481.7 ms | 387.3 ms (1.2x) | 56 s |
+| sam-decoder | 43.5 ms | 37.9 ms | 6 s |
+| sam-decoder-trk | 38.0 ms | 32.5 ms | 6 s |
+Reading it:
+1. Pose is fully on the HTP; the EdgeTAM graphs gain little on the NPU (1.2x encoder, ~1.15x decoders): likely ops falling back to CPU or fp32 on HTP. Not a bug (parity is exact), but it explains the slow `legs` scans (SAM per frame ~0.4 s encoder). Check the QNN op-fallback log (ORT verbose) only if SAM speed matters.
+2. **The first NPU load after install costs ~3 min in total** (yolov8s-pose 111 s, encoder 56 s); the contexts are now cached (`qnn_ctx` 63 MB), later loads should be seconds. If the app's first scan ever looks hung, this is why: worth a UI hint later (NPU_SESSION says `ctx-cache miss`).
+3. Phone state during the run: **power-save ON**, battery 20-21 %, thermal 0, headroom 0.6, RAM free 3.5-4.6 GB, heap 23/256 MB. Benchmarks taken like this are pessimistic; turn power-save off for real timings.
+4. APK carries every Hexagon arch (V68, V69, V73, V79 stubs/skels, Dsp, Gpu ~ 60 MB) though only V75 is used on this SoC (`SOC_NOT_V75` did not fire). Optional later: `packaging { jniLibs { excludes += ... } }` for the unused ones (keep `libQnnHtp`, `HtpPrepare`, `HtpV75Stub/Skel`, `System`; verify on the phone after).
+5. Logcat at the end of the self-check: FastRPC teardown errors (`remote_munmap64 failed`, `notif_fastrpc_thread exited`) and qdgralloc `ReleaseBuffer ref_count`: they appear when the NPU sessions are closed after the check, no run failed and nothing crashed. Treat as vendor teardown noise unless a later report shows them before a failure.
+6. Trace shows the user left the app during the 56 s encoder compile; the self-check continued in the background and finished. Fine.
+Not covered yet (D5): real scan (SCAN_START/TICK/END, THROTTLE, MEM_*), export (EXPORT_START/TICK/END), pick screen (FIRST_FRAME_DETECT), previous-exit list (empty here: no crash since install).

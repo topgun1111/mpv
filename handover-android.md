@@ -47,11 +47,13 @@ GitHub Actions builds the Windows package and the Android APK **at the same time
 | 14 | Export (Media3 Transformer) | ✅ written 2026-11-14 (never compiled; CI run + phone export check pending) |
 | 15 | Hardening + release build | ✅ written 2026-11-14 (never compiled; CI run + phone check pending) |
 
-**Debug track (predictive debugging, error log): see `handover-debug.md`.** Part D1 ✅ written 2026-11-15 (core compiled + 10 tests green outside Gradle; app side never compiled, CI pending). Part D2 ✅ written 2026-11-15 (core 13 tests green; app side never compiled). Part D3 ✅ 2026-11-15 (type-checked without Gradle via `android/tools/typecheck/run.sh`: no errors in core, Diag, Scanner, ScanService, PoseRunner, QnnSessions, VideoDecoder, Updater, SamEngine; Compose/Media3 files only read by hand). Next: D4 = push + fix CI compile errors (Compose/Media3 files) + first real report.
+**Debug track (predictive debugging, error log): see `handover-debug.md`.** Part D1 ✅ written 2026-11-15 (core compiled + 10 tests green outside Gradle; app side never compiled, CI pending). Part D2 ✅ written 2026-11-15 (core 13 tests green; app side never compiled). Part D3 ✅ 2026-11-15 (type-checked without Gradle via `android/tools/typecheck/run.sh`: no errors in core, Diag, Scanner, ScanService, PoseRunner, QnnSessions, VideoDecoder, Updater, SamEngine; Compose/Media3 files only read by hand). Part D4 ✅ 2026-11-15 (first real report: CI compiled, self-check clean, NPU parity exact, pose 7.3 ms on NPU). Next: D5 = report after a real scan and export.
 
 Bench lines (fill after Part 5, 6, 9, 14): one line per real clip, device, model, provider, ms/frame, scan x-realtime, export x-realtime.
 Format (the app's "Copy bench line" button produces it): `device | model | provider | input | image | mean ms/frame (median, p95, n) | fps`.
-- (empty: run the Bench screen on the phone, paste lines here)
+- vivo V2436A (SM8650, Android 17) | yolov8s-pose | NPU (QNN HTP v75) vs CPU | 640x640 random | self-check 2026-11-15 | NPU 7.3 ms median (max 7.4), CPU 222.3 ms | power-save ON, 20 % battery
+- same run: sam-encoder CPU 481.7 / NPU 387.3 ms; sam-decoder CPU 43.5 / NPU 37.9 ms; sam-decoder-trk CPU 38.0 / NPU 32.5 ms; NPU parity cosine 1.0000 for all; first NPU compile 111 s (pose), 56 s (encoder), 6 s (decoders)
+- (add scan x-realtime and export x-realtime lines after D5)
 
 ---
 
