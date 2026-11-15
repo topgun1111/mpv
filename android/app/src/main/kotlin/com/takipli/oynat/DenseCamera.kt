@@ -157,12 +157,9 @@ object DenseCamera {
             bmp.recycle()
             true
         }
-        try {
-            VideoDecoder.sampleImageReader(ctx, uri, 1000.0, maxSide = DECODE_SIDE, onFrame = onFrame) // 1000 fps grid = every frame, real timestamps
-        } catch (e: IllegalArgumentException) {
-            if ((builder?.count ?: 0) > 0) throw e
-            VideoDecoder.sample(ctx, uri, info.frameRate ?: 30.0, maxSide = DECODE_SIDE, onFrame = onFrame) // 10-bit/HDR: the retriever path
-        }
+        // Retriever path (the one scans use). The ImageReader path (`sampleImageReader`) kills the app natively on the vivo / Android 17 phone
+        // (no Java exception, so Stabilize "closed the app instantly"), and it is also what 10-bit/HDR clips need the retriever for anyway.
+        VideoDecoder.sample(ctx, uri, info.frameRate ?: 30.0, maxSide = DECODE_SIDE, onFrame = onFrame)
         val b = builder
         check(b != null && b.count > 1) { "no frames could be analysed" }
         b.build(sig)
