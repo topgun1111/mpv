@@ -119,4 +119,22 @@
     <string name="sam_bench_running">%1$s çalışıyor …</string>
     <string name="sam_bench_failed">EdgeTAM ölçümü başarısız (ana ekrandaki hata günlüğüne bakın).</string>
     <string name="sam_bench_synthetic">Fotoğraf seçilmedi: doğruluk, parlak daireli gri bir karede karşılaştırılır. Gerçekçi karşılaştırma için yukarıdan fotoğraf seçin.</string>
+    <string name="pick_what">Neyi takip etmek istiyorsun?</string>
+    <string name="pick_mode_person">Kişi / vücut bölgesi</string>
+    <string name="pick_mode_object">Herhangi bir nesne</string>
+    <string name="pick_obj_tap">Takip etmek istediğin nesneye dokun.</string>
+    <string name="pick_obj_prep">Akıllı seçim hazırlanıyor (birkaç saniye) …</string>
+    <string name="pick_obj_sel">Seçildi (renkli alan). Değiştirmek için başka bir yere dokun.</string>
+    <string name="pick_obj_none">Orada bir şey bulunamadı. Nesnenin ortasına dokun ya da etrafını çiz.</string>
+    <string name="pick_obj_spot">Takip etmek istediğin noktaya dokun. Akıllı nesne seçimi bu uygulama sürümünde yok; nokta basit hareket takibiyle izlenir.</string>
+    <string name="pick_draw_instead">Bunun yerine etrafını çiz</string>
+    <string name="pick_tap_instead">Bunun yerine dokunarak seç</string>
+    <string name="pick_adv_show">Gelişmiş ayarlar</string>
+    <string name="pick_adv_hide">Gelişmiş ayarları gizle</string>
+    <string name="status_version">Uygulama sürümü %1$s</string>
+    <string name="status_sam_full">Akıllı nesne takibi: hazır (en iyi kalite)</string>
+    <string name="status_sam_basic">Akıllı nesne takibi: hazır (temel, bellek bölümü eksik)</string>
+    <string name="status_sam_none">Akıllı nesne takibi: bu sürümde yok (nesneler basit hareket takibiyle izlenir)</string>
+    <string name="status_pose_ok">Vücut bölgesi algılama: hazır</string>
+    <string name="status_pose_none">Vücut bölgesi algılama: model eksik</string>
 </resources>

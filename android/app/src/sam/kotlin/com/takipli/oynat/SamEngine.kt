@@ -357,6 +357,45 @@ object SamEngine {
             } finally { dir.deleteRecursively() }
         }
 
+    // ---------------------------------------------------------------- smart select preview ("Any object" on the pick screen)
+    /** Runs the encoder ONCE on the shown frame (CPU: no long NPU compile while the user waits); every tap then only runs the small decoder. */
+    suspend fun encodeFrame(ctx: Context, bmp: Bitmap): SamFrameCache? = withContext(Dispatchers.Default) {
+        if (!hasModels(ctx)) return@withContext null
+        val env = OrtEnvironment.getEnvironment()
+        val imgT = tensor(env, chw(bmp), 1, 3, S.toLong(), S.toLong())
+        try {
+            Qnn.open(ctx, ENC, THREADS, false).use { enc ->
+                enc.run(mapOf("image" to imgT)).use { r ->
+                    val h0 = r.get("high_res_feats_0").get() as OnnxTensor
+                    val h1 = r.get("high_res_feats_1").get() as OnnxTensor
+                    val em = r.get("image_embed").get() as OnnxTensor
+                    SamFrameCache(floats(h0), h0.info.shape, floats(h1), h1.info.shape, floats(em), em.info.shape)
+                }
+            }
+        } finally { imgT.close() }
+    }
+
+    /** The object under a tap (same prompt and candidate rule as the scan's first frame, so what is highlighted is what gets followed). */
+    suspend fun segmentAt(ctx: Context, cache: SamFrameCache, x: Double, y: Double): SamMask? = withContext(Dispatchers.Default) {
+        if (!hasModels(ctx)) return@withContext null
+        val env = OrtEnvironment.getEnvironment()
+        val em = tensor(env, cache.embed, *cache.embedShape)
+        val h0 = tensor(env, cache.hr0, *cache.hr0Shape)
+        val h1 = tensor(env, cache.hr1, *cache.hr1Shape)
+        try {
+            Qnn.open(ctx, DEC, THREADS, false).use { dec ->
+                val (c, l) = prompt3(null, x, y)
+                val d = decode(env, dec, em, h0, h1, c, l)
+                val cands = (0 until d.n).map { analyse(d.masks, it, d.iou[it].toDouble()) }
+                val b = pickCandidate(cands)
+                if (b < 0) null else {
+                    val cd = cands[b]; val o = b * M * M
+                    SamMask(M, BooleanArray(M * M) { d.masks[o + it] > 0f }, cd.box.x1, cd.box.y1, cd.box.x2, cd.box.y2, cd.area)
+                }
+            }
+        } finally { em.close(); h0.close(); h1.close() }
+    }
+
     // ---------------------------------------------------------------- benchmark (per graph, CPU vs NPU) + accuracy check
     private fun randomInputs(env: OrtEnvironment, m: OrtModel, image: FloatArray?): Map<String, OnnxTensor> {
         val rnd = java.util.Random(1)

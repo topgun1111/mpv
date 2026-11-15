@@ -119,4 +119,22 @@
     <string name="sam_bench_running">Running %1$s …</string>
     <string name="sam_bench_failed">EdgeTAM bench failed (see the error log on the home screen).</string>
     <string name="sam_bench_synthetic">No photo picked: accuracy is compared on a gray frame with a bright disc. Pick a photo above for a realistic comparison.</string>
+    <string name="pick_what">What do you want to follow?</string>
+    <string name="pick_mode_person">Person / body part</string>
+    <string name="pick_mode_object">Any object</string>
+    <string name="pick_obj_tap">Tap the object you want to follow.</string>
+    <string name="pick_obj_prep">Getting smart select ready (a few seconds) …</string>
+    <string name="pick_obj_sel">Selected (the coloured area). Tap somewhere else to change it.</string>
+    <string name="pick_obj_none">Nothing found there. Tap the middle of the object, or draw around it.</string>
+    <string name="pick_obj_spot">Tap the spot you want to follow. Smart object select is not in this app version, so the spot is followed with simple motion tracking.</string>
+    <string name="pick_draw_instead">Draw around it instead</string>
+    <string name="pick_tap_instead">Tap to select instead</string>
+    <string name="pick_adv_show">Advanced settings</string>
+    <string name="pick_adv_hide">Hide advanced settings</string>
+    <string name="status_version">App version %1$s</string>
+    <string name="status_sam_full">Smart object tracking: ready (best quality)</string>
+    <string name="status_sam_basic">Smart object tracking: ready (basic, the memory part is missing)</string>
+    <string name="status_sam_none">Smart object tracking: not in this app version (objects use simple motion tracking)</string>
+    <string name="status_pose_ok">Body-part detection: ready</string>
+    <string name="status_pose_none">Body-part detection: model missing</string>
 </resources>

@@ -45,6 +45,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -75,7 +76,7 @@ private fun fmtClock(s: Double): String {
 fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val models = remember { ModelStore.list(ctx) }
+    val models = remember { ModelStore.list(ctx).filterNot { it.startsWith("sam-") } } // sam-* graphs are not pose models
     val ui by ScanService.state.collectAsState()
     var uri by remember { mutableStateOf<Uri?>(null) }
     var videoId by remember { mutableStateOf("") }
@@ -90,13 +91,20 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     var draw by remember { mutableStateOf(false) } // Part 18: freehand region instead of a tap
     val strokes = remember { androidx.compose.runtime.mutableStateListOf<List<Offset>>() }
     var curStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
-    var free by remember { mutableStateOf(false) } // Part 16: follow the exact tapped spot
     var zoomLog2 by remember { mutableStateOf(1.5f) }
     var fps by remember { mutableStateOf(PICK_FPS[3]) }
     var npu by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf(true) }
     var model by remember { mutableStateOf(models.firstOrNull { it.contains("v8s") } ?: models.firstOrNull().orEmpty()) }
     var error by remember { mutableStateOf("") }
+    var objectMode by remember { mutableStateOf(false) } // false = person / body part (pose model), true = any object or spot
+    val free = objectMode // "any object" = the free-point path (SAM when installed, optical flow otherwise)
+    var adv by remember { mutableStateOf(false) }
+    val samOk = remember { SamEngine.hasModels(ctx) }
+    val samMem = remember { SamEngine.hasMemory(ctx) }
+    var samCache by remember { mutableStateOf<SamFrameCache?>(null) }
+    var samMask by remember { mutableStateOf<SamMask?>(null) }
+    var segBusy by remember { mutableStateOf(false) }
     val running = ui is ScanUi.Running
     // People the model finds on the first frame (null = still detecting). Only a guide: the tap is resolved after the scan.
     var found by remember { mutableStateOf<List<Pose>?>(null) }
@@ -112,6 +120,28 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
             ErrorLog.record(ctx, "first-frame-detect", e)
             emptyList()
         }
+    }
+
+    // Smart select ("Any object", sam build): encode the shown frame once, then every tap only runs the small decoder.
+    LaunchedEffect(frame, objectMode, draw) {
+        samMask = null; samCache = null
+        val f = frame ?: return@LaunchedEffect
+        if (!objectMode || !samOk || draw) return@LaunchedEffect
+        segBusy = true
+        try { samCache = SamEngine.encodeFrame(ctx, f) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Throwable) { ErrorLog.record(ctx, "sam-preview-encode", e) }
+        finally { segBusy = false }
+    }
+    LaunchedEffect(tap, samCache) {
+        samMask = null
+        val c = samCache ?: return@LaunchedEffect
+        val t = tap ?: return@LaunchedEffect
+        segBusy = true
+        try { samMask = SamEngine.segmentAt(ctx, c, t.x.toDouble(), t.y.toDouble()) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Throwable) { ErrorLog.record(ctx, "sam-preview-segment", e) }
+        finally { segBusy = false }
     }
 
     val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -161,21 +191,51 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     ) {
         TextButton(onClick = onBack, enabled = !running) { Text(stringResource(R.string.back)) }
         Text(stringResource(R.string.pick_title), style = MaterialTheme.typography.headlineSmall)
+        // What really works in this install, in plain words
+        Text(stringResource(R.string.status_version, BuildConfig.VERSION_NAME), fontSize = 12.sp)
+        Text(stringResource(if (samMem) R.string.status_sam_full else if (samOk) R.string.status_sam_basic else R.string.status_sam_none), fontSize = 12.sp)
+        Text(stringResource(if (models.isNotEmpty()) R.string.status_pose_ok else R.string.status_pose_none), fontSize = 12.sp)
         if (models.isEmpty()) Text(stringResource(R.string.bench_no_models))
         OutlinedButton(enabled = !running, onClick = { picker.launch(arrayOf("video/*")) }) { Text(stringResource(R.string.decode_pick)) }
         if (error.isNotEmpty()) Text(error)
 
         val bmp = frame
         if (uri != null && bmp != null && !running && ui !is ScanUi.Done) {
-            Text(stringResource(R.string.pick_hint))
+            // 1. WHAT to follow: a person / body part (pose model) or any object (smart select)
+            Text(stringResource(R.string.pick_what), style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val toPerson = { objectMode = false; draw = false; tap = null }
+                val toObject = { objectMode = true; tap = null }
+                if (!objectMode) Button(onClick = toPerson, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_mode_person)) }
+                else OutlinedButton(onClick = toPerson, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_mode_person)) }
+                if (objectMode) Button(onClick = toObject, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_mode_object)) }
+                else OutlinedButton(onClick = toObject, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_mode_object)) }
+            }
+            // 2. say what to do next, in plain words
             val fl = found
             Text(
                 when {
-                    fl == null -> stringResource(R.string.pick_detecting)
-                    fl.isEmpty() -> stringResource(R.string.pick_none)
-                    else -> stringResource(R.string.pick_found, fl.size)
+                    !objectMode -> when {
+                        fl == null -> stringResource(R.string.pick_detecting)
+                        fl.isEmpty() -> stringResource(R.string.pick_none)
+                        else -> stringResource(R.string.pick_found, fl.size)
+                    }
+                    draw -> stringResource(R.string.pick_draw_hint)
+                    !samOk -> stringResource(R.string.pick_obj_spot)
+                    samCache == null && segBusy -> stringResource(R.string.pick_obj_prep)
+                    samMask != null -> stringResource(R.string.pick_obj_sel)
+                    tap != null && !segBusy -> stringResource(R.string.pick_obj_none)
+                    else -> stringResource(R.string.pick_obj_tap)
                 },
             )
+            val maskImg = remember(samMask) {
+                samMask?.let { m ->
+                    val b = Bitmap.createBitmap(m.size, m.size, Bitmap.Config.ARGB_8888)
+                    val c = android.graphics.Color.argb(140, 0, 229, 255)
+                    b.setPixels(IntArray(m.size * m.size) { if (m.inside[it]) c else 0 }, 0, m.size, 0, 0, m.size, m.size)
+                    b.asImageBitmap()
+                }
+            }
             Box(Modifier.fillMaxWidth().aspectRatio(bmp.width / bmp.height.toFloat())) {
                 Image(bmp.asImageBitmap(), null, Modifier.matchParentSize())
                 Canvas(
@@ -189,7 +249,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                         ) else detectTapGestures { o -> tap = nrm(o) }
                     },
                 ) {
-                    found?.forEach { p ->
+                    if (!objectMode) found?.forEach { p ->
                         val b = p.bbox
                         fun fx(x: Double) = (x / bmp.width * size.width).toFloat()
                         fun fy(y: Double) = (y / bmp.height * size.height).toFloat()
@@ -197,6 +257,11 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                         for ((a, c) in COCO_SKELETON) {
                             if (p.conf(a) >= 0.35 && p.conf(c) >= 0.35) drawLine(Color.Yellow, Offset(fx(p.x(a)), fy(p.y(a))), Offset(fx(p.x(c)), fy(p.y(c))), 3f)
                         }
+                    }
+                    maskImg?.let { drawImage(it, dstSize = IntSize(size.width.toInt(), size.height.toInt())) }
+                    samMask?.let { m ->
+                        drawRect(Color.Cyan, Offset((m.x1 * size.width).toFloat(), (m.y1 * size.height).toFloat()),
+                            Size(((m.x2 - m.x1) * size.width).toFloat(), ((m.y2 - m.y1) * size.height).toFloat()), style = Stroke(3f))
                     }
                     for (st in strokes + listOf(curStroke)) if (st.size >= 2) {
                         val path = androidx.compose.ui.graphics.Path()
@@ -210,6 +275,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                     }
                 }
             }
+            // 3. which part of the video
             Text(stringResource(R.string.pick_frame_time, fmtClock(seekT.toDouble()), if (durationS > 0) fmtClock(durationS) else "?"), style = MaterialTheme.typography.labelLarge)
             if (durationS > 0.5) {
                 androidx.compose.material3.Slider(
@@ -225,47 +291,48 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                 }
             }
             Text(stringResource(R.string.pick_frame_hint), fontSize = 12.sp)
-            Text(stringResource(R.string.pick_part), style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = preset == null, onClick = { preset = null }, label = { Text(stringResource(R.string.pick_auto)) })
-                PRESETS.keys.forEach { p -> FilterChip(selected = preset == p, onClick = { preset = p }, label = { Text(p.replace('_', ' ')) }) }
-            }
-            FilterChip(
-                selected = exact, enabled = preset == null, onClick = { exact = !exact },
-                label = { Text(stringResource(R.string.pick_exact)) },
-            )
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                models.forEach { m -> FilterChip(selected = m == model, onClick = { model = m }, label = { Text(m.removeSuffix(".onnx")) }) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PICK_FPS.forEach { c -> FilterChip(selected = c == fps, onClick = { fps = c }, label = { Text("$c fps") }) }
-                FilterChip(selected = npu, onClick = { npu = !npu }, label = { Text("NPU") })
-                FilterChip(selected = preview, onClick = { preview = !preview }, label = { Text(stringResource(R.string.pick_preview)) })
-            }
-            FilterChip(selected = free, onClick = { free = !free; if (!free) draw = false }, label = { Text(stringResource(R.string.pick_free)) })
-            if (free) {
-                FilterChip(selected = draw, onClick = { draw = !draw }, label = { Text(stringResource(R.string.pick_draw)) })
-            }
-            if (draw) {
-                Text(stringResource(R.string.pick_draw_hint), fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 4. mode specific choices
+            if (!objectMode) {
+                Text(stringResource(R.string.pick_part), style = MaterialTheme.typography.labelLarge)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = preset == null, onClick = { preset = null }, label = { Text(stringResource(R.string.pick_auto)) })
+                    PRESETS.keys.forEach { p -> FilterChip(selected = preset == p, onClick = { preset = p }, label = { Text(p.replace('_', ' ')) }) }
+                }
+            } else {
+                OutlinedButton(onClick = { draw = !draw; tap = null; strokes.clear(); curStroke = emptyList() }) {
+                    Text(stringResource(if (draw) R.string.pick_tap_instead else R.string.pick_draw_instead))
+                }
+                if (draw) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(enabled = strokes.isNotEmpty(), onClick = { strokes.removeLastOrNull() }) { Text(stringResource(R.string.pick_undo)) }
                     OutlinedButton(enabled = strokes.isNotEmpty(), onClick = { strokes.clear() }) { Text(stringResource(R.string.pick_clear)) }
                 }
             }
-            if (free && !draw) {
-                Text(stringResource(R.string.pick_zoom, Math.pow(2.0, zoomLog2.toDouble())), style = MaterialTheme.typography.labelLarge)
-                androidx.compose.material3.Slider(value = zoomLog2, onValueChange = { zoomLog2 = it }, valueRange = 0.5f..2.5f)
+            // 5. technical settings stay out of sight
+            TextButton(onClick = { adv = !adv }) { Text(stringResource(if (adv) R.string.pick_adv_hide else R.string.pick_adv_show)) }
+            if (adv) {
+                if (!objectMode) FilterChip(selected = exact, enabled = preset == null, onClick = { exact = !exact }, label = { Text(stringResource(R.string.pick_exact)) })
+                if (models.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    models.forEach { m -> FilterChip(selected = m == model, onClick = { model = m }, label = { Text(m.removeSuffix(".onnx")) }) }
+                }
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PICK_FPS.forEach { c -> FilterChip(selected = c == fps, onClick = { fps = c }, label = { Text("$c fps") }) }
+                    FilterChip(selected = npu, onClick = { npu = !npu }, label = { Text("NPU") })
+                    FilterChip(selected = preview, onClick = { preview = !preview }, label = { Text(stringResource(R.string.pick_preview)) })
+                }
+                if (objectMode && !draw) {
+                    Text(stringResource(R.string.pick_zoom, Math.pow(2.0, zoomLog2.toDouble())), style = MaterialTheme.typography.labelLarge)
+                    androidx.compose.material3.Slider(value = zoomLog2, onValueChange = { zoomLog2 = it }, valueRange = 0.5f..2.5f)
+                }
             }
             BatteryWarning()
             Button(
-                enabled = (if (draw) strokes.isNotEmpty() else tap != null) && model.isNotEmpty(),
+                enabled = (if (draw) strokes.isNotEmpty() else tap != null) && model.isNotEmpty() && !segBusy,
                 onClick = {
                     val shapes = if (draw) strokes.map { st -> com.takipli.oynat.core.simplifyStroke(st.map { listOf(it.x.toDouble(), it.y.toDouble()) }, 0.004) }.filter { it.size >= 3 } else emptyList()
                     if (draw && shapes.isEmpty()) return@Button
                     val t = if (draw) com.takipli.oynat.core.shapeBounds(shapes)!!.let { Offset(it[0].toFloat(), it[1].toFloat()) } else tap ?: return@Button
                     notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = preset, exact = exact && preset == null, free = free, zoom = if (free && !draw) zoomLog2.toDouble() else null, shapes = shapes), preview)
+                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = if (objectMode) null else preset, exact = exact && preset == null && !objectMode, free = free, zoom = if (free && !draw) zoomLog2.toDouble() else null, shapes = shapes), preview)
                 },
             ) { Text(stringResource(R.string.pick_start)) }
         }
