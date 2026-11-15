@@ -79,7 +79,7 @@ TakipliOynat/
 ├─ launcher/                     # Baslat.bat (yalnız mpv), Offline.bat (sürükle-bırak offline)
 ├─ scripts/                      # make_package.py, build_embedded.py, fetch_deps.ps1, fetch_model.ps1, export_pose.py
 ├─ tests/                        # pytest + texlua ile Lua harness testleri
-├─ .github/workflows/            # ci.yml (ruff + pytest, ubuntu/windows), build.yml (paket + installer)
+├─ .github/workflows/            # build-all.yml = tek tetikleyici; ci.yml (ruff + pytest), build.yml (paket + installer), android*.yml, build-recording.yml onun çağırdığı iş akışları
 ├─ installer.iss                 # Inno Setup
 ├─ recorder/, launcher_recording/, mpv/portable_config_recording/, installer-recording.iss,
 │  requirements-recording.txt     # KAYIT varyantı (aşağıda «Kayıt varyantı»)
@@ -213,7 +213,7 @@ Paket derleme (CI): `python scripts/make_package.py` → `python scripts/build_e
 
 ### Release (Parça 15)
 0. `VERSION` ile `tracker/__init__.py::__version__` aynı olmalı (`tests/test_license.py` ikisini de 1.2.0'a sabitler; sürümü yükseltirken testi de güncelle).
-1. `main`'e push → CI (`ci.yml`) ve `build.yml` (ayrı artifact: **TakipliOynat-Setup** = `TakipliOynat-Setup-x.y.z.exe`, **TakipliOynat-Portable** = `TakipliOynat-Portable-x.y.z.zip`).
+1. `main`'e push → `build-all.yml` (CI + `build.yml` + Android + kayıt varyantı tek çalıştırmada; ayrı artifact: **TakipliOynat-Setup** = `TakipliOynat-Setup-x.y.z.exe`, **TakipliOynat-Portable** = `TakipliOynat-Portable-x.y.z.zip`).
 2. Derleme günlüğündeki `SHA256 python-...` ve `SHA256 mpv-...` satırlarını doğrulayıp `scripts/build_embedded.py` (`PY_SHA256`) içine yaz; mpv için `fetch_deps.ps1 -Tag <sürüm>` ile sürümü sabitle.
 3. Temiz Windows'ta kur (model pakette gelir) → `Baslat.bat` ile dene. Üzerine yeni sürüm kurup ayarların/kısayolların korunduğunu da dene.
 4. `git tag v1.0.0 && git push origin v1.0.0` → GitHub Release otomatik oluşur (`generate_release_notes`).

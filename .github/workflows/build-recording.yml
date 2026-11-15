@@ -2,15 +2,8 @@ name: Build Recording
 # Kayıt varyantı (yalnız elle kamera: zoom + sürükle → kaydet → dışa aktar). Model/ONNX YOK.
 # Ana `build.yml`'den bağımsızdır; Release yalnız `kayit-v*` etiketinde (ana uygulama `v*` kullanır).
 on:
-  push:
-    branches: [main]
-    tags: ["kayit-v*"]
-    paths-ignore: ["**.md"]
+  workflow_call:  # started by build-all.yml (push / tag / pull request); this file no longer has its own triggers
   workflow_dispatch:
-
-concurrency:
-  group: build-recording-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: write

@@ -1,14 +1,7 @@
 name: Build
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-    paths-ignore: ["**.md"]
+  workflow_call:  # started by build-all.yml (push / tag / pull request); this file no longer has its own triggers
   workflow_dispatch:
-
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: write

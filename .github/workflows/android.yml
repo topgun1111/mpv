@@ -1,23 +1,14 @@
 name: Android
 
-# Runs in parallel with the PC "Build" workflow on the same triggers (separate workflow file,
-# so build.yml and its tests stay untouched). Part 15: on a v* tag it also builds a SIGNED release APK
+# Reusable workflow, started by build-all.yml next to the PC builds (same triggers). Part 15: on a v* tag it also builds a SIGNED release APK
 # (keystore from the ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
 # secrets) and, in a PRIVATE repository only, attaches it to the same GitHub Release as the Windows files.
 # Why private only: the APK contains the Ultralytics pose models (AGPL-3.0, personal use; handover-android.md, decisions log).
 # Two builds from one job (matrix): `pose` (pose models + optical-flow trackers) and `sam` (adds EdgeTAM for free-point / region targets;
 # own applicationId com.takipli.oynat.sam, so both install side by side). One failing flavor does not cancel the other.
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-    paths-ignore: ["**.md"]
-  pull_request:
+  workflow_call:  # started by build-all.yml (push / tag / pull request); this file no longer has its own triggers
   workflow_dispatch:
-
-concurrency:
-  group: android-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: write  # only the release step writes (tags in a private repo); pull requests from forks stay read-only

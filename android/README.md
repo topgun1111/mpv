@@ -9,7 +9,7 @@ Android version of the PC tracking follow-cam, in the same repo. Plan and status
 
 ## Build
 
-CI (`.github/workflows/android.yml`) runs on every push and uses Gradle 8.14.3 directly, so no Gradle wrapper
+CI (`.github/workflows/build-all.yml` starts `android.yml`, next to the PC builds) runs on every push and uses Gradle 8.14.3 directly, so no Gradle wrapper
 is committed. Locally:
 
 ```
@@ -76,4 +76,4 @@ camera: pick a clip, play it, pinch to zoom and drag at the same time while reco
 - **Full screen** button on the preview: the preview fills the screen (system bars hidden) and every control is an overlay: exit, rotate left/right,
   play/pause, seek, speed, REC/STOP, Export. Back exits full screen (stops the take first if recording).
 - **Rotate** buttons turn the video 90 degrees (preview and export); recorded moves are cleared on rotate because they were made in the old orientation.
-- Build: `cd android && gradle :rec:assembleDebug` -> `rec/build/outputs/apk/debug/rec-debug.apk`. CI: `.github/workflows/android-rec.yml` (artifact `TakipliKayit-Android`).
+- Build: `cd android && gradle :rec:assembleDebug` -> `rec/build/outputs/apk/debug/rec-debug.apk`. CI: `.github/workflows/android-rec.yml` (started by `build-all.yml`) (artifact `TakipliKayit-Android`).

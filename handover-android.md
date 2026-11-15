@@ -554,3 +554,7 @@ The home screen now includes a separate **Manual camera recording** mode. It ope
 - **Tests:** `tests/test_android_rec.py` (module wiring, no AI/network, overlay + rotation present, en/tr strings, workflow).
 - **Risks (first CI run / phone):** (1) Kotlin/Compose never compiled; (2) `player.setVideoEffects` after prepare: rotate reloads the media item to be safe; (3) the preview TextureView is re-created when switching layouts (a seek repaints the frame) - check no black frame on the phone; (4) glyphs in the rotate buttons (`↺ ↻`) depend on the phone font.
 - **Bitrate (rec):** export uses the SOURCE bitrate (`KEY_BIT_RATE`, else file size / duration), clamped 2-100 Mbps; `exportBitrate` formula only when unknown. `RecExporter.targetBitrate`.
+
+## CI layout (build-all)
+
+`.github/workflows/build-all.yml` is the only trigger (push to main, `v*` / `kayit-v*` tags, pull requests, manual). It calls the other workflow files as reusable workflows (`workflow_call`), so tests, PC installer, PC recording variant, Android pose + sam and Android record-only all show up in ONE run. Each file can still be run alone with workflow_dispatch. `v*` tag: full PC + phone apps; `kayit-v*` tag: recording variant only; pull requests: tests + phone apps (no Windows packaging).

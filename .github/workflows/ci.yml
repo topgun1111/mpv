@@ -1,8 +1,7 @@
 name: CI
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_call:  # started by build-all.yml (push / tag / pull request); this file no longer has its own triggers
+  workflow_dispatch:
 
 jobs:
   test:

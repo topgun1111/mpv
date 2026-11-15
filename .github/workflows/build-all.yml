@@ -1,0 +1,45 @@
+name: Build All
+
+# One run, one page: every build of the project starts here and shows up together.
+#   tests         Python tests (ruff + pytest, Linux + Windows)            ci.yml
+#   pc-full       Windows installer + portable zip (v* tag -> Release)     build.yml
+#   pc-recording  Windows recording variant (kayit-v* tag -> Release)      build-recording.yml
+#   android       full app, flavors pose + sam (matrix)                    android.yml
+#   android-rec   record-only app                                          android-rec.yml
+# The five files above are reusable workflows (workflow_call) and have no triggers of their own, so nothing runs twice.
+# Tags: v* builds the full PC + phone apps, kayit-v* builds only the recording variant. Pull requests run the tests and the phone apps
+# (no Windows packaging). To run one build alone: Actions -> pick that workflow -> Run workflow (workflow_dispatch still works).
+on:
+  push:
+    branches: [main]
+    tags: ["v*", "kayit-v*"]
+    paths-ignore: ["**.md"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-all-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write  # release steps (tags); pull requests from forks stay read-only
+
+jobs:
+  tests:
+    uses: ./.github/workflows/ci.yml
+
+  pc-full:
+    if: ${{ github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/kayit-v') }}
+    uses: ./.github/workflows/build.yml
+
+  pc-recording:
+    if: ${{ github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/v') }}
+    uses: ./.github/workflows/build-recording.yml
+
+  android:
+    if: ${{ !startsWith(github.ref, 'refs/tags/kayit-v') }}
+    uses: ./.github/workflows/android.yml
+
+  android-rec:
+    if: ${{ !startsWith(github.ref, 'refs/tags/kayit-v') }}
+    uses: ./.github/workflows/android-rec.yml

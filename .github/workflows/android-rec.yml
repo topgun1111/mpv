@@ -4,25 +4,8 @@ name: Android Record
 # Separate workflow so android.yml (pose / sam) and its tests stay untouched. No models to export, so this one is fast.
 # The APK is always a workflow artifact; nothing here is AGPL, but it is not published to Releases (no in-app updater in this variant).
 on:
-  push:
-    branches: [main]
-    paths:
-      - "android/rec/**"
-      - "android/core/**"
-      - "android/*.kts"
-      - "android/gradle/**"
-      - "android/app/stable.jks"
-      - "VERSION"
-      - ".github/workflows/android-rec.yml"
-  pull_request:
-    paths:
-      - "android/rec/**"
-      - "android/core/**"
+  workflow_call:  # started by build-all.yml (push / tag / pull request); this file no longer has its own triggers
   workflow_dispatch:
-
-concurrency:
-  group: android-rec-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
