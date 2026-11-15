@@ -3,6 +3,7 @@ package com.takipli.oynat
 import android.net.Uri
 import android.os.SystemClock
 import android.view.TextureView
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -51,6 +53,12 @@ import com.takipli.oynat.core.CamMode
 import com.takipli.oynat.core.CamPath
 import com.takipli.oynat.core.CamPos
 import com.takipli.oynat.core.CamZoom
+import com.takipli.oynat.core.RecSeg
+import com.takipli.oynat.core.appendKey
+import com.takipli.oynat.core.applyGesture
+import com.takipli.oynat.core.mergeSegment
+import com.takipli.oynat.core.mergeSegments
+import com.takipli.oynat.core.View as CamView
 import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.Formats
 import com.takipli.oynat.core.PRESETS
@@ -105,6 +113,11 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     var tuning by remember { mutableStateOf(Tuning.of(cfg)) }
     var views by remember { mutableStateOf(doc.views) }
     var follow by remember { mutableStateOf(true) }
+    // Kayıt modu: oynarken pinch = zoom, sürükle = konum; kayıt anahtar kareleri otomatik kadrajın yerine geçer
+    var recording by remember { mutableStateOf(false) }
+    var recView by remember { mutableStateOf(CamView(0.0, 0.0, 0.0)) }
+    var recKeys by remember { mutableStateOf<List<List<Double>>>(emptyList()) }
+    var manual by remember { mutableStateOf<List<RecSeg>>(emptyList()) } // biten kayıtlar; ayar değişince otomatik kadraj yeniden hesaplanır, kayıtlar üstüne yeniden işlenir
     var playing by remember { mutableStateOf(false) }
     var posMs by remember { mutableLongStateOf(0L) }
     var durMs by remember { mutableLongStateOf((doc.video.duration * 1000).toLong().coerceAtLeast(1)) }
@@ -196,17 +209,41 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
 
     fun rebuild(t: Target, tu: Tuning) {
         job?.cancel(); saved = ""
-        job = scope.launch { views = withContext(Dispatchers.Default) { rebuildViews(doc, t, cfg, tu) } }
+        val segs = manual
+        job = scope.launch { views = withContext(Dispatchers.Default) { mergeSegments(rebuildViews(doc, t, cfg, tu), segs) } }
+    }
+    fun startRecording() {
+        recView = if (follow && views.isNotEmpty()) viewAtSmooth(views, posMs / 1000.0) else CamView(0.0, 0.0, 0.0)
+        recKeys = emptyList(); follow = true; recording = true
+    }
+    fun stopRecording() {
+        if (!recording) return
+        recording = false
+        if (recKeys.isNotEmpty()) {
+            val seg = RecSeg(recKeys.first()[0], recKeys.last()[0], recKeys)
+            manual = manual + seg; views = mergeSegment(views, seg); saved = ""
+        }
+        recKeys = emptyList()
+    }
+    LaunchedEffect(recording) { // ~25 Hz: yalnız oynarken anahtar kare (duraklatma/geri sarma anahtar üretmez)
+        while (recording) {
+            if (playing) recKeys = appendKey(recKeys, posMs / 1000.0, recView)
+            delay(40)
+        }
     }
 
     val vw = doc.video.w.coerceAtLeast(1); val vh = doc.video.h.coerceAtLeast(1)
     if (rot != 0) Text(stringResource(R.string.result_rotated, rot), fontSize = 12.sp)
-    Box(Modifier.fillMaxWidth().aspectRatio(vw / vh.toFloat()).clipToBounds()) {
+    Box(Modifier.fillMaxWidth().aspectRatio(vw / vh.toFloat()).clipToBounds().pointerInput(recording) {
+        if (recording) detectTransformGestures { _, pan, zoom, _ ->
+            recView = applyGesture(recView, pan.x / size.width.toDouble(), pan.y / size.height.toDouble(), zoom.toDouble(), 3.5)
+        }
+    }) {
         AndroidView(
             factory = { c -> TextureView(c).also { player.setVideoTextureView(it) } },
             modifier = Modifier.fillMaxSize().graphicsLayer {
-                if (follow && views.isNotEmpty()) {
-                    val tr = viewTransform(viewAtSmooth(views, posMs / 1000.0)) // same crop as the export will cut
+                if (recording || (follow && views.isNotEmpty())) {
+                    val tr = viewTransform(if (recording) recView else viewAtSmooth(views, posMs / 1000.0)) // same crop as the export will cut
                     scaleX = tr[0].toFloat(); scaleY = tr[0].toFloat()
                     translationX = (tr[1] * size.width).toFloat(); translationY = (tr[2] * size.height).toFloat()
                 }
@@ -217,8 +254,11 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     if (playerMsg.isNotEmpty()) Text(playerMsg, color = MaterialTheme.colorScheme.error)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = { if (player.isPlaying) player.pause() else player.play() }) { Text(stringResource(if (playing) R.string.result_pause else R.string.result_play)) }
-        FilterChip(selected = follow, onClick = { follow = !follow }, label = { Text(stringResource(R.string.result_follow)) })
+        FilterChip(selected = follow, enabled = !recording, onClick = { follow = !follow }, label = { Text(stringResource(R.string.result_follow)) })
+        FilterChip(selected = recording, enabled = !exporting && views.isNotEmpty(), onClick = { if (recording) stopRecording() else startRecording() }, label = { Text(stringResource(R.string.rec_chip)) })
     }
+    if (recording) Text(stringResource(R.string.rec_hint))
+    if (manual.isNotEmpty() && !recording) OutlinedButton(onClick = { manual = emptyList(); rebuild(target, tuning) }) { Text(stringResource(R.string.rec_clear)) }
     Slider(value = posMs.toFloat(), valueRange = 0f..durMs.toFloat(), onValueChange = { posMs = it.toLong(); player.seekTo(it.toLong()) })
 
     Text(stringResource(R.string.pick_part), style = MaterialTheme.typography.labelLarge)
@@ -338,7 +378,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
         if (started != null && !finished) exporter = started
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(enabled = !exporting && !stabBusy && views.isNotEmpty() && readable, onClick = { startExport(null) }) { Text(stringResource(R.string.export_start)) }
+        Button(enabled = !exporting && !stabBusy && !recording && views.isNotEmpty() && readable, onClick = { startExport(null) }) { Text(stringResource(R.string.export_start)) }
         OutlinedButton(enabled = exporting, onClick = {
             val p = exportP
             Diag.note(ctx, "export", "EXPORT_CANCEL", "cancelled by user at ${(p * 100).toInt()} %")
