@@ -112,7 +112,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
     var multi by remember { mutableStateOf(false) } // Point mode: several dots on one limb (the first tap = `tap`, up to 2 more in `extra`)
     val extra = remember { androidx.compose.runtime.mutableStateListOf<Offset>() }
     var zoomLog2 by remember { mutableStateOf(1.5f) }
-    var regionFixed by remember { mutableStateOf(false) } // freehand: false = keep the area's size (zoom follows it), true = fixed zoom
+    var regionFixed by remember { mutableStateOf(true) } // freehand: false = keep the area's size (zoom follows it), true = fixed zoom
     var regionFill by remember { mutableStateOf(0.9f) }
     var fps by remember { mutableStateOf(PICK_FPS[3]) }
     var npu by remember { mutableStateOf(false) }
@@ -128,6 +128,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
     var samMask by remember { mutableStateOf<SamMask?>(null) }
     var segBusy by remember { mutableStateOf(false) }
     val running = ui is ScanUi.Running
+    val lost = ui as? ScanUi.Lost // the scan is paused: the target was gone for a few seconds
     // People the model finds on the first frame (null = still detecting). Only a guide: the tap is resolved after the scan.
     var found by remember { mutableStateOf<List<Pose>?>(null) }
     LaunchedEffect(frame, model) {
@@ -261,11 +262,32 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
         if (loadJob?.isActive == true) loadAt(seekT.toDouble()) // a seek was still decoding with the old turn: decode again with the new one
     }
 
+    // Scan paused because the target was lost: show a frame from just before the loss (the user can jump anywhere with the seek controls), tap the target, resume
+    LaunchedEffect(lost?.t, lost?.uri) {
+        val l = lost ?: return@LaunchedEffect
+        if (uri == null) { // the screen was recreated while the scan waited: take the video from the pause itself
+            val u = Uri.parse(l.uri)
+            uri = u; videoId = l.videoId
+            durationS = withContext(Dispatchers.IO) { runCatching { VideoDecoder.probe(ctx, u).durationS }.getOrDefault(0.0) }
+            rot = UserRot.get(ctx, u.toString())
+        }
+        val at = (l.t - 3.0).coerceAtLeast(0.0)
+        seekT = at.toFloat()
+        loadAt(at)
+    }
+
     Column(
         Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         TextButton(onClick = onBack, enabled = !running) { Text(stringResource(R.string.back)) }
+        if (lost != null) {
+            Text(stringResource(R.string.scan_lost_hint), color = MaterialTheme.colorScheme.error)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { ScanService.resolveLost(null) }) { Text(stringResource(R.string.scan_lost_skip)) }
+                OutlinedButton(onClick = { ScanService.cancel(ctx) }) { Text(stringResource(R.string.scan_cancel)) }
+            }
+        }
         Text(stringResource(R.string.pick_title), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(R.string.home_modes_title), style = MaterialTheme.typography.titleSmall)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -491,10 +513,14 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     val t = if (draw) com.takipli.oynat.core.shapeBounds(shapes)!!.let { Offset(it[0].toFloat(), it[1].toFloat()) }
                     else if (dots.size >= 2) Offset(dots.map { it[0] }.average().toFloat(), dots.map { it[1] }.average().toFloat())
                     else tap ?: return@Button
-                    notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = if (objectMode) null else preset, exact = exact && preset == null && !objectMode, free = free, zoom = if (free && (!draw || regionFixed) && dots.isEmpty()) zoomLog2.toDouble() else null, shapes = shapes, fill = if (draw && !regionFixed) regionFill.toDouble() else null, dots = dots), preview)
+                    val np = TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = if (objectMode) null else preset, exact = exact && preset == null && !objectMode, free = free, zoom = if (free && (!draw || regionFixed) && dots.isEmpty()) zoomLog2.toDouble() else null, shapes = shapes, fill = if (draw && !regionFixed) regionFill.toDouble() else null, dots = dots)
+                    if (lost != null) ScanService.resolveLost(np) // paused scan: the new pick joins the target and the scan goes on
+                    else {
+                        notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), np, preview)
+                    }
                 },
-            ) { Text(stringResource(R.string.pick_start)) }
+            ) { Text(stringResource(if (lost != null) R.string.scan_lost_resume else R.string.pick_start)) }
         }
 
         when (val s = ui) {
@@ -520,6 +546,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 if (s.targetText != null) Button(onClick = { onResult(s.file) }) { Text(stringResource(R.string.result_open)) }
                 OutlinedButton(onClick = { ScanService.reset() }) { Text(stringResource(R.string.pick_again)) }
             }
+            is ScanUi.Lost -> {}
             is ScanUi.Failed -> Text(s.message)
             ScanUi.Idle -> {}
         }

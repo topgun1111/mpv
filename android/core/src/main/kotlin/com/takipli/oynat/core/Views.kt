@@ -329,7 +329,7 @@ fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Dire
         target.free != null -> {
             // Part 16a: any tapped spot; fused multi-pass point, then the same camera-compensated off-screen propagation
             // the anchor person may have a new ID after an occlusion: let the anchor follow it
-            val alt = if (robust) makeAnchor(doc, target.free, cfg)?.id?.let { relinkIds(doc, setOf(it)) - it }.orEmpty() else emptySet()
+            val alt = (if (robust) makeAnchor(doc, target.free, cfg)?.id?.let { relinkIds(doc, setOf(it)) - it }.orEmpty() else emptySet()) + target.linked
             val b = freePointBoxes(doc, target.free, cfg, alt)
             if (cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
         }

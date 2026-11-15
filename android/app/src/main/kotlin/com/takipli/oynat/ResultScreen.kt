@@ -118,7 +118,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     val scope = rememberCoroutineScope()
     val cfg = remember { Config(lostBridgeS = 6.0) } // app default: keep the zoom when something covers the subject for a few seconds
     var target by remember { mutableStateOf(base) }
-    var tuning by remember { mutableStateOf(Tuning.of(cfg)) }
+    var tuning by remember { mutableStateOf(Tuning.of(cfg).copy(lostBridgeS = 4.0)) } // keep the zoom through a few seconds of occlusion by default
     var views by remember { mutableStateOf(doc.views) }
     var follow by remember { mutableStateOf(true) }
     // Kayıt modu: oynarken pinch = zoom, sürükle = konum; kayıt anahtar kareleri otomatik kadrajın yerine geçer
@@ -411,7 +411,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                     tune(R.string.tune_maxzoom, tuning.maxZoom, 0.5f..3.5f) { tuning.copy(maxZoom = it) }
                     tune(R.string.tune_follow, tuning.followAlpha, 0.1f..0.9f) { tuning.copy(followAlpha = it) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { tuning = Tuning.of(cfg); rebuild(target, tuning) }) { Text(stringResource(R.string.tune_reset)) }
+                        OutlinedButton(onClick = { tuning = Tuning.of(cfg).copy(lostBridgeS = 4.0); rebuild(target, tuning) }) { Text(stringResource(R.string.tune_reset)) }
                     }
                 }
                 2 -> { // Serbest el: oynarken iki parmakla yakınlaştır + sürükle, hareketler kaydedilir

@@ -6,6 +6,7 @@ import android.os.SystemClock
 import com.takipli.oynat.core.ByteTracker
 import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.Formats
+import com.takipli.oynat.core.LostWatch
 import com.takipli.oynat.core.PreviewHold
 import com.takipli.oynat.core.ScanPipeline
 import com.takipli.oynat.core.Target
@@ -13,6 +14,7 @@ import com.takipli.oynat.core.TargetPick
 import com.takipli.oynat.core.TrackDoc
 import com.takipli.oynat.core.buildScanDoc
 import com.takipli.oynat.core.livePickTarget
+import com.takipli.oynat.core.liveRelink
 import com.takipli.oynat.core.previewOverlay
 import com.takipli.oynat.core.scanSig
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +35,7 @@ class ScanProgress(
     val resumed: Int,
 )
 
-class ScanResult(val doc: TrackDoc, val cached: Boolean, val wallS: Double, val newSamples: Int, val videoS: Double) {
+class ScanResult(val doc: TrackDoc, val cached: Boolean, val wallS: Double, val newSamples: Int, val videoS: Double, val repicks: List<TargetPick> = emptyList()) {
     val xRealtime: Double get() = if (wallS > 0) videoS / wallS else 0.0
 }
 
@@ -71,6 +73,8 @@ object Scanner {
         maxSide: Int = 960,
         pick: TargetPick? = null,
         onPreview: ((ScanPreview) -> Unit)? = null,
+        /** The target has been gone for a few seconds: the scan WAITS here for the user (new pick, or null = go on unchanged). */
+        onLost: (suspend (Double) -> TargetPick?)? = null,
         onProgress: (ScanProgress) -> Unit = {},
     ): ScanResult = withContext(Dispatchers.Default) {
         val t0 = SystemClock.elapsedRealtime()
@@ -96,6 +100,10 @@ object Scanner {
         var lastPreview = 0L
         var liveTarget: Target? = null
         var liveTried = false
+        var liveRef: com.takipli.oynat.core.FreeRef? = null
+        var curPick = pick
+        val repicks = ArrayList<TargetPick>()
+        val lostWatch = LostWatch()
         // Debug Part 1: predictive watch (throttling, memory, battery) + where the time goes per frame
         val watch = ScanWatch(ctx, "scan", total, fps)
         var lastCb = 0L
@@ -121,6 +129,28 @@ object Scanner {
                 val cut = cfg.cutDetect && a?.cut == true
                 val motion = if (cfg.gmc && a != null && !cut && a.motionOk) a.motion else null
                 val s = pipe.step(f.t, bmp.width, bmp.height, poses, motion, cut)
+                // Live target: resolved once the scan has reached the pick frame (independent of the preview, the loss alert needs it too)
+                val cp = curPick
+                if (liveTarget == null && !liveTried && cp != null && s.t >= cp.t - 0.5 / fps) {
+                    liveTried = true
+                    liveTarget = livePickTarget(pipe.samples, bmp.width, bmp.height, cp, cfg)
+                    liveRef = com.takipli.oynat.core.freeRef(pipe.samples, liveTarget)
+                }
+                // The tracker may give the person a new ID: link it (cheap check, the relink search runs on every 3rd sample while absent)
+                if (liveTarget != null && pipe.samples.size % 3 == 0) liveTarget = liveRelink(pipe.samples, bmp.width, bmp.height, liveTarget, s)
+                // Target gone for a few seconds: vibrate + let the user jump to a clear frame and pick again, then go on
+                val lt = liveTarget
+                if (onLost != null && lt != null && lt.id >= 0) {
+                    val ids = setOf(lt.id) + lt.linked
+                    val present = s.d.any { it.size >= 6 && it[0].toInt() in ids }
+                    if (lostWatch.update(s.t, present)) {
+                        val np = onLost(s.t)
+                        if (np != null) {
+                            repicks += np; curPick = np; liveTarget = null; liveTried = false; liveRef = null
+                            lostWatch.reset(maxOf(s.t, np.t) + 1.0)
+                        } else lostWatch.snooze(s.t + 6.0)
+                    }
+                }
                 // Part 12: at most ~5 small previews per second; only a bitmap copy + a tiny overlay, never blocks the scan
                 val now = SystemClock.elapsedRealtime()
                 if (onPreview != null && now - lastPreview >= PREVIEW_MIN_MS) {
@@ -128,11 +158,7 @@ object Scanner {
                     val pv0 = System.nanoTime()
                     // The scan starts at 0 s but the pick was made on a later frame: resolve only once the scan has reached the pick frame
                     // (resolveTap takes the sample nearest to pick.t, so earlier it hit a wrong frame or nothing, and no green crop / red box showed).
-                    if (liveTarget == null && !liveTried && pick != null && s.t >= pick.t - 0.5 / fps) {
-                        liveTried = true
-                        liveTarget = livePickTarget(pipe.samples, bmp.width, bmp.height, pick, cfg)
-                    }
-                    onPreview(ScanPreview(f.t, previewBitmap(bmp), pvHold.apply(f.t, previewOverlay(s, bmp.width, bmp.height, liveTarget, cfg))))
+                    onPreview(ScanPreview(f.t, previewBitmap(bmp), pvHold.apply(f.t, previewOverlay(s, bmp.width, bmp.height, liveTarget, cfg, liveRef))))
                     pvMs = (System.nanoTime() - pv0) / 1e6
                 }
                 bmp.recycle()
@@ -160,6 +186,6 @@ object Scanner {
         watch.finish(true, "$newSamples new samples, ${pipe.samples.size} total, cuts $cuts")
         Diag.checkTimeline(ctx, pipe.samples.map { it.t }, 1.0 / fps)
         val videoS = if (newSamples > 0) pipe.samples.last().t - (prior.lastOrNull()?.t ?: pipe.samples.first().t) else 0.0
-        ScanResult(doc, false, (SystemClock.elapsedRealtime() - t0) / 1000.0, newSamples, videoS)
+        ScanResult(doc, false, (SystemClock.elapsedRealtime() - t0) / 1000.0, newSamples, videoS, repicks)
     }
 }

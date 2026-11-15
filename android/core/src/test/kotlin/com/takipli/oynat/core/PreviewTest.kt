@@ -72,7 +72,7 @@ class PreviewTest {
 
         val lost = previewOverlay(s.copy(cut = 1), 1000, 1000, Target(7, preset = "head"), cfg)
         assertEquals(TargetState.LOST, lost.targetState)
-        assertEquals("zoom -  LOST" to "CUT", previewInfoLines(lost))
+        assertEquals("zoom -  LOST (ID not in frame)" to "CUT", previewInfoLines(lost))
     }
 
     @Test
@@ -89,5 +89,36 @@ class PreviewTest {
         // a cut forgets everything
         hold.apply(4.0, previewOverlay(s, 1000, 1000, Target(1, preset = "left_foot"), cfg))
         assertNull(hold.apply(4.1, previewOverlay(gone.copy(cut = 1), 1000, 1000, Target(1, preset = "left_foot"), cfg)).crop)
+    }
+
+    @Test
+    fun liveRelinkFollowsTheNewIdAfterTheTrackerReissuesIt() {
+        // person 1 walks off the tracker's radar at t=1; the same person comes back as ID 7 at the same place at t=1.2
+        val a = Sample(0.0, d = listOf(listOf(1.0, 0.40, 0.2, 0.50, 0.8, 0.9)))
+        val b = Sample(1.0, d = listOf(listOf(1.0, 0.41, 0.2, 0.51, 0.8, 0.9)))
+        val c = Sample(1.2, d = listOf(listOf(7.0, 0.42, 0.2, 0.52, 0.8, 0.9)))
+        val t = liveRelink(listOf(a, b, c), 1000, 1000, Target(1), c)
+        assertEquals(listOf(7), t?.linked)
+        assertEquals(TargetState.TRACKING, previewOverlay(c, 1000, 1000, t, cfg).targetState)
+        // target present in the current sample, or no target, or a free target: unchanged
+        val keep = Target(1)
+        assertTrue(liveRelink(listOf(a, b), 1000, 1000, keep, b) === keep)
+        assertNull(liveRelink(listOf(a), 1000, 1000, null, a))
+    }
+
+    @Test
+    fun pointPickIsFramedInsideThePersonNotAsTheWholePerson() {
+        // two dots on the lower legs of person 1 (box y 0.1..0.9): the preview frames the dots, so it zooms in; the person box alone stays at 1x
+        val first = Sample(0.0, d = listOf(listOf(1.0, 0.40, 0.10, 0.60, 0.90, 0.9)))
+        val pick = FreePick(0.0, 0.50, 0.75, id = 1, dots = listOf(listOf(0.46, 0.70), listOf(0.54, 0.80)))
+        val target = Target(1, free = pick)
+        val ref = freeRef(listOf(first), target)
+        assertNotNull(ref)
+        val now = Sample(0.5, d = listOf(listOf(1.0, 0.50, 0.10, 0.70, 0.90, 0.9))) // the person walked right by 0.1
+        val o = previewOverlay(now, 1000, 1000, target, cfg, ref)
+        assertEquals(TargetState.TRACKING, o.targetState)
+        assertTrue((o.zoom ?: 0.0) > 1.2)
+        assertEquals(0.6, (o.partBox!![0] + o.partBox!![2]) / 2, 0.02) // dots moved with the person
+        assertNull(freeRef(listOf(first), Target(1))) // a person target has no free reference
     }
 }

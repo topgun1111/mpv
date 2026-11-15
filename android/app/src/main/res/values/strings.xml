@@ -176,4 +176,8 @@
     <string name="mode_tab_body">Body</string>
     <string name="mode_tab_point">Point</string>
     <string name="mode_tab_freehand">Freehand</string>
+    <string name="scan_lost_hint">The target was lost: the scan is paused. Jump to a frame where the target is clearly visible, tap it again, then resume. The scan continues from where it stopped.</string>
+    <string name="scan_notify_lost">Target lost: tap to fix and resume the scan</string>
+    <string name="scan_lost_resume">Resume with this target</string>
+    <string name="scan_lost_skip">Resume without changing</string>
 </resources>

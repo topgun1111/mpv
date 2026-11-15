@@ -176,4 +176,8 @@
     <string name="mode_tab_body">Vücut</string>
     <string name="mode_tab_point">Nokta</string>
     <string name="mode_tab_freehand">Serbest</string>
+    <string name="scan_lost_hint">Hedef kayboldu: tarama duraklatıldı. Hedefin net göründüğü bir kareye gidin, hedefe tekrar dokunun ve devam edin. Tarama kaldığı yerden sürer.</string>
+    <string name="scan_notify_lost">Hedef kayboldu: düzeltmek ve taramayı sürdürmek için dokunun</string>
+    <string name="scan_lost_resume">Bu hedefle devam et</string>
+    <string name="scan_lost_skip">Değiştirmeden devam et</string>
 </resources>

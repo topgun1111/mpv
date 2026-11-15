@@ -9,16 +9,21 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.Uri
+import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.Formats
 import com.takipli.oynat.core.TargetPick
-import com.takipli.oynat.core.applyPick
+import com.takipli.oynat.core.applyPicks
 import com.takipli.oynat.core.buildTargetViews
 import com.takipli.oynat.core.scanSig
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,6 +39,8 @@ sealed interface ScanUi {
     class Running(val p: ScanProgress?, val pv: ScanPreview? = null) : ScanUi
     /** `targetText` null = nobody was at the picked point (scan is kept; pick again without rescanning). */
     class Done(val samples: Int, val cached: Boolean, val targetText: String?, val file: String, val xRealtime: Double, val preview: Boolean) : ScanUi
+    /** The target has been gone for a few seconds: the scan is PAUSED at video time `t` until [ScanService.resolveLost] is called. */
+    class Lost(val t: Double, val uri: String, val videoId: String, val p: ScanProgress?) : ScanUi
     class Failed(val message: String, val cancelled: Boolean) : ScanUi
 }
 
@@ -71,14 +78,25 @@ class ScanService : Service() {
             val withPreview = i.getBooleanExtra(X_PREVIEW, true)
             var lastNote = 0L
             var lastPv: ScanPreview? = null
+            var lastP: ScanProgress? = null
+            // Target gone for a few seconds: vibrate, pause here, and wait for the user (new pick or "go on"); the UI calls resolveLost()
+            val onLost: suspend (Double) -> TargetPick? = { t ->
+                alertLost()
+                val d = CompletableDeferred<TargetPick?>()
+                pendingLost = d
+                notify(note(getString(R.string.scan_notify_lost), null))
+                post(ScanUi.Lost(t, i.getStringExtra(X_URI).orEmpty(), videoId, lastP))
+                try { d.await() } finally { pendingLost = null; post(ScanUi.Running(lastP, lastPv)) }
+            }
             val res = PoseRunner(this, i.getStringExtra(X_MODEL).orEmpty(), threads = 4, wantNpu = i.getBooleanExtra(X_NPU, false)).use { runner ->
-                Scanner.scan(this, uri, videoId, runner, fps, file, cfg, pick = pick, onPreview = if (withPreview) ({ v: ScanPreview -> lastPv = v }) else null) { p ->
+                Scanner.scan(this, uri, videoId, runner, fps, file, cfg, pick = pick, onPreview = if (withPreview) ({ v: ScanPreview -> lastPv = v }) else null, onLost = onLost) { p ->
+                    lastP = p
                     post(ScanUi.Running(p, lastPv))
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastNote >= 1000) { lastNote = now; notify(note(getString(R.string.scan_notify_run, p.samples, p.total), p)) }
                 }
             }
-            var picked = applyPick(if (pick.free) res.doc.copy(pt = null) else res.doc, pick, cfg, robust = true)
+            var picked = applyPicks(if (pick.free) res.doc.copy(pt = null) else res.doc, pick, res.repicks, cfg, robust = true) // repicks: the user picked again after the target was lost
             val fp = picked?.target?.free
             if (picked != null && fp != null && OpenCvFlow.available) { // Part 16b: tracker passes for the tapped spot
                 try {
@@ -106,6 +124,14 @@ class ScanService : Service() {
             post(ScanUi.Failed(Safety.friendly(this, e), false))
         } finally {
             wake?.takeIf { it.isHeld }?.release()
+        }
+    }
+
+    private fun alertLost() {
+        runCatching {
+            val v: Vibrator = if (Build.VERSION.SDK_INT >= 31) getSystemService(VibratorManager::class.java).defaultVibrator
+            else @Suppress("DEPRECATION") (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator)
+            v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 300, 150, 300, 150, 600), -1))
         }
     }
 
@@ -139,6 +165,11 @@ class ScanService : Service() {
         private const val ACTION_CANCEL = "com.takipli.oynat.SCAN_CANCEL"
         private const val X_URI = "uri"; private const val X_VIDEO_ID = "video_id"; private const val X_FPS = "fps"
         private const val X_PREVIEW = "preview"; private const val X_PICK = "pick"; private const val X_MODEL = "model"; private const val X_NPU = "npu"
+
+        @Volatile private var pendingLost: CompletableDeferred<TargetPick?>? = null
+
+        /** Answer to a [ScanUi.Lost] pause: a new pick (the scan goes on and links it to the target) or null = go on without changing anything. */
+        fun resolveLost(pick: TargetPick?) { pendingLost?.complete(pick) }
 
         private val _state = MutableStateFlow<ScanUi>(ScanUi.Idle)
         /** Written by the service, read by the UI. */
