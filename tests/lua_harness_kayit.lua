@@ -15,6 +15,7 @@ local function out(...) print(table.concat({ ... }, "\t")) end
 local function f(x) return string.format("%.9f", x) end
 local function has(s, pat) return s ~= nil and s:find(pat, 1, true) ~= nil end
 local function hud() return reg.ov[5] or "" end
+local function countdown() for _ = 1, 5 do reg.timers[#reg.timers]() end end -- 5 sn geri sayım (1 sn'lik zamanlayıcılar)
 local function frame_at(v, ax, ay) -- imlecin altındaki kare noktası
   local s = 2 ^ v[1]
   return (0.5 - v[2]) + (ax - 0.5) / s, (0.5 - v[3]) + (ay - 0.5) / s
@@ -79,7 +80,9 @@ reg.bind.record() -- hazır: oynatma BAŞLAMAZ, kayıt henüz yok
 local rec = A.state()
 out("READY", tostring(reg.props.pause), tostring(rec.on), tostring(rec.run), tostring(has(hud(), "HAZIR")), tostring(has(hud(), "●")))
 reg.props["time-pos"] = 10 -- seek tamamlanmadan eski saat
-reg.bind.space() -- Space = kaydı başlat
+reg.bind.space() -- Space = geri sayım başlar (oynatma + kayıt henüz yok)
+out("COUNT", tostring(rec.count), tostring(reg.props.pause), tostring(rec.run), tostring(has(hud(), "BAŞLIYOR")), tostring(#reg.cmds))
+countdown()
 out("START", reg.cmds[#reg.cmds], tostring(reg.props.pause), tostring(has(hud(), "KAYIT")), tostring(has(hud(), "●")))
 reg.timers[#reg.timers]()
 out("PREARM", tostring(#rec.keys))
@@ -122,7 +125,7 @@ out("SPEED", tostring(up), tostring(reg.props.speed))
 
 -- 6) kayıt dosyası yazılamazsa uyarı; anahtar yoksa dosya yok
 reg.props.path = os.getenv("VIDEO") .. "-yok-dizin/x/clip.mp4"
-reg.bind.record(); reg.props["time-pos"] = 0; reg.bind.space(); reg.ev["playback-restart"]()
+reg.bind.record(); reg.props["time-pos"] = 0; reg.bind.space(); countdown(); reg.ev["playback-restart"]()
 reg.timers[#reg.timers]()
 reg.bind.record()
 out("WRITEFAIL", tostring(has(reg.osd[#reg.osd], "yazılamadı")))
@@ -173,34 +176,35 @@ reg.props.path = VID
 async = nil
 reg.props.speed = 1.0
 move(950, 30) -- HIZ düğmesi
-reg.bind.click({ event = "down" })
+reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" })
 out("SPD_CLICK", tostring(reg.props.speed), tostring(has(hud(), "HIZ 1.5×")))
-reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" }) -- sağ tık: yavaşlat
+reg.bind.rclick({ event = "down" }); reg.bind.rclick({ event = "up" }) -- sağ tık: yavaşlat
 out("SPD_RIGHT", tostring(reg.props.speed))
-reg.props.speed = 2.0; reg.bind.click({ event = "down" })
+reg.props.speed = 2.0; reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" })
 out("SPD_WRAP", tostring(reg.props.speed)); reg.props.speed = 1.0
 out("SPACE_IDLE_BEFORE", tostring(reg.props.pause))
 reg.props.pause = "yes"; reg.bind.space() -- KAYDET'e basılmadan Space: kayıt/oynatma başlamaz
 out("SPACE_IDLE", tostring(reg.props.pause), tostring(has(last_osd(), "önce KAYDET")), tostring(A.state().on))
 move(1200, 30) -- KAYDET düğmesi
-reg.bind.click({ event = "down" })
+reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" })
 local r8 = A.state()
 out("BTN_READY", tostring(r8.on), tostring(r8.run), tostring(reg.props.pause), tostring(has(hud(), "DURDUR")), tostring(has(hud(), "HAZIR")))
-move(300, 300)
-reg.bind.click({ event = "down" }) -- videoya sol tık: oynatmayı değiştirmez, sürükleme başlatmaz
-out("CLICK_VIDEO", tostring(reg.props.pause), tostring(r8.run))
+reg.bind.space(); local counting = r8.count -- geri sayım başladı
+reg.bind.space() -- sayarken Space = iptal
+out("COUNT_CANCEL", tostring(counting), tostring(r8.count), tostring(r8.run), tostring(reg.props.pause), tostring(r8.on))
 move(640, 360)
 for _ = 1, 4 do reg.bind["wheel-in"]() end
 local _, px0 = vals()
-reg.bind.click({ event = "down" }); move(700, 380); reg.bind.click({ event = "up" })
+move(300, 300) -- videoda sol tuş SÜRÜKLER (düğme dışında)
+reg.bind.drag({ event = "down" }); move(360, 330); reg.bind.drag({ event = "up" })
 local _, pxl = vals()
-reg.bind.drag({ event = "down" }); move(760, 400); reg.bind.drag({ event = "up" }) -- SAĞ tuş sürükler
+reg.bind.rclick({ event = "down" }); move(420, 360); reg.bind.rclick({ event = "up" }) -- sağ tuş kaydırmaz
 local _, pxr = vals()
-out("DRAG_BTN", tostring(pxl == px0), tostring(pxr ~= px0))
+out("DRAG_BTN", tostring(pxl ~= px0), tostring(pxr == pxl), tostring(reg.props.pause))
 reg.props["time-pos"] = 0
-reg.bind.space(); reg.ev["playback-restart"]()
+reg.bind.space(); countdown(); reg.ev["playback-restart"]()
 for i = 0, 5 do reg.props["time-pos"] = i * 0.05; reg.timers[#reg.timers]() end
-move(1200, 30); reg.bind.click({ event = "down" }) -- durdur
+move(1200, 30); reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" }) -- durdur
 out("BTN_STOP", tostring(r8.on), tostring(has(hud(), "KAYDET")), tostring(async == nil), tostring(#r8.keys >= 5))
 reg.bind.export() -- S
 out("S_EXPORT", async and table.concat(async.t.args, "|") or "<yok>")

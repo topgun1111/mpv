@@ -1,6 +1,7 @@
--- kayit.lua — Takipli Oynat KAYIT varyantı. Tek özellik: zoom (tekerlek, +/-) + SAĞ tuşla sürükle (aynı anda)
+-- kayit.lua — Takipli Oynat KAYIT varyantı. Tek özellik: zoom (tekerlek, +/-) + SOL tuşla sürükle (aynı anda)
 -- → kamera hareketi kaydedilir (<video>.rec.json) → S ile yeni videoya dışa aktarılır.
--- Akış: KAYDET düğmesi = hazır (oynatma BAŞLAMAZ, hız ayarlanır) → Space = başlat/duraklat/sürdür → düğme = durdur.
+-- Akış: KAYDET düğmesi = hazır (oynatma BAŞLAMAZ, hız ayarlanır) → Space = 5 sn geri sayım → kayıt başlar;
+-- sonra Space = duraklat/sürdür → düğme = durdur → S = dışa aktar.
 -- Poz/model/takip YOK. Formüller recorder/geometry.py + recorder/keys.py ile birebir aynıdır
 -- (tests/test_lua_kayit.py eşlik testi). Görünüm v = {zoom(log2), pan_x, pan_y}; merkez = 0.5 - pan.
 local mp = require("mp")
@@ -9,6 +10,7 @@ local MAX_ZOOM, STEP = 4.0, 0.25 -- 1×–16×; tuş/tekerlek adımı 0.25 (log2
 local PRESETS = { 0.25, 0.5, 0.75, 1.0, 1.5, 2.0 } -- önizleme hızları (recorder.keys.SPEED_PRESETS)
 local WALL_DT, HUD_Z = 0.033, 5 -- kayıt örnekleme (duvar saati, sn); HUD katmanı
 local BTN = { x = 1090, y = 12, w = 178, h = 46 } -- KAYDET düğmesi (1280×720 HUD koordinatı)
+local COUNTDOWN = 5 -- Space'ten kayıt başlayana kadar geri sayım (sn)
 local SPD = { x = 900, y = 12, w = 178, h = 46 } -- HIZ düğmesi (KAYDET'in solunda)
 
 local function clamp(v, lo, hi) return math.min(math.max(v, lo), hi) end
@@ -99,7 +101,7 @@ end
 
 -- ---- durum + pencere/video geometrisi -----------------------------------------------------------
 local V = { 0, 0, 0 }
-local rec = { on = false, run = false, started = false, armed = false, id = 0, gen = 0, keys = {}, t = 0 }
+local rec = { on = false, run = false, started = false, count = nil, cg = 0, armed = false, id = 0, gen = 0, keys = {}, t = 0 }
 local drag = { on = false, x = 0, y = 0 }
 local hud = { ov = nil, last = nil }
 local exp = { running = false, id = 0, out = nil, prog = nil } -- dışa aktarma durumu (aşağıda doldurulur)
@@ -150,7 +152,10 @@ local function hud_update()
   end
   local zoom, txt = 2 ^ V[1], nil
   local head = "{\\an7\\pos(24,16)\\fs30\\bord2}"
-  if rec.on and rec.run then
+  if rec.on and rec.count then
+    txt = string.format("%sBAŞLIYOR…  %.1f×  (Space: iptal)", head, zoom)
+      .. string.format("\n{\\an5\\pos(640,360)\\fs220\\bord6\\1c&HFFFFFF&}%d", rec.count)
+  elseif rec.on and rec.run then
     txt = string.format("%s{\\1c&H0000FF&}●{\\1c&HFFFFFF&} KAYIT  %.1f×  %.1f sn", head, zoom, rec.t or 0)
   elseif rec.on and rec.started then
     txt = string.format("%sKAYIT DURAKLADI  %.1f×  %.1f sn  (Space: devam)", head, zoom, rec.t or 0)
@@ -187,26 +192,25 @@ local function hit(pos, b) -- imleç ekrandaki düğmenin üstünde mi (osd piks
   return x >= b.x and x <= b.x + b.w and y >= b.y and y <= b.y + b.h
 end
 
--- ---- fare: SAĞ tuş basılı sürükle = kaydır (sağ tık HIZ düğmesinde = yavaşlat); SOL tık = düğmeler;
--- tekerlek = imleç etrafında zoom (sürüklerken de, aynı anda). Sol tık/çift tık videoyu oynatıp durdurmaz. ---
-mp.add_key_binding(nil, "click", function(ev)
-  local e = ev and ev.event or "press"
-  if e ~= "down" and e ~= "press" then return end
-  local pos = mouse_xy()
-  if not (pos and pos.x) then return end
-  if hit(pos, BTN) then toggle_record() elseif hit(pos, SPD) then speed_cycle(1) end
-end, { complex = true })
-
+-- ---- fare: SOL tuş basılı sürükle = kaydır; sol tık ekrandaki düğmelerde = KAYDET / HIZ; sağ tık HIZ'da =
+-- yavaşlat; tekerlek = imleç etrafında zoom (sürüklerken de, aynı anda). Çift tık oynatmayı değiştirmez. ---
 mp.add_key_binding(nil, "drag", function(ev)
   local e = ev and ev.event or "press"
   if e == "down" then
     local pos = mouse_xy()
-    if pos and pos.x and hit(pos, SPD) then drag.on = false; speed_cycle(-1); return end
-    if pos and pos.x and hit(pos, BTN) then drag.on = false; return end
+    if pos and pos.x and hit(pos, BTN) then drag.on = false; toggle_record(); return end
+    if pos and pos.x and hit(pos, SPD) then drag.on = false; speed_cycle(1); return end
     if pos and pos.x then drag.on, drag.x, drag.y = true, pos.x, pos.y end
   elseif e == "up" or e == "press" then
     drag.on = false
   end
+end, { complex = true })
+
+mp.add_key_binding(nil, "rclick", function(ev) -- sağ tık: yalnız HIZ düğmesinde (yavaşlat)
+  local e = ev and ev.event or "press"
+  if e ~= "down" and e ~= "press" then return end
+  local pos = mouse_xy()
+  if pos and pos.x and hit(pos, SPD) then speed_cycle(-1) end
 end, { complex = true })
 
 mp.observe_property("mouse-pos", "native", function(_, pos)
@@ -268,7 +272,7 @@ mp.add_key_binding(nil, "faster", function() speed_step(1) end)
 -- ---- kayıt: KAYDET/R = hazır (oynatma başlamaz) → Space = başlat / duraklat / sürdür → KAYDET/R = durdur → S ---
 local function stop_rec()
   if not rec.on then return false end
-  rec.on, rec.run = false, false
+  rec.on, rec.run, rec.count = false, false, nil
   if rec.timer then rec.timer:kill(); rec.timer = nil end
   local t = mp.get_property_number("time-pos", nil)
   if rec.armed and t then rec.t = t; append_key(rec.keys, t, V, 0.001) end
@@ -301,16 +305,43 @@ end
 
 local function open_rec()
   if not video_path() then osd("yalnız yerel video dosyası kaydedilir"); return end
-  rec = { on = true, run = false, started = false, armed = false, id = rec.id + 1, gen = 0, keys = {}, t = 0 }
+  rec = { on = true, run = false, started = false, count = nil, cg = rec.cg + 1, armed = false,
+          id = rec.id + 1, gen = 0, keys = {}, t = 0 }
   set_view({ 0, 0, 0 })
   mp.set_property("pause", "yes") -- hazır: oynatma başlamaz; hız ayarlanır, Space ile kayıt başlar
   mp.commandv("seek", "0", "absolute", "exact")
   hud_update()
-  osd("hazır: hızı ayarla, Space ile başlat (durdurmak için KAYDET/R)", 3)
+  osd("hazır: hızı ayarla, Space ile başlat (5 sn geri sayım)", 3)
 end
 
-local function space() -- hazırken başlat, kayıtta duraklat, duraklamada sürdür
+local function start_run() -- geri sayım bitti: kayıt + oynatma başlar
+  rec.count, rec.run, rec.started = nil, true, true
+  rec.gen = rec.gen + 1
+  local t = mp.get_property_number("time-pos", 0) or 0
+  if t < 0.05 then rec.armed = true else mp.commandv("seek", "0", "absolute", "exact") end -- seek bitince (playback-restart) başlar
+  mp.set_property("pause", "no")
+  hud_update()
+  tick(rec.gen)
+end
+
+local function count_tick(cg)
+  if not (rec.on and rec.count and rec.cg == cg) then return end
+  if rec.count <= 0 then start_run(); return end
+  hud_update()
+  rec.timer = mp.add_timeout(1, function()
+    if rec.on and rec.count and rec.cg == cg then rec.count = rec.count - 1; count_tick(cg) end
+  end)
+end
+
+local function space() -- hazırken geri sayım→başlat, sayarken iptal, kayıtta duraklat, duraklamada sürdür
   if not rec.on then osd("önce KAYDET düğmesine bas", 2); return end
+  if rec.count then -- geri sayım sürerken Space = vazgeç (hazır durumuna dön)
+    rec.count, rec.cg = nil, rec.cg + 1
+    if rec.timer then rec.timer:kill(); rec.timer = nil end
+    hud_update()
+    osd("geri sayım iptal edildi", 2)
+    return
+  end
   if rec.run then
     rec.run = false
     if rec.timer then rec.timer:kill(); rec.timer = nil end
@@ -319,15 +350,15 @@ local function space() -- hazırken başlat, kayıtta duraklat, duraklamada sür
     osd("kayıt duraklatıldı (Space: devam)", 2)
     return
   end
-  rec.run, rec.gen = true, rec.gen + 1
-  if not rec.started then
-    rec.started = true
-    local t = mp.get_property_number("time-pos", 0) or 0
-    if t < 0.05 then rec.armed = true else mp.commandv("seek", "0", "absolute", "exact") end -- seek bitince (playback-restart) başlar
+  if rec.started then -- duraklamadan devam: geri sayım yok
+    rec.run, rec.gen = true, rec.gen + 1
+    mp.set_property("pause", "no")
+    hud_update()
+    tick(rec.gen)
+    return
   end
-  mp.set_property("pause", "no")
-  hud_update()
-  tick(rec.gen)
+  rec.count = COUNTDOWN
+  count_tick(rec.cg)
 end
 
 function toggle_record()

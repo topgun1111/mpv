@@ -89,3 +89,9 @@ Kodlama **üç parçaya** bölündü (aşağıda). **R1, R2, R3 yapıldı — ka
 - Testler: `lua_harness_kayit.lua` bölüm 4/6/8 yeniden yazıldı, `test_lua_kayit.py` (2 yeni akış testi, satır sınırı 470), `tests/test_recorder_quality.py` (2), README/`test_packaging_recording.py` (`S`). texlua ile yeşil; gerçek ffmpeg ile uçtan uca dışa aktarma doğrulandı.
 - **Gerçek Windows'ta DENENMEDİ**: (1) `MBTN_RIGHT`/`MBTN_LEFT` bağlarının OSC ve mpv bağlam menüsüyle çakışmaması; (2) `pause=yes` ile açılışta duraklı başlama (Kayit.bat `%*` ile açılan dosya dahil);
   (3) Space'in OSC odağı varken de `kayit/space`'e gitmesi; (4) sağ üstteki iki düğmenin pencere boyutuna göre isabet/çizim konumu (HUD 1280×720 ölçekli); (5) `Esc` ile iptal hâlâ yalnız dışa aktarma sürerken.
+
+### R5 — Yapıldı (2026-11-15): sol tuşla sürükleme + 5 sn geri sayım
+- **SOL tuş** artık sürükler (`MBTN_LEFT` → `kayit/drag`; düğme isabeti aynı bağda: KAYDET/HIZ(ileri) üstünde tık sürükleme başlatmaz). **SAĞ tık** yalnız HIZ düğmesinde yavaşlatır (`MBTN_RIGHT` → `kayit/rclick`). `kayit/click` bağı kalktı. Çift tık `ignore`.
+- **Geri sayım**: hazırken `Space` → `COUNTDOWN = 5` sn (HUD ortasında büyük sayı, sol üstte «BAŞLIYOR… (Space: iptal)»); video duraklı kalır, kayıt başlamaz. Sayarken `Space` = vazgeç (hazır durumuna döner). Sayaç 0 olunca `start_run()` oynatma + kaydı başlatır.
+  Duraklamadan devam (`Space`) geri sayımsız. KAYDET/`R` ile durdurma geri sayımı da iptal eder.
+- Testler: harness `COUNT`, `COUNT_CANCEL`, `DRAG_BTN` satırları; `test_lua_kayit.py` güncellendi. texlua ile yeşil. Gerçek Windows'ta denenmedi (sol tuş bağı mpv'nin kendi sol tuş davranışı/OSC ile çakışmıyor mu bakılacak).

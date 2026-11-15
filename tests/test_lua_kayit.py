@@ -133,21 +133,30 @@ def test_ready_space_pause_resume_flow(run):
     d, _ = run
     # KAYDET/R: hazır — oynatma durur, kayıt henüz yok (HUD «HAZIR», ● yok)
     assert d["READY"][0] == ["yes", "true", "false", "true", "false"]
-    # Space: kayıt başlar (video başa sarılır ve oynar)
+    # Space: 5 sn geri sayım — bu sürede video durur, kayıt yok, HUD «BAŞLIYOR…»
+    assert d["COUNT"][0][:5] == ["5", "yes", "false", "true", "1"]  # yalnız KAYDET'in seek'i
+    # geri sayım bitince kayıt başlar (video başa sarılır ve oynar)
     assert d["START"][0] == ["seek 0 absolute exact", "no", "true", "true"]
-    assert d["PAUSED"][0] == ["false", "yes", "true", "true"]  # kayıtta Space = duraklat, anahtar yok
+    # kayıtta Space = duraklat, anahtar yok
+    assert d["PAUSED"][0] == ["false", "yes", "true", "true"]
     assert d["RESUMED"][0] == ["true", "no"]  # tekrar Space = sürdür
 
 
 def test_screen_buttons_right_drag_and_s_export(run):
     d, video = run
     out = str(video.with_name("clip.kamera.mp4"))
-    assert d["SPD_CLICK"][0] == ["1.5", "true"]  # sol tık: hız 1 → 1.5, düğmede görünür
-    assert d["SPD_RIGHT"][0] == ["1.0"] and d["SPD_WRAP"][0] == ["0.25"]  # sağ tık yavaşlatır; 2× → 0.25× (döner)
-    assert d["SPACE_IDLE"][0] == ["yes", "true", "false"]  # KAYDET'siz Space: oynatma/kayıt başlamaz
-    assert d["BTN_READY"][0] == ["true", "false", "yes", "true", "true"]  # düğme → hazır, DURDUR yazar
-    assert d["CLICK_VIDEO"][0] == ["yes", "false"]  # videoya tık oynatmayı değiştirmez
-    assert d["DRAG_BTN"][0] == ["true", "true"]  # sol tuş kaydırmaz; SAĞ tuş kaydırır
+    # sol tık: hız 1 → 1.5, düğmede görünür
+    assert d["SPD_CLICK"][0] == ["1.5", "true"]
+    # sağ tık yavaşlatır; 2× → 0.25× (döner)
+    assert d["SPD_RIGHT"][0] == ["1.0"] and d["SPD_WRAP"][0] == ["0.25"]
+    # KAYDET'siz Space: oynatma/kayıt başlamaz
+    assert d["SPACE_IDLE"][0] == ["yes", "true", "false"]
+    # düğme → hazır, DURDUR yazar
+    assert d["BTN_READY"][0] == ["true", "false", "yes", "true", "true"]
+    # geri sayım: Space başlatır (5), tekrar Space iptal eder; video duraklı, kayıt yok
+    assert d["COUNT_CANCEL"][0] == ["5", "nil", "false", "yes", "true"]
+    # sol tuş kaydırır; sağ tuş kaydırmaz; oynatma değişmez
+    assert d["DRAG_BTN"][0] == ["true", "true", "yes"]
     assert d["BTN_STOP"][0] == ["false", "true", "true", "true"]  # durdu, otomatik dışa aktarma YOK
     assert d["S_EXPORT"][0] == [f"C:/app/python/pythonw.exe|-m|recorder|export|{video}|--out|{out}"]
     assert d["LOADED_PAUSED"][0] == ["yes"]  # video açılınca duraklı
@@ -163,16 +172,18 @@ def test_wiring_in_config_and_no_tracking_code():
     lines = {ln.split(None, 1)[0]: ln for ln in inp.splitlines()
              if ln.strip() and not ln.startswith("#")}
     lua = KAYIT_LUA.read_text(encoding="utf-8")
-    binds = {"MBTN_LEFT": "click", "MBTN_RIGHT": "drag", "WHEEL_UP": "wheel-in",
+    binds = {"MBTN_LEFT": "drag", "MBTN_RIGHT": "rclick", "WHEEL_UP": "wheel-in",
              "WHEEL_DOWN": "wheel-out", "SPACE": "space", "+": "zoom-in", "-": "zoom-out",
-             "0": "reset", "r": "record", "[": "slower", "]": "faster", "k": "rotate", "s": "export"}
+             "0": "reset", "r": "record", "[": "slower", "]": "faster", "k": "rotate",
+             "s": "export"}
     for key, name in binds.items():
         assert lines[key].endswith(f"script-binding kayit/{name}"), key
         assert f'add_key_binding(nil, "{name}"' in lua
     # oynat/durdur YALNIZ alttaki düğmeyle: çift tık, P ve oynat/duraklat tuşları etkisiz
     for key in ("MBTN_LEFT_DBL", "p", "PAUSE", "PLAYPAUSE"):
         assert lines[key].endswith("ignore"), key
-    assert "pause=yes" in (CONF / "mpv.conf").read_text(encoding="utf-8")  # açılışta oynatma başlamaz
+    conf = (CONF / "mpv.conf").read_text(encoding="utf-8")
+    assert "pause=yes" in conf  # açılışta oynatma başlamaz
     assert len(lua.splitlines()) <= 470
     low = lua.lower()
     assert not any(w in low for w in ("onnx", "yolo", "tracker", "track-point", "models"))

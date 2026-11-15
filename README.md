@@ -226,12 +226,12 @@ Ana uygulamadan ayrı, **model içermeyen** küçük paket (`dist/TakipliOynatKa
 | Tuş / eylem | İşlev |
 |---|---|
 | Tekerlek | İmleç etrafında zoom (1×–16×); `+` / `-` / `0` = zoom düzeyi / sıfırla |
-| Sağ tuş basılı + sürükle | Videoyu kaydır (tekerlekle aynı anda olabilir) |
+| Sol tuş basılı + sürükle | Videoyu kaydır (tekerlekle aynı anda olabilir) |
 | Sağ üst **KAYDET** düğmesi (veya `R`) | Kayıt oturumunu aç: **hazır**, oynatma başlamaz → tekrar basınca kaydı durdurur (`<video>.rec.json`) |
-| **HIZ** düğmesi (sol tık / sağ tık) | Önizleme hızı 0.25×–2×: ileri / geri döner (`[` `]` aynı işi yapar) |
-| `Space` | Hazırken kaydı başlatır; kayıtta duraklatır; tekrar basınca sürdürür |
+| **HIZ** düğmesi (sol tık = ileri / sağ tık = geri) | Önizleme hızı 0.25×–2×: ileri / geri döner (`[` `]` aynı işi yapar) |
+| `Space` | Hazırken **5 sn geri sayım**, sonra kayıt + oynatma başlar (sayarken `Space` = vazgeç); kayıtta duraklatır; tekrar basınca sürdürür |
 | `S` | Kaydı yeni videoya aktar → `<video>.kamera.mp4` (yüksek kalite; ilerleme OSD'de, `Esc` = iptal) |
 | Alttaki oynat düğmesi | Videoyu oynatır/durdurur (Space, `P`, tık, çift tık oynatmaz); video açılınca duraklı başlar |
 | `K` | Videoyu 90° döndür (kayıt sırasında yok) |
 
-Akış: `Kayit.bat` ya da kısayol → video aç → **KAYDET** (hazır) → hızı ayarla → `Space` (başlat) → zoom + sağ tuşla sürükle → **KAYDET** (durdur) → `S`. Çıktı özgün hızda, özgün sesle (`-shortest`) ve kaynakla aynı boyutta yazılır; önizleme hızı çıktıyı etkilemez. Komut satırından: `python -m recorder export video.mp4 [--rec F] [--out F] [--crf 14] [--preset medium] [--no-audio]`; sürükle-bırak için `Disa-Aktar.bat`. Derleme: `build-recording.yml` (etiket `kayit-v*` Release'i açar; ana `v*` etiketinden bağımsız). Lisanslar: `THIRD_PARTY_NOTICES.md` Madde 3c.
+Akış: `Kayit.bat` ya da kısayol → video aç → **KAYDET** (hazır) → hızı ayarla → `Space` (5 sn geri sayım, başlar) → zoom + sol tuşla sürükle → **KAYDET** (durdur) → `S`. Çıktı özgün hızda, özgün sesle (`-shortest`) ve kaynakla aynı boyutta yazılır; önizleme hızı çıktıyı etkilemez. Komut satırından: `python -m recorder export video.mp4 [--rec F] [--out F] [--crf 14] [--preset medium] [--no-audio]`; sürükle-bırak için `Disa-Aktar.bat`. Derleme: `build-recording.yml` (etiket `kayit-v*` Release'i açar; ana `v*` etiketinden bağımsız). Lisanslar: `THIRD_PARTY_NOTICES.md` Madde 3c.

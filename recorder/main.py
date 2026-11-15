@@ -29,7 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--ffmpeg", help="ffmpeg yolu")
     ex.add_argument("--no-audio", action="store_true")
     ex.add_argument("--crf", type=int, default=14, help="kalite (düşük = daha iyi; 14 = yüksek)")
-    ex.add_argument("--preset", default="medium", help="x264 hazır ayarı (yavaş = daha küçük dosya)")
+    ex.add_argument("--preset", default="medium",
+                    help="x264 hazır ayarı (yavaş = daha küçük dosya)")
     inf = sub.add_parser("info", help="Kayıt dosyasının özeti")
     inf.add_argument("rec")
     return ap

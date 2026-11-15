@@ -77,8 +77,8 @@ def _write_state(path: Path, state: str, n: int, total: int, error: str | None =
 
 
 def export_video(video: str, views: list[list[float]], out: str, *, rotate: int = 0,
-                 ffmpeg: str | None = None, audio: bool = True, crf: int = 18, preset: str = "veryfast",
-                 progress=None, clock=time.monotonic) -> dict:
+                 ffmpeg: str | None = None, audio: bool = True, crf: int = 18,
+                 preset: str = "veryfast", progress=None, clock=time.monotonic) -> dict:
     """Videoyu anahtar karelerle dışa aktar → {frames, ffmpeg, audio, size, out}.
     `<out>.export.json` ilerleme, `<out>.export.cancel` varsa iptal (yarım çıktı silinir)."""
     import cv2
