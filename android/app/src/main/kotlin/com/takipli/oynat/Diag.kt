@@ -67,6 +67,7 @@ import kotlin.concurrent.thread
  */
 object Diag {
     private const val DIAG_MAX = 60_000
+    private val LAST_RUN = Regex(" \\| (SCAN_|EXPORT_|DECODE_|SLOW_RUN|SPEED|FIRST_FRAME|PICK_|TARGET_|JUMPY|LOW_CONF|PLAYER_|NO_PEOPLE)")
     private val lock = Any()
     @Volatile private var foreground = false
     private var started = 0
@@ -478,6 +479,8 @@ object Diag {
         val sections = listOf(
             "report" to head + "\n" + vitals(ctx),
             "top findings (errors, predictions, warnings)" to top,
+            // D5: scan/decode/export telemetry survives the size cut here (diag.log is trimmed from the old end in the compact report)
+            "last scan / decode / export" to dedupeLog(diag.lines().filter { LAST_RUN.containsMatchIn(it) }.joinToString("\n")).lines().takeLast(10).joinToString("\n"),
             "error log (deduplicated)" to dedupeLog(errAll),
             "previous process exits" to exits(ctx),
             "last self-check" to runCatching { selfFile(ctx).takeIf { it.isFile }?.readText().orEmpty() }.getOrDefault(""),

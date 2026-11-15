@@ -56,9 +56,10 @@ class SamBenchReport(val rows: List<SamBenchRow>, val parity: String, val therma
     fun text(device: String): String = buildString {
         appendLine("$device | thermal $thermal (rerun after cooling if > 1)")
         for (r in rows) {
-            val c = r.cpu?.let { "CPU %.1f ms (p95 %.1f)".format(it.meanMs, it.p95Ms) } ?: "CPU failed"
-            val n = r.npu?.let { "NPU %.1f ms (p95 %.1f)".format(it.meanMs, it.p95Ms) } ?: "NPU failed"
-            val x = if (r.cpu != null && r.npu != null && r.npu.meanMs > 0) " x%.1f".format(r.cpu.meanMs / r.npu.meanMs) else ""
+            // median first: one stalled run (NPU max 18.9 s seen at 12 % battery + power-save) wrecks the mean and flipped the speed-up to x0.4
+            val c = r.cpu?.let { "CPU %.1f ms (mean %.1f, p95 %.1f)".format(it.medianMs, it.meanMs, it.p95Ms) } ?: "CPU failed"
+            val n = r.npu?.let { "NPU %.1f ms (mean %.1f, p95 %.1f)".format(it.medianMs, it.meanMs, it.p95Ms) } ?: "NPU failed"
+            val x = if (r.cpu != null && r.npu != null && r.npu.medianMs > 0) " x%.1f".format(r.cpu.medianMs / r.npu.medianMs) else ""
             appendLine("${r.component.removePrefix("sam-").removeSuffix(".onnx")} | $c | $n$x | load ${r.loadMs} ms${r.npuNote?.let { " | NPU: $it" } ?: ""}")
         }
         appendLine(parity)

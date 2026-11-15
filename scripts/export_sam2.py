@@ -75,15 +75,48 @@ def _patch_rope_real(sam) -> int:
         k = torch.stack([ka * c - kb * s, ka * s + kb * c], -1).flatten(3)
         return q.type_as(xq), k.type_as(xk)
 
+    def rope_v2(x, freqs_cis, repeat_freqs):  # EdgeTAM cross-attention (RoPEAttentionv2): same maths as apply_rotary_enc_v2, real-valued
+        if repeat_freqs == 0:
+            assert x.shape[-2] == 0
+        if x.shape[-2] == 0:
+            return x
+        B, H, N, C = x.shape
+        L = freqs_cis.shape[0]
+        x_no = None
+        if N == L * repeat_freqs:
+            x_rope = x
+        else:
+            no_rope = N // repeat_freqs - L
+            xv = x.view(B, H, repeat_freqs, N // repeat_freqs, C)
+            x_rope = xv[..., no_rope:, :].reshape(B, H, -1, C)
+            x_no = xv[..., :no_rope, :].reshape(B, H, -1, C)
+        xr = x_rope.float().reshape(*x_rope.shape[:-1], -1, 2)
+        a, b = xr[..., 0], xr[..., 1]
+        c, s = freqs_cis[..., 0], freqs_cis[..., 1]  # [L, C/2]
+        if repeat_freqs > 1:
+            c, s = c.repeat(repeat_freqs, 1), s.repeat(repeat_freqs, 1)  # tiled like the original expand+flatten
+        c, s = c[None, None], s[None, None]
+        out = torch.stack([a * c - b * s, a * s + b * c], -1).flatten(3).type_as(x)
+        if x_no is not None:
+            out = out.view(B, H, repeat_freqs, -1, C)
+            x_no = x_no.view(B, H, repeat_freqs, -1, C)
+            out = torch.cat((x_no, out), dim=3).view(B, H, N, C)
+        return out
+
     n = 0
     for name, mod in list(sys.modules.items()):
-        if name.startswith("sam2") and mod is not None and hasattr(mod, "apply_rotary_enc"):
-            mod.apply_rotary_enc = rope
-            n += 1
+        if name.startswith("sam2") and mod is not None:
+            if hasattr(mod, "apply_rotary_enc"):
+                mod.apply_rotary_enc = rope
+                n += 1
+            if hasattr(mod, "apply_rotary_enc_v2"):
+                mod.apply_rotary_enc_v2 = rope_v2
+                n += 1
     for m in sam.modules():
-        f = getattr(m, "freqs_cis", None)
-        if isinstance(f, torch.Tensor) and f.is_complex():
-            m.freqs_cis = torch.view_as_real(f).detach()
+        for attr in ("freqs_cis", "freqs_cis_q", "freqs_cis_k"):
+            f = getattr(m, attr, None)
+            if isinstance(f, torch.Tensor) and f.is_complex():
+                setattr(m, attr, torch.view_as_real(f).detach())
     return n
 
 
@@ -180,7 +213,10 @@ def main(argv: list[str]) -> int:
             return self.m._encode_new_memory(*args)
 
         def forward(self, image_feat, low_res_mask, object_score):
-            return self.run(image_feat, low_res_mask, object_score)[0]
+            out = self.run(image_feat, low_res_mask, object_score)[0]
+            # EdgeTAM's _encode_new_memory takes the score but never uses it (no no_obj_embed_spatial): an unused input is dropped from
+            # the ONNX graph and the app's run(image_feat, low_res_mask, object_score) fails. Always keep it connected (exactly +0).
+            return out + 0.0 * object_score.sum()
 
     class MemAttn(nn.Module):
         def __init__(self, m, pos_flat, mem_pos, k, p):
