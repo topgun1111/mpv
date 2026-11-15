@@ -1,4 +1,8 @@
-"""build-all.yml: tek tetikleyici; diğer iş akışları yeniden kullanılabilir (workflow_call), böylece hiçbir şey iki kez çalışmaz."""
+"""build-all.yml: tek tetikleyici; diğerleri yeniden kullanılabilir (workflow_call).
+
+Böylece hiçbir şey iki kez çalışmaz.
+"""
+
 from pathlib import Path
 
 WF = Path(__file__).resolve().parents[1] / ".github" / "workflows"

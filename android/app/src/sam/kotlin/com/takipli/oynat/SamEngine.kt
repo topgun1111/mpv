@@ -11,6 +11,7 @@ import com.takipli.oynat.core.BenchStats
 import com.takipli.oynat.core.FreePick
 import com.takipli.oynat.core.MemoryBank
 import com.takipli.oynat.core.PointTrack
+import com.takipli.oynat.core.TrackGate
 import com.takipli.oynat.core.TrackDoc
 import com.takipli.oynat.core.benchStats
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +22,7 @@ import java.io.File
 import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -50,6 +52,7 @@ object SamEngine {
     private const val M = 256
     private const val MIN_CONF = 0.35
     private const val MAX_GAP_S = 1.0
+    private const val FILL_MAX_FRAMES = 120 // reverse fill of lost spans: at most ~20 s of extra frames per scan
     private const val THREADS = 4
     private val MEAN = floatArrayOf(0.485f, 0.456f, 0.406f)
     private val STD = floatArrayOf(0.229f, 0.224f, 0.225f)
@@ -185,7 +188,7 @@ object SamEngine {
     private fun sigmoid(x: Double) = 1.0 / (1.0 + exp(-x))
 
     // ---------------------------------------------------------------- memory tracker
-    private suspend fun walkMemory(s: Models, files: List<File>, order: List<Int>, pick: FreePick, ms: MutableMap<String, Double>, onFrame: () -> Unit): Map<Int, Step> {
+    private suspend fun walkMemory(s: Models, files: List<File>, order: List<Int>, pick: FreePick, ms: MutableMap<String, Double>, onFrame: () -> Unit, gate: TrackGate = TrackGate()): Map<Int, Step> {
         val env = s.env
         val trk = s.trk!!; val memEnc = s.memEnc!!; val memAttn = s.memAttn!!
         val memShape = memAttn.inputShape("mem_feats")           // [K, ...] static
@@ -194,6 +197,8 @@ object SamEngine {
         val bank = MemoryBank<Mem>(k, p)
         val res = HashMap<Int, Step>()
         var started = false; var area = 0.0
+        var anchorPtr = FloatArray(0); var lastPtr: FloatArray? = null // object pointers: the prompted one and the last clean one
+        var stableW = 0.0; var stableH = 0.0; var lastCx = 0.0; var lastCy = 0.0; var lost = 0; var unclean = 0
         fun <T> timed(name: String, f: () -> T): T { val t0 = System.nanoTime(); val r = f(); ms[name] = (ms[name] ?: 0.0) + (System.nanoTime() - t0) / 1e6; return r }
         fun encodeMemory(imageFeat: OnnxTensor, mask: FloatArray, off: Int, score: Float): FloatArray {
             val mt = tensor(env, mask.copyOfRange(off, off + M * M), 1, 1, M.toLong(), M.toLong()); val st = tensor(env, floatArrayOf(score), 1, 1)
@@ -222,6 +227,8 @@ object SamEngine {
                         val mf = timed(MEMENC) { encodeMemory(feat, d.masks, b * M * M, d.score) }
                         bank.reset(Mem(mf, d.ptrs.copyOfRange(b * 256, b * 256 + 256)))
                         started = true; area = cd.area
+                        anchorPtr = d.ptrs.copyOfRange(b * 256, b * 256 + 256)
+                        stableW = cd.box.w; stableH = cd.box.h; lastCx = cd.cx; lastCy = cd.cy
                         res[fi] = Step(cd.cx, cd.cy, cd.iouPred, cd.box.w, cd.box.h)
                     } else {
                         val slots = bank.memSlots(); val ptrSlots = bank.ptrSlots()
@@ -235,11 +242,25 @@ object SamEngine {
                                 val ratio = if (area > 0) cd.area / area else 1.0
                                 val conf = (d.iou[0] * sigmoid(d.score.toDouble())) * (if (ratio in 0.25..4.0) 1.0 else 0.5)
                                 if (d.score > 0f && cd.area > 0 && conf >= MIN_CONF) {
-                                    val mf = timed(MEMENC) { encodeMemory(feat, d.masks, 0, d.score) }
-                                    bank.push(Mem(mf, d.ptrs.copyOfRange(0, 256)))
-                                    area = 0.8 * area + 0.2 * cd.area
-                                    res[fi] = Step(cd.cx, cd.cy, conf.coerceAtMost(1.0), cd.box.w, cd.box.h)
-                                }
+                                    val ptr = d.ptrs.copyOfRange(0, 256)
+                                    val sim = max(TrackGate.cosine(ptr, anchorPtr), lastPtr?.let { TrackGate.cosine(ptr, it) } ?: -1.0)
+                                    val dist = hypot(cd.cx - lastCx, cd.cy - lastCy)
+                                    if (gate.accept(dist, max(stableW, stableH), lost, sim)) {
+                                        // only clean frames become memory (a half-hidden subject or the blocker must not); never deadlock on a real size change
+                                        val clean = TrackGate.remember(conf, ratio) || unclean >= TrackGate.FORCE_CLEAN_FRAMES
+                                        if (clean) {
+                                            val mf = timed(MEMENC) { encodeMemory(feat, d.masks, 0, d.score) }
+                                            bank.push(Mem(mf, ptr)); lastPtr = ptr
+                                            area = 0.8 * area + 0.2 * cd.area
+                                            stableW = cd.box.w; stableH = cd.box.h
+                                            if (lost == 0 && unclean == 0) gate.learn(sim)
+                                            unclean = 0
+                                        } else unclean++
+                                        val (w, h) = TrackGate.size(ratio, cd.box.w, cd.box.h, stableW, stableH) // partly covered: keep the clean size, no zoom pumping
+                                        res[fi] = Step(cd.cx, cd.cy, conf.coerceAtMost(1.0), w, h)
+                                        lastCx = cd.cx; lastCy = cd.cy; lost = 0; gate.note()
+                                    } else lost++ // looks like something else (the blocker): treated as lost
+                                } else lost++
                             }
                         } finally { mt.close(); pt.close() }
                     }
@@ -248,6 +269,28 @@ object SamEngine {
             onFrame()
         }
         return res
+    }
+
+    /**
+     * Reverse fill: between two tracked frames a and b with lost frames in between, walk BACKWARDS from b (seeded with b's box) through the lost span.
+     * The forward walk only re-finds the subject once it is clean again; this picks it up while it is still coming out from behind the blocker,
+     * so the camera arrives with it instead of after it. Frames that already have a row are never changed; extra frames are capped.
+     */
+    private suspend fun reverseFill(s: Models, files: List<File>, ts: List<Double>, steps: Map<Int, Step>, ms: MutableMap<String, Double>, gate: TrackGate): Map<Int, Step> {
+        val keys = steps.keys.sorted()
+        val out = HashMap<Int, Step>(); var budget = FILL_MAX_FRAMES
+        for (q in 0 until keys.size - 1) {
+            val a = keys[q]; val b = keys[q + 1]; val n = b - a - 1
+            if (n < 1 || n > budget) continue
+            val st = steps.getValue(b)
+            val x1 = (st.cx - st.w / 2).coerceIn(0.0, 1.0); val x2 = (st.cx + st.w / 2).coerceIn(0.0, 1.0)
+            val y1 = (st.cy - st.h / 2).coerceIn(0.0, 1.0); val y2 = (st.cy + st.h / 2).coerceIn(0.0, 1.0)
+            val pick = FreePick(ts[b], st.cx, st.cy, shapes = listOf(listOf(listOf(x1, y1), listOf(x2, y1), listOf(x2, y2), listOf(x1, y2))))
+            val got = walkMemory(s, files, (b downTo a + 1).toList(), pick, ms, {}, gate)
+            for ((fi, step) in got) if (fi != b && fi !in steps) out[fi] = step
+            budget -= n
+        }
+        return out
     }
 
     // ---------------------------------------------------------------- previous design: prompt per frame (encoder + decoder only)
@@ -330,11 +373,13 @@ object SamEngine {
                     val ms = HashMap<String, Double>()
                     open(ctx, memory).use { s ->
                         val tick = { done++; onProgress(done, total, ts[(done - files.size - 1).coerceIn(0, ts.size - 1)]) }
-                        val walk: suspend (List<Int>) -> Map<Int, Step> = { order -> if (memory) walkMemory(s, files, order, pick, ms, tick) else walkPrompt(s, files, order, pick, ms, tick) }
+                        val gate = TrackGate()
+                        val walk: suspend (List<Int>) -> Map<Int, Step> = { order -> if (memory) walkMemory(s, files, order, pick, ms, tick, gate) else walkPrompt(s, files, order, pick, ms, tick) }
                         val steps = HashMap<Int, Step>(walk((p until files.size).toList()))
                         steps += walk((p downTo 0).toList()).filterKeys { it != p }
+                        if (memory) steps += reverseFill(s, files, ts, steps, ms, gate)
                         val n = max(1, files.size)
-                        lastRun = (if (memory) "EdgeTAM memory tracker: " else "EdgeTAM prompt tracker: ") + s.summary(ms.mapValues { it.value / n }, files.size)
+                        lastRun = (if (memory) "EdgeTAM memory tracker: " else "EdgeTAM prompt tracker: ") + s.summary(ms.mapValues { it.value / n }, files.size) + (if (memory) " | " + gate.summary() else "")
                         return steps
                     }
                 }

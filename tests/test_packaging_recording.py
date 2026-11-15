@@ -58,7 +58,8 @@ def test_workflow_orders_steps_and_forbids_models():
         assert banned not in wf, banned
     assert "find_spec('onnxruntime')" in wf and "*.onnx" in wf  # onnxruntime/model yok denetlenir
     all_wf = (ROOT / ".github" / "workflows" / "build-all.yml").read_text(encoding="utf-8")
-    assert 'tags: ["v*", "kayit-v*"]' in all_wf and "refs/tags/kayit-v" in wf  # ana `v*` etiketinden ayrı; tetikleyici build-all.yml'de
+    # ana `v*` etiketinden ayrı; tetikleyici build-all.yml'de
+    assert 'tags: ["v*", "kayit-v*"]' in all_wf and "refs/tags/kayit-v" in wf
     assert "workflow_dispatch" in wf and "windows-latest" in wf
     assert "TakipliOynatKayit-Setup" in wf and "TakipliOynatKayit-Portable" in wf
 
