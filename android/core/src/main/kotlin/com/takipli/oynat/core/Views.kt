@@ -35,6 +35,12 @@ private val INFER: Map<Int, Triple<Int, Int, Double>> = mapOf(
 )
 private const val INFER_CONF = 0.5
 
+/** Part boxes fill at least this share of the view (`parts.py::PART_FIT`): a big box (legs, torso) must not stay at 1x because of `targetFill`. */
+const val PART_FIT = 0.70
+
+/** Minimum log2 zoom for a part box (~1.5x) as long as the box still fits within `PART_FIT` of the view (`geometry.py::PART_ZOOM`). */
+const val PART_ZOOM = 0.6
+
 /** `parts.py::infer_joint`: pixel estimate `[x, y, conf]` of a missing ankle/wrist from two confident upper joints, or null. */
 fun inferJoint(row: List<Double>, j: Int, w: Int, h: Int, minConf: Double): DoubleArray? {
     val (p, g, ratio) = INFER[j] ?: return null
@@ -48,14 +54,16 @@ private fun clamp(v: Double, lo: Double, hi: Double) = max(lo, min(hi, v))
 private fun round4(v: Double) = round(v, 4) // exact half-even like Python (see Scan.kt); +0.0 there turns -0.0 into 0.0
 
 /** `geometry.py::zoom_for_bbox`: log2 zoom so the box fills `fill` of the frame height (and fits the width). */
-fun zoomForBbox(b: BBox, fw: Double, fh: Double, fill: Double, minZoom: Double, maxZoom: Double): Double {
-    val scale = min(fill / max(b.h / fh, 1e-6), 0.9 / max(b.w / fw, 1e-6))
+fun zoomForBbox(b: BBox, fw: Double, fh: Double, fill: Double, minZoom: Double, maxZoom: Double, minFit: Double = 0.0): Double {
+    val hf = max(b.h / fh, 1e-6); val wf = max(b.w / fw, 1e-6)
+    var scale = min(fill / hf, 0.9 / wf)
+    if (minFit > 0.0) scale = max(scale, minOf(minFit / hf, 0.9 / wf, 2.0.pow(PART_ZOOM)))
     return clamp(log2(max(scale, 1e-6)), minZoom, maxZoom)
 }
 
 /** `geometry.py::compute_view`: zoom and the pan that centres the box (clamped so no border shows). */
-fun computeView(b: BBox, fw: Double, fh: Double, fill: Double, minZoom: Double, maxZoom: Double): View {
-    val zoom = zoomForBbox(b, fw, fh, fill, minZoom, maxZoom)
+fun computeView(b: BBox, fw: Double, fh: Double, fill: Double, minZoom: Double, maxZoom: Double, minFit: Double = 0.0): View {
+    val zoom = zoomForBbox(b, fw, fh, fill, minZoom, maxZoom, minFit)
     val half = 0.5 / 2.0.pow(zoom)
     return View(zoom, 0.5 - clamp(b.cx / fw, half, 1.0 - half), 0.5 - clamp(b.cy / fh, half, 1.0 - half))
 }
@@ -89,7 +97,7 @@ private fun runsOf(idx: List<Int>): List<List<Int>> {
  * gaps hold, then zoom out, and zoom back in before the target returns, 4) repeated keyframes are dropped.
  * Nothing is filled, smoothed or eased across a cut (`cuts` = indices of samples that start a new shot).
  */
-fun viewsFromBoxes(ts: List<Double>, boxes: Map<Int, DoubleArray>, cfg: Config, cuts: Set<Int> = emptySet()): List<ViewKey> {
+fun viewsFromBoxes(ts: List<Double>, boxes: Map<Int, DoubleArray>, cfg: Config, cuts: Set<Int> = emptySet(), minFit: Double = 0.0): List<ViewKey> {
     val n = ts.size
     val bx = HashMap<Int, DoubleArray>()
     for ((k, v) in boxes) bx[k] = v.copyOf()
@@ -122,7 +130,7 @@ fun viewsFromBoxes(ts: List<Double>, boxes: Map<Int, DoubleArray>, cfg: Config, 
         }
         for ((j, i) in run.withIndex()) {
             val cx = sm[0][j]; val cy = sm[1][j]; val w = sm[2][j]; val h = sm[3][j]
-            views[i] = computeView(BBox(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), 1.0, 1.0, cfg.targetFill, cfg.minZoom, cfg.maxZoom)
+            views[i] = computeView(BBox(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), 1.0, 1.0, cfg.targetFill, cfg.minZoom, cfg.maxZoom, minFit)
         }
     }
     val hold = max(cfg.lostHoldS, 0.0)
@@ -236,6 +244,7 @@ fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config, kps: 
 fun buildTargetViews(doc: TrackDoc, target: Target, cfg: Config): List<ViewKey> {
     val ts = doc.samples.map { it.t }
     val ids = setOf(target.id) + target.linked
+    var minFit = 0.0
     val boxes = when {
         target.free != null -> {
             // Part 16a: any tapped spot; fused multi-pass point, then the same camera-compensated off-screen propagation
@@ -245,6 +254,7 @@ fun buildTargetViews(doc: TrackDoc, target: Target, cfg: Config): List<ViewKey> 
         target.preset != null -> {
             // Part 10b (`offline.py::build_preset_views`): per-joint One-Euro, then off-screen propagation
             val part = target.preset != "person"
+            if (part) minFit = PART_FIT
             val kps = if (part && cfg.kpFilter) smoothKeypoints(doc, ids, cfg) else null
             val b = presetBoxes(doc, ids, target.preset, cfg, kps)
             if (part && cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
@@ -252,7 +262,7 @@ fun buildTargetViews(doc: TrackDoc, target: Target, cfg: Config): List<ViewKey> 
         target.part != null -> jointBoxes(doc, ids, target.part, cfg)
         else -> personBoxes(doc, ids)
     }
-    return viewsFromBoxes(ts, boxes, cfg, cutIndices(doc))
+    return viewsFromBoxes(ts, boxes, cfg, cutIndices(doc), minFit)
 }
 
 /** `live.py::pick_track` on pixel boxes: inside a box -> smallest centre offset (then area); else nearest within `tol`. */

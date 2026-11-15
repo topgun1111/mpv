@@ -304,7 +304,7 @@ def build_preset_views(doc: dict, ids: int | set[int], preset: str,
                        cfg: Config) -> list[list[float]]:
     """Kimlik(ler)in hazır ayar (`parts.PRESETS`) grubunu izleyen görünüm anahtar kareleri."""
     from .offscreen import propagate_boxes, smooth_keypoints
-    from .parts import preset_boxes
+    from .parts import PART_FIT, preset_boxes
 
     ts = [s["t"] for s in doc["samples"]]
     ids = {ids} if isinstance(ids, int) else set(ids)
@@ -313,7 +313,7 @@ def build_preset_views(doc: dict, ids: int | set[int], preset: str,
     boxes = preset_boxes(doc, ids, preset, cfg, kps)
     if part and cfg.kp_world and cfg.kp_hold_s > 0:  # 10b: kare dışına çıkan/kaybolan parçayı taşı
         boxes = propagate_boxes(doc, boxes, cfg)
-    return _views_from_boxes(ts, boxes, cfg, cut_indices(doc))
+    return _views_from_boxes(ts, boxes, cfg, cut_indices(doc), PART_FIT if part else 0.0)
 
 
 def cut_indices(doc: dict) -> set[int]:
@@ -322,7 +322,8 @@ def cut_indices(doc: dict) -> set[int]:
 
 
 def _views_from_boxes(ts: list[float], boxes: dict[int, list[float]], cfg: Config,
-                      cuts: set[int] | None = None) -> list[list[float]]:
+                      cuts: set[int] | None = None,
+                      min_fit: float = 0.0) -> list[list[float]]:
     """`cuts`: çekim kesmesi indeksleri; doldurma, yumuşatma ve zoom-out/in kesmeyi AŞMAZ."""
     n = len(ts)
     cuts = cuts or set()
@@ -357,7 +358,8 @@ def _views_from_boxes(ts: list[float], boxes: dict[int, list[float]], cfg: Confi
         for j, i in enumerate(run):
             cx, cy, w, h = sm[0][j], sm[1][j], sm[2][j], sm[3][j]
             bb = BBox(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
-            views[i] = compute_view(bb, 1.0, 1.0, cfg.target_fill, cfg.min_zoom, cfg.max_zoom)
+            views[i] = compute_view(bb, 1.0, 1.0, cfg.target_fill, cfg.min_zoom, cfg.max_zoom,
+                                    min_fit)
     # 3) uzun kayıplar: bekle → zoom-out, hedef dönmeden önce zoom-in
     hold, dur = max(cfg.lost_hold_s, 0.0), cfg.lost_zoomout_s
     i = 0

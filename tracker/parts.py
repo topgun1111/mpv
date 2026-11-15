@@ -9,6 +9,7 @@ dolgusu)
 from __future__ import annotations
 
 PART_MARGIN = 0.02  # kare yüksekliği oranı; Config'te `part_margin` varsa o kullanılır
+PART_FIT = 0.70  # parça kutusu görünümün en az bu kadarını kaplar (büyük parçada zoom'un 1x'te kalmasını önler)
 
 PRESETS: dict[str, tuple[int, ...]] = {
     "person": (),

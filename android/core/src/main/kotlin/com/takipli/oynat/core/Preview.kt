@@ -12,10 +12,10 @@ class PersonOverlay(val id: Int, val box: DoubleArray, val kp: DoubleArray?, val
 class PreviewOverlay(val persons: List<PersonOverlay>, val partBox: DoubleArray?, val crop: DoubleArray?)
 
 /** Crop the camera would use for a `[cx, cy, w, h]` (normalized) box: `computeView` + the centre/size maths of `cropRect`, unrounded. */
-fun cropForBox(box: DoubleArray, w: Int, h: Int, cfg: Config): DoubleArray {
+fun cropForBox(box: DoubleArray, w: Int, h: Int, cfg: Config, minFit: Double = 0.0): DoubleArray {
     val bw = box[2] * w; val bh = box[3] * h
     val b = BBox(box[0] * w - bw / 2, box[1] * h - bh / 2, box[0] * w + bw / 2, box[1] * h + bh / 2)
-    val v = computeView(b, w.toDouble(), h.toDouble(), cfg.targetFill, cfg.minZoom, cfg.maxZoom)
+    val v = computeView(b, w.toDouble(), h.toDouble(), cfg.targetFill, cfg.minZoom, cfg.maxZoom, minFit)
     val half = 0.5 / 2.0.pow(max(v.zoom, 0.0))
     val cx = 0.5 - v.panX; val cy = 0.5 - v.panY
     return doubleArrayOf(cx - half, cy - half, cx + half, cy + half)
@@ -41,7 +41,8 @@ fun previewOverlay(s: Sample, w: Int, h: Int, target: Target?, cfg: Config): Pre
     }
     val box = target?.let { partBoxNow(s, w, h, it, cfg) }
     val part = box?.let { doubleArrayOf(it[0] - it[2] / 2, it[1] - it[3] / 2, it[0] + it[2] / 2, it[1] + it[3] / 2) }
-    return PreviewOverlay(persons, part, box?.let { cropForBox(it, w, h, cfg) })
+    val fit = if (target?.preset != null && target.preset != "person") PART_FIT else 0.0 // same framing as `buildTargetViews`
+    return PreviewOverlay(persons, part, box?.let { cropForBox(it, w, h, cfg, fit) })
 }
 
 /** Target for the preview while the scan runs: the pick resolved on the samples so far (null until a person is at the pick). */

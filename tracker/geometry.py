@@ -53,6 +53,9 @@ class View:
     pan_y: float = 0.0
 
 
+PART_ZOOM = 0.6  # log2 (~1.5x): vücut parçası için en az yakınlaşma (sığdığı sürece)
+
+
 def _clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
 
@@ -64,11 +67,19 @@ def zoom_for_bbox(
     target_fill: float = 0.30,
     min_zoom: float = 0.0,
     max_zoom: float = 2.5,
+    min_fit: float = 0.0,
 ) -> float:
-    """bbox kare yüksekliğinin `target_fill` oranını kaplayacak log2 zoom."""
+    """bbox kare yüksekliğinin `target_fill` oranını kaplayacak log2 zoom.
+
+    `min_fit` > 0 (vücut parçası): büyük parça kutusu (bacak, gövde) `target_fill`'den dolayı
+    1x'e kıstırılıp zoom'suz kalmasın diye en az `PART_ZOOM` (log2) yakınlaşılır; ama kutu
+    görünümün `min_fit` oranını geçmeyecek şekilde (genişlik 0.9'a sığar). Zaten yeterince
+    yakınlaşan küçük kutularda etkisi yoktur."""
     h_frac = max(bbox.h / frame_h, 1e-6)
     w_frac = max(bbox.w / frame_w, 1e-6)
     scale = min(target_fill / h_frac, 0.9 / w_frac)  # genişlik de sığsın
+    if min_fit > 0.0:
+        scale = max(scale, min(min_fit / h_frac, 0.9 / w_frac, 2.0**PART_ZOOM))
     return _clamp(math.log2(max(scale, 1e-6)), min_zoom, max_zoom)
 
 
@@ -87,8 +98,9 @@ def compute_view(
     target_fill: float = 0.30,
     min_zoom: float = 0.0,
     max_zoom: float = 2.5,
+    min_fit: float = 0.0,
 ) -> View:
-    zoom = zoom_for_bbox(bbox, frame_w, frame_h, target_fill, min_zoom, max_zoom)
+    zoom = zoom_for_bbox(bbox, frame_w, frame_h, target_fill, min_zoom, max_zoom, min_fit)
     pan_x, pan_y = pan_for_center(bbox.cx / frame_w, bbox.cy / frame_h, zoom)
     return View(zoom, pan_x, pan_y)
 
