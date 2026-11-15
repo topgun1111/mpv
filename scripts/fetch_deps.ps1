@@ -9,8 +9,19 @@ New-Item -ItemType Directory -Force $tmp, $Target | Out-Null
 
 $api = "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
 if ($Tag) { $api = "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/tags/$Tag" }
-$rel = Invoke-RestMethod $api `
-  -Headers @{ "User-Agent" = "takipli-oynat-ci" }
+# Anonim GitHub API istekleri paylasimli runner IP'sinde "rate limit exceeded" verir: GITHUB_TOKEN varsa
+# kimlikli istek (5000/saat), ayrica gecici hatalarda 4 deneme (10, 20, 30 sn bekleyerek).
+$headers = @{ "User-Agent" = "takipli-oynat-ci" }
+if ($env:GITHUB_TOKEN) { $headers["Authorization"] = "Bearer $($env:GITHUB_TOKEN)" }
+$rel = $null
+for ($i = 1; $i -le 4; $i++) {
+  try { $rel = Invoke-RestMethod $api -Headers $headers; break }
+  catch {
+    if ($i -eq 4) { throw }
+    Write-Host "GitHub API hatasi (deneme $i/4): $($_.Exception.Message)"
+    Start-Sleep -Seconds (10 * $i)
+  }
+}
 $asset = $rel.assets | Where-Object { $_.name -match '^mpv-x86_64-\d{8}.*\.7z$' } | Select-Object -First 1
 if (-not $asset) { throw "mpv Windows arşivi bulunamadı" }
 Write-Host "Indiriliyor: $($asset.name)"

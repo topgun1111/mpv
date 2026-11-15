@@ -59,13 +59,18 @@ jobs:
       - name: Name the APKs
         run: |
           v=$(tr -d "[:space:]" < VERSION)
-          mkdir -p dist-rec
+          mkdir -p dist-rec/release
           cp android/rec/build/outputs/apk/debug/rec-debug.apk "dist-rec/TakipliKayit-Android-$v-b${{ github.run_number }}-debug.apk"
-          cp android/rec/build/outputs/apk/release/rec-release.apk "dist-rec/TakipliKayit-Android-$v-b${{ github.run_number }}.apk"
+          cp android/rec/build/outputs/apk/release/rec-release.apk "dist-rec/release/TakipliKayit-Android-$v-b${{ github.run_number }}.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: TakipliKayit-Android
           path: dist-rec/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TakipliKayit-Android-Release
+          path: dist-rec/release/*.apk
           if-no-files-found: error
       - name: Test reports on failure
         if: failure()

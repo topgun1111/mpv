@@ -36,6 +36,8 @@ jobs:
         run: python scripts/build_embedded.py --out dist/TakipliOynatKayit --requirements requirements-recording.txt
       - name: mpv indir
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}  # API hız sınırı (anonim istek runner IP'sinde 403 verir)
         run: ./scripts/fetch_deps.ps1 -Target dist/TakipliOynatKayit/mpv
       - name: ffmpeg indir (GPL derlemesi, libx264; dışa aktarma için)
         shell: pwsh

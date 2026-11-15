@@ -1,4 +1,4 @@
-"""Android record-only variant (android/rec): ayrı modül, AI/izleme yok, tam ekran + döndürme düğmeleri var."""
+"""Android record-only variant (android/rec): ayrı modül, AI/izleme yok, tam ekran + döndürme."""
 import re
 from pathlib import Path
 
@@ -13,8 +13,18 @@ def _text(p: Path) -> str:
 
 
 def _code(p: Path) -> str:
-    """Dosya metni, // ve # açıklama satırları atılmış (açıklamada yasak sözcükler geçebilir)."""
-    return "\n".join(l for l in _text(p).splitlines() if not l.strip().startswith(("//", "#")))
+    """Dosya metni; // ve # açıklama satırları atılmış (açıklamada yasak sözcükler geçebilir)."""
+    lines = _text(p).splitlines()
+    return "\n".join(x for x in lines if not x.strip().startswith(("//", "#")))
+
+
+def _names(xml: str) -> set:
+    return set(re.findall(r'<string name="([^"]+)"', xml))
+
+
+def _formats(xml: str, name: str) -> list:
+    m = re.search(r'<string name="%s">(.*?)</string>' % re.escape(name), xml, re.S)
+    return sorted(re.findall(r"%\d\$[sd]", m.group(1)))
 
 
 def test_rec_is_its_own_module_next_to_app():
@@ -22,7 +32,8 @@ def test_rec_is_its_own_module_next_to_app():
     assert '":rec"' in s and '":app"' in s and '":core"' in s
     g = _text(REC / "build.gradle.kts")
     assert 'applicationId = "com.takipli.oynat.rec"' in g
-    assert 'project(":core")' in g and 'project(":app")' not in g  # :app (pose/ONNX/OpenCV) is NOT a dependency
+    # :app (pose/ONNX/OpenCV) bağımlılık DEĞİL
+    assert 'project(":core")' in g and 'project(":app")' not in g
 
 
 def test_rec_has_no_ai_tracking_or_network():
@@ -34,17 +45,21 @@ def test_rec_has_no_ai_tracking_or_network():
         assert banned not in m, banned
     for f in SRC.glob("*.kt"):
         t = _text(f)
-        for banned in ("ai.onnxruntime", "org.opencv", "PoseRunner", "Scanner", "ScanService", "StabPlan", "TrackDoc"):
+        banned_code = (
+            "ai.onnxruntime", "org.opencv", "PoseRunner", "Scanner",
+            "ScanService", "StabPlan", "TrackDoc",
+        )
+        for banned in banned_code:
             assert banned not in t, (f.name, banned)
 
 
 def test_rec_screen_has_fullscreen_overlay_and_rotation():
     t = _text(SRC / "RecScreen.kt")
-    assert "fullscreen" in t and "WindowInsetsCompat.Type.systemBars()" in t  # sistem çubukları gizlenir
+    assert "fullscreen" in t and "WindowInsetsCompat.Type.systemBars()" in t  # sistem çubukları
     assert "R.string.full_screen" in t  # normal önizlemede tam ekran düğmesi
-    assert "rotate(-90)" in t and "rotate(90)" in t  # iki döndürme düğmesi
-    assert t.count("rotate(-90)") >= 2 and t.count("rotate(90)") >= 2  # hem normal hem tam ekran düzeninde
-    assert "detectTransformGestures" in t and "applyGestureAt" in t  # zoom + sürükleme aynı anda
+    # iki döndürme düğmesi, hem normal hem tam ekran düzeninde
+    assert t.count("rotate(-90)") >= 2 and t.count("rotate(90)") >= 2
+    assert "detectTransformGestures" in t and "applyGestureAt" in t  # zoom + sürükleme birlikte
     assert "BackHandler" in t  # geri tuşu tam ekrandan çıkar / kaydı durdurur
     e = _text(SRC / "RecExporter.kt")
     assert "rotationEffect(rot)" in e  # döndürme dışa aktarmaya da girer
@@ -52,18 +67,15 @@ def test_rec_screen_has_fullscreen_overlay_and_rotation():
 
 def test_rec_strings_en_tr_match_and_formats_agree():
     res = REC / "src" / "main" / "res"
-    en, tr = _text(res / "values" / "strings.xml"), _text(res / "values-tr" / "strings.xml")
-    names = lambda s: set(re.findall(r'<string name="([^"]+)"', s))
-    assert names(en) == names(tr)
-    for n in names(en):
-        pat = re.compile(r'<string name="%s">(.*?)</string>' % re.escape(n), re.S)
-        fmt = lambda s: sorted(re.findall(r"%\d\$[sd]", pat.search(s).group(1)))
-        assert fmt(en) == fmt(tr), n
-    # her R.string.X kodda tanımlı
-    used = set()
+    en = _text(res / "values" / "strings.xml")
+    tr = _text(res / "values-tr" / "strings.xml")
+    assert _names(en) == _names(tr)
+    for n in _names(en):
+        assert _formats(en, n) == _formats(tr, n), n
+    used = set()  # kodda kullanılan her R.string.X tanımlı olmalı
     for f in SRC.glob("*.kt"):
         used |= set(re.findall(r"R\.string\.([a-z_0-9]+)", _text(f)))
-    assert used <= names(en), used - names(en)
+    assert used <= _names(en), used - _names(en)
 
 
 def test_rec_workflow_is_separate_and_android_yml_untouched():

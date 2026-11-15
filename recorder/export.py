@@ -101,7 +101,10 @@ def ffmpeg_cmd_segments(ff: str, size: tuple[int, int], fps: float, src: str, ou
 
 
 def _iter_frames(cv2, cap, plan):
-    """Planın parçalarını sırayla okur (geri sarma → yeniden konumlanıp aynı kareleri tekrar okur)."""
+    """Planın parçalarını sırayla okur.
+
+    Geri sarma: yeniden konumlanıp aynı kareleri tekrar okur.
+    """
     pos = 0
     for f0, f1, keys in plan:
         if f0 != pos:

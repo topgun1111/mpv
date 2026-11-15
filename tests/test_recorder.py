@@ -260,7 +260,8 @@ def test_segmented_recording_roundtrip_keeps_order(tmp_path):
     d = k.load_recording(k.rec_path(vid), video=str(vid))
     assert d["views"] == ks and [len(x) for x in d["segments"]] == [2, 2]  # sıra korunur
     old = tmp_path / "old.rec.json"
-    k.save_recording(old, str(vid), [[1, 0, 0, 0], [0, 1, 0, 0]])  # eski biçim: sıralanır, tüm video
+    # eski biçim: sıralanır, tüm video
+    k.save_recording(old, str(vid), [[1, 0, 0, 0], [0, 1, 0, 0]])
     assert k.load_recording(old)["segments"] is None
 
 
@@ -268,7 +269,8 @@ def _make_gray_clip(path, n=15, w=64, h=36, fps=10.0):
     wr = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
     assert wr.isOpened()
     for i in range(n):
-        wr.write(np.full((h, w, 3), 16 * i + 8, np.uint8))  # parlaklık = indeks (sıkıştırmaya dayanıklı adım)
+        # parlaklık = indeks (sıkıştırmaya dayanıklı adım)
+        wr.write(np.full((h, w, 3), 16 * i + 8, np.uint8))
     wr.release()
 
 

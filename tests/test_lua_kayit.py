@@ -114,7 +114,8 @@ def test_rewinds_are_recorded_as_repeated_segments(run):
     d, _ = run
     assert d["SEG_PRE"][0] == ["11"]  # seek bitmeden (playback-restart öncesi) anahtar yok
     doc = json.loads(d["SEG_JSON"][0])
-    assert doc["breaks"] == [11, 17, 21]  # 4 parça: 0→1.0, 0.5→1.0, 0.5→0.8, 0.2→0.3 (duraklıyken geri sarma dahil)
+    # 4 parça: 0→1.0, 0.5→1.0, 0.5→0.8, 0.2→0.3 (duraklıyken geri sarma dahil)
+    assert doc["breaks"] == [11, 17, 21]
     ts = [r[0] for r in doc["views"]]
     assert ts[:11] == pytest.approx([i / 10 for i in range(11)]) and ts[11] == pytest.approx(0.5)
     assert ts[-2:] == pytest.approx([0.2, 0.3])
