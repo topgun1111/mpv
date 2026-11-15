@@ -38,7 +38,7 @@ private const val INFER_CONF = 0.5
 /** Part boxes fill at least this share of the view (`parts.py::PART_FIT`): a big box (legs, torso) must not stay at 1x because of `targetFill`. */
 const val PART_FIT = 0.70
 
-/** Minimum log2 zoom for a part box (~1.5x) as long as the box still fits within `PART_FIT` of the view (`geometry.py::PART_ZOOM`). */
+/** Minimum log2 zoom while following a body part (~1.5x), whatever the box size (`geometry.py::PART_ZOOM`). */
 const val PART_ZOOM = 0.6
 
 /** `parts.py::infer_joint`: pixel estimate `[x, y, conf]` of a missing ankle/wrist from two confident upper joints, or null. */
@@ -49,6 +49,61 @@ fun inferJoint(row: List<Double>, j: Int, w: Int, h: Int, minConf: Double): Doub
     return doubleArrayOf(px + (px - gx) * ratio, py + (py - gy) * ratio, min(row[3 * p + 2], row[3 * g + 2]) * INFER_CONF)
 }
 
+// ---- Occlusion robustness (seated person behind a desk etc.). Mirrors `parts.py`: sanitize_row / anchored_leg_box. ----
+
+private val ROOT_OF: Map<Int, Int> = mapOf(7 to 5, 8 to 6, 9 to 5, 10 to 6, 13 to 11, 14 to 12, 15 to 11, 16 to 12)
+private val REACH: Map<Int, Double> = mapOf(13 to 1.3, 14 to 1.3, 15 to 2.2, 16 to 2.2, 7 to 0.9, 8 to 0.9, 9 to 1.5, 10 to 1.5) // x torso length from the root joint
+private const val SOFT_CONF = 0.20
+private val LEG_PRESETS = setOf("left_leg", "right_leg", "legs", "left_foot", "right_foot", "feet")
+
+/** Shoulder-mid to hip-mid distance in pixels; 0.45 x person height when a joint set is missing; null when unknown. */
+internal fun torsoLen(row: List<Double>, w: Int, h: Int, minConf: Double, personHPx: Double): Double? {
+    if (row.size < 3 * N_KPT) return null
+    val sh = listOf(5, 6).filter { row[3 * it + 2] >= minConf }.map { row[3 * it] * w to row[3 * it + 1] * h }
+    val hp = listOf(11, 12).filter { row[3 * it + 2] >= minConf }.map { row[3 * it] * w to row[3 * it + 1] * h }
+    if (sh.isNotEmpty() && hp.isNotEmpty()) {
+        val d = hypot(sh.sumOf { it.first } / sh.size - hp.sumOf { it.first } / hp.size, sh.sumOf { it.second } / sh.size - hp.sumOf { it.second } / hp.size)
+        if (d >= 4.0) return if (personHPx > 0) min(max(d, 0.25 * personHPx), 0.7 * personHPx) else d // a bad shoulder/hip estimate must not give an absurd torso
+    }
+    return if (personHPx > 0) 0.45 * personHPx else null
+}
+
+/** Limb joint `j` as (x, y, conf) when confident and plausible, or low-confidence but plausible (root confident); else null. */
+private fun limbPoint(row: List<Double>, j: Int, w: Int, h: Int, minConf: Double, torso: Double): DoubleArray? {
+    val c = row[3 * j + 2]; val x = row[3 * j] * w; val y = row[3 * j + 1] * h
+    val root = ROOT_OF[j]
+    if (root == null || row[3 * root + 2] < minConf) return if (c >= minConf) doubleArrayOf(x, y, c) else null
+    if (hypot(x - row[3 * root] * w, y - row[3 * root + 1] * h) > REACH.getValue(j) * torso) return null // invented joint behind the desk
+    if (c >= minConf) return doubleArrayOf(x, y, c)
+    return if (c >= SOFT_CONF) doubleArrayOf(x, y, c * 0.8) else null
+}
+
+/** Row copy with implausible limb joints at confidence 0 and plausible low-confidence ones lifted to `minConf`. */
+internal fun sanitizeRow(row: List<Double>, w: Int, h: Int, minConf: Double, personHPx: Double): List<Double> {
+    val torso = torsoLen(row, w, h, minConf, personHPx) ?: return row
+    val out = row.toMutableList()
+    for (j in ROOT_OF.keys) {
+        val lp = limbPoint(row, j, w, h, minConf, torso)
+        out[3 * j + 2] = if (lp == null) 0.0 else if (row[3 * j + 2] < minConf) max(lp[2], minConf) else row[3 * j + 2]
+    }
+    return out
+}
+
+/** No leg/foot joint at all: box hanging from the hips by torso length (legs 0..1 L, feet 0.6..1.3 L); `[cx, cy, w, h]` normalized, or null. */
+internal fun anchoredLegBox(preset: String, row: List<Double>?, w: Int, h: Int, minConf: Double, personHPx: Double): DoubleArray? {
+    if (preset !in LEG_PRESETS || row == null || row.size < 3 * N_KPT) return null
+    val side = when (preset) { "left_leg", "left_foot" -> listOf(11); "right_leg", "right_foot" -> listOf(12); else -> listOf(11, 12) }
+    var hips = side.filter { row[3 * it + 2] >= minConf }.map { row[3 * it] * w to row[3 * it + 1] * h }
+    if (hips.isEmpty()) hips = listOf(11, 12).filter { row[3 * it + 2] >= minConf }.map { row[3 * it] * w to row[3 * it + 1] * h }
+    val l = torsoLen(row, w, h, minConf, personHPx)
+    if (hips.isEmpty() || l == null || l <= 0.0) return null
+    val hx = hips.sumOf { it.first } / hips.size; val hy = hips.sumOf { it.second } / hips.size
+    val foot = preset.contains("foot") || preset == "feet"
+    val top = if (foot) 0.6 else 0.0; val bot = if (foot) 1.3 else 1.0
+    val bw = (if (side.size == 2) 1.4 else 0.9) * l
+    return doubleArrayOf(hx / w, (hy + (top + bot) / 2 * l) / h, bw / w, (bot - top) * l / h)
+}
+
 private fun clamp(v: Double, lo: Double, hi: Double) = max(lo, min(hi, v))
 
 private fun round4(v: Double) = round(v, 4) // exact half-even like Python (see Scan.kt); +0.0 there turns -0.0 into 0.0
@@ -57,7 +112,7 @@ private fun round4(v: Double) = round(v, 4) // exact half-even like Python (see 
 fun zoomForBbox(b: BBox, fw: Double, fh: Double, fill: Double, minZoom: Double, maxZoom: Double, minFit: Double = 0.0): Double {
     val hf = max(b.h / fh, 1e-6); val wf = max(b.w / fw, 1e-6)
     var scale = min(fill / hf, 0.9 / wf)
-    if (minFit > 0.0) scale = max(scale, minOf(minFit / hf, 0.9 / wf, 2.0.pow(PART_ZOOM)))
+    if (minFit > 0.0) scale = max(scale, 2.0.pow(PART_ZOOM)) // unconditional floor: a big/wrong part box (seated person behind a desk) still zooms, the box may be cropped
     return clamp(log2(max(scale, 1e-6)), minZoom, maxZoom)
 }
 
@@ -214,21 +269,29 @@ fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config, kps: 
         if (preset == "person") {
             box = doubleArrayOf((x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1); q = score
         } else {
-            val row = if (kps != null) kps[i][id.toString()] else s.kp?.get(id.toString())
+            val raw = if (kps != null) kps[i][id.toString()] else s.kp?.get(id.toString())
+            val row = if (raw != null && raw.size >= 3 * N_KPT && cfg.kpRobust) sanitizeRow(raw, w, h, cfg.kpMinConf, (y2 - y1) * h) else raw
             val xs = ArrayList<Double>(); val ys = ArrayList<Double>(); val cs = ArrayList<Double>()
+            var distal = false // a limb-end joint (knee/ankle, elbow/wrist) survived
             if (row != null && row.size >= 3 * N_KPT) for (j in joints) {
                 if (row[3 * j + 2] >= cfg.kpMinConf) {
-                    xs.add(row[3 * j] * w); ys.add(row[3 * j + 1] * h); cs.add(row[3 * j + 2])
+                    xs.add(row[3 * j] * w); ys.add(row[3 * j + 1] * h); cs.add(row[3 * j + 2]); distal = distal || j in ROOT_OF
                 } else if (cfg.kpInfer) {
-                    inferJoint(row, j, w, h, cfg.kpMinConf)?.let { xs.add(it[0]); ys.add(it[1]); cs.add(it[2]) }
+                    inferJoint(row, j, w, h, cfg.kpMinConf)?.let { xs.add(it[0]); ys.add(it[1]); cs.add(it[2]); distal = distal || j in ROOT_OF }
                 }
             }
+            val anchored = if (xs.isEmpty() || (cfg.kpRobust && !distal && joints.any { it in ROOT_OF })) {
+                if (cfg.kpRobust) anchoredLegBox(preset, raw, w, h, cfg.kpMinConf, (y2 - y1) * h) else null
+            } else null
+            if (cfg.kpRobust && !distal && joints.any { it in ROOT_OF }) { xs.clear(); ys.clear(); cs.clear() } // only the root joint is left: limb not visible
             if (xs.isNotEmpty()) {
                 val m = cfg.partMargin * h
                 val side = max(cfg.kpBox * (y2 - y1) * h, 8.0)
                 val bw = max(xs.max() - xs.min() + 2 * m, side); val bh = max(ys.max() - ys.min() + 2 * m, side)
                 box = doubleArrayOf((xs.max() + xs.min()) / 2 / w, (ys.max() + ys.min()) / 2 / h, bw / w, bh / h)
                 q = cs.sum() / cs.size
+            } else if (anchored != null) {
+                box = anchored; q = -0.5 + score
             } else {
                 val (top, bot) = REGION.getValue(preset)
                 val ry1 = y1 + (y2 - y1) * top; val ry2 = y1 + (y2 - y1) * bot

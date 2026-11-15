@@ -88,6 +88,7 @@ class Config:
     kp_hold_s: float = 1.5  # sn; kayıpken öngörülen konumu bu kadar döndür (0: B2 kapalı)
     kp_world: bool = True  # eklem takibi: kamera hareketi telafisi (dünya konumu)
     kp_filter: bool = True  # eklem konumuna One-Euro süzgeci
+    kp_robust: bool = True  # oklüzyon dayanıklı parça kutusu: uydurma eklem elenir, düşük güven makulse alınır, bacak kalçadan türetilir
     kp_infer: bool = True  # Android 10b: eksik bilek/ayak bileği üst eklemlerden kestirilir (parça kutusu)
     kp_reacq_single: bool = True  # uzun kayıptan sonra karede tek uygun kişi varsa yeniden bağla
     set_min_zoom: float = 0.35  # T1: küme kadrajı en az bu (log2) zoom; sığmayan uzaklar çıkar

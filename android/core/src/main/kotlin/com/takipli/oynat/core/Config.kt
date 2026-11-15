@@ -41,6 +41,8 @@ data class Config(
     val kpFilter: Boolean = true,
     val kpWorld: Boolean = true,
     val kpInfer: Boolean = true,
+    /** Occlusion-robust part boxes (`parts.py`): invented joints dropped, plausible low-confidence joints kept, legs anchored on the hips. */
+    val kpRobust: Boolean = true,
     // Android-only; provisional, final values are decided by measurement (Part 10/13 and Part 9).
     val partMargin: Double = 0.02,
     val scanFpsPart: Double = 15.0,

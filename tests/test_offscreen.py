@@ -152,7 +152,7 @@ def test_group_box_uses_inferred_ankle_before_the_person_slice():
     doc = _doc([_s(0, kp=row)])
     b = preset_boxes(doc, {1}, "left_foot", Config(kp_infer=True))[0]
     assert b[1] == pytest.approx(0.8)
-    s = preset_boxes(doc, {1}, "left_foot", Config(kp_infer=False))[0]  # kişi alt kutusu
+    s = preset_boxes(doc, {1}, "left_foot", Config(kp_infer=False, kp_robust=False))[0]  # kişi alt kutusu (eski kural)
     assert s[1] == pytest.approx(0.2 + 0.7 * 0.94)
 
 

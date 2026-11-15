@@ -71,15 +71,15 @@ def zoom_for_bbox(
 ) -> float:
     """bbox kare yüksekliğinin `target_fill` oranını kaplayacak log2 zoom.
 
-    `min_fit` > 0 (vücut parçası): büyük parça kutusu (bacak, gövde) `target_fill`'den dolayı
-    1x'e kıstırılıp zoom'suz kalmasın diye en az `PART_ZOOM` (log2) yakınlaşılır; ama kutu
-    görünümün `min_fit` oranını geçmeyecek şekilde (genişlik 0.9'a sığar). Zaten yeterince
+    `min_fit` > 0 (vücut parçası): büyük ya da hatalı parça kutusu (bacak, gövde; masa arkasında
+    oturan kişi) `target_fill`'den dolayı 1x'e kıstırılıp zoom'suz kalmasın diye en az `PART_ZOOM`
+    (log2) yakınlaşılır; kutu sığmıyorsa kırpılır, merkez yine kutudur. Zaten yeterince
     yakınlaşan küçük kutularda etkisi yoktur."""
     h_frac = max(bbox.h / frame_h, 1e-6)
     w_frac = max(bbox.w / frame_w, 1e-6)
     scale = min(target_fill / h_frac, 0.9 / w_frac)  # genişlik de sığsın
     if min_fit > 0.0:
-        scale = max(scale, min(min_fit / h_frac, 0.9 / w_frac, 2.0**PART_ZOOM))
+        scale = max(scale, 2.0**PART_ZOOM)  # koşulsuz taban: kutu büyük/hatalı olsa da parça takibi yakınlaşır (kutu kırpılabilir)
     return _clamp(math.log2(max(scale, 1e-6)), min_zoom, max_zoom)
 
 

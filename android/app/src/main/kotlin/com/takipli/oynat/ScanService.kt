@@ -92,6 +92,8 @@ class ScanService : Service() {
             // Debug Part 2: is the chosen target actually trackable? (joint confidence, presence, camera jumps)
             if (picked == null) Diag.note(this, "scan", "PICK_NO_TARGET", "nobody at the picked point (t=${pick.t}); the scan is kept, pick again", com.takipli.oynat.core.Sev.WARN)
             else runCatching { com.takipli.oynat.core.targetFindings(picked).forEach { Diag.event(this, "scan", it) } }
+            // zoom range of the built views (flat = a part target that never zooms)
+            picked?.let { pk -> runCatching { val z = pk.views.map { it[1] }; Diag.note(this, "scan", "VIEWS_ZOOM", "target=${pk.target?.preset ?: pk.target?.part ?: (if (pk.target?.free != null) "free" else "person")} keys=${z.size} zoom(log2) min=${"%.2f".format(java.util.Locale.ROOT, z.minOrNull() ?: 0.0)} max=${"%.2f".format(java.util.Locale.ROOT, z.maxOrNull() ?: 0.0)} fill=${cfg.targetFill} maxZoom=${cfg.maxZoom}") } }
             Diag.note(this, "scan", "SCAN_SPEED", "${"%.2f".format(java.util.Locale.ROOT, res.xRealtime)} x realtime, ${res.newSamples} new samples, model ${i.getStringExtra(X_MODEL)} npu=${i.getBooleanExtra(X_NPU, false)} preview=$withPreview")
             if (res.newSamples > 0) Diag.event(this, "scan", com.takipli.oynat.core.speedFinding("scan", res.xRealtime, 0.1))
             val tg = picked?.target

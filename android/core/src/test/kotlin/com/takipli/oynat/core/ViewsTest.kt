@@ -168,8 +168,8 @@ class ViewsTest {
         // a foot target with only the knee chain visible now gets a joint-based box, not the person slice
         row[3 * 11 + 2] = 0.9
         val doc = TrackDoc(2, VideoInfo("", 1000, 500), samples = listOf(Sample(0.0, listOf(listOf(1.0, 0.25, 0.1, 0.5, 0.9, 0.9)), mapOf("1" to row))))
-        assertEquals(0.8, presetBoxes(doc, setOf(1), "left_foot", Config(kpInfer = true)).getValue(0)[1], 1e-9)
-        assertEquals(0.1 + 0.8 * 0.94, presetBoxes(doc, setOf(1), "left_foot", Config(kpInfer = false)).getValue(0)[1], 1e-9)
+        assertEquals(0.8, presetBoxes(doc, setOf(1), "left_foot", Config(kpInfer = true, kpRobust = false)).getValue(0)[1], 1e-9)
+        assertEquals(0.1 + 0.8 * 0.94, presetBoxes(doc, setOf(1), "left_foot", Config(kpInfer = false, kpRobust = false)).getValue(0)[1], 1e-9)
     }
 
     @Test

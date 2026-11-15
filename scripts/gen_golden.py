@@ -45,7 +45,7 @@ SHARED_KEYS = (
     "det_conf det_iou det_size live_det_conf offline_fps offline_interp_s offline_alpha "
     "target_fill min_zoom max_zoom alpha_pos alpha_zoom dead_zone_pos dead_zone_zoom "
     "lost_hold_s lost_zoomout_s kf_accel kf_meas gmc gmc_side cut_detect cut_hist cut_diff "
-    "pick_tol pose_conf kp_min_conf kp_tol kp_box kp_hold_s kp_filter kp_world kp_infer"
+    "pick_tol pose_conf kp_min_conf kp_tol kp_box kp_hold_s kp_filter kp_world kp_infer kp_robust"
 ).split()
 
 VIEWS = [[0.0, 0.0, 0.0, 0.0], [1.0, 1.0, 0.1, -0.05], [2.5, 2.0, -0.2, 0.15], [4.0, 0.5, 0.0, 0.0]]
@@ -367,7 +367,7 @@ def _target_views() -> dict:
 
     docs = {"base": {"video": video, "samples": base["samples"]},
             **{name: without(*r) for name, r in removed.items()}}
-    legacy = {"kp_filter": False, "kp_world": False, "kp_infer": False}  # Part 10a behaviour
+    legacy = {"kp_filter": False, "kp_world": False, "kp_infer": False, "kp_robust": False}  # Part 10a behaviour
     custom = {"target_fill": 0.8, "max_zoom": 3.5, "lost_hold_s": 0.5, "lost_zoomout_s": 1.0,
               "offline_alpha": 0.5, "kp_box": 0.15}
     cfgs = {"default": dict(legacy), "custom": {**custom, **legacy}, "b": {},
