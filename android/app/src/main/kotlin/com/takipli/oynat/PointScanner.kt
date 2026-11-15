@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import com.takipli.oynat.core.FreePick
 import com.takipli.oynat.core.PointTrack
+import com.takipli.oynat.core.combineDots
 import com.takipli.oynat.core.TrackDoc
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -63,7 +64,13 @@ object PointScanner {
                     val seeds = listOf(Triple(nearest(pick.t), pick.x, pick.y))
                     val pi = nearest(pick.t)
                     val cams = doc.samples.map { it.cam }
-                    val (a, b) = if (pick.shapes.isNotEmpty()) { // Part 18: drawn region
+                    val (a, b) = if (pick.dots.size >= 2) { // several dots on one limb: each is tracked like a single point, then combined
+                        val m = pick.dots.size
+                        val per = pick.dots.mapIndexed { k, d ->
+                            PointTracker(store, cams).multiPass(listOf(Triple(pi, d[0], d[1])), { s -> onProgress(n + k * 4 + s, n + 4 * m, ts[pi]) }) { job?.ensureActive() }
+                        }
+                        combineDots(per.map { it.first }, pick.dots, n) to combineDots(per.map { it.second }, pick.dots, n)
+                    } else if (pick.shapes.isNotEmpty()) { // Part 18: drawn region
                         val polys = pick.shapes.filter { it.size >= 3 }.map { poly -> DoubleArray(poly.size * 2) { i -> if (i % 2 == 0) poly[i / 2][0] * gw else poly[i / 2][1] * gh } }
                         RegionTracker(store, cams).twoPass(pi, polys, { s -> onProgress(n + s, n + 4, ts[pi]) }) { job?.ensureActive() }
                     } else PointTracker(store, cams).multiPass(seeds, { s -> onProgress(n + s, n + seeds.size + 3, ts[pi]) }) { job?.ensureActive() }

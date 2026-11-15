@@ -66,6 +66,41 @@ class FreePickResolveTest {
     }
 }
 
+class DotsTest {
+    @Test
+    fun combineVotesTheCentreAndHoldsTheSizeWhenADotIsLost() {
+        val start = listOf(listOf(0.4, 0.4), listOf(0.6, 0.6))
+        val t0 = listOf(listOf(0.4, 0.4, 1.0), listOf(0.5, 0.4, 0.9), listOf(0.6, 0.4, 0.9))
+        val t1 = listOf(listOf(0.6, 0.6, 1.0), listOf(0.7, 0.6, 0.9), emptyList())
+        val r = combineDots(listOf(t0, t1), start, 3)
+        assertEquals(0.5, r[0][0], 1e-9); assertEquals(0.5, r[0][1], 1e-9)
+        assertEquals(0.6, r[1][0], 1e-9); assertEquals(0.5, r[1][1], 1e-9)
+        assertEquals(0.7, r[2][0], 1e-9); assertEquals(0.5, r[2][1], 1e-9) // only dot 0 left: its vote
+        assertEquals(0.2, r[2][3], 1e-9); assertEquals(0.2, r[2][4], 1e-9) // size of the last full sample
+    }
+
+    @Test
+    fun threeDotsOutvoteOneThatDrifts() {
+        val start = listOf(listOf(0.4, 0.5), listOf(0.5, 0.5), listOf(0.6, 0.5))
+        val good = { x: Double -> (0 until 2).map { listOf(x, 0.5, 0.9) } }
+        val r = combineDots(listOf(good(0.4), good(0.5) , good(0.6).mapIndexed { i, p -> if (i == 1) listOf(0.95, 0.1, 0.9) else p }), start, 2)
+        assertTrue(abs(r[1][0] - 0.5) < 1e-9 && abs(r[1][1] - 0.5) < 1e-9, "centre = ${r[1]}")
+    }
+
+    @Test
+    fun dotPickIsAFramedFreeTargetAndZoomFollowsTheirSpread() {
+        val d0 = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, listOf(Sample(0.0)))
+        val dots = listOf(listOf(0.4, 0.4), listOf(0.6, 0.6))
+        val t = resolvePick(d0, TargetPick(0.0, 0.5, 0.5, free = true, dots = dots), Config())!!
+        assertEquals(2, t.free?.dots?.size); assertTrue(t.free!!.framed)
+        val samples = (0 until 6).map { Sample(it / 10.0) }
+        val per = dots.map { p -> (0 until 6).map { listOf(p[0], p[1], 0.9) } }
+        val d = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples, pt = PointTrack(a = combineDots(per, dots, 6)))
+        val z = buildTargetViews(d, Target(-1, free = t.free), Config(kpWorld = false)).map { it[1] }
+        assertTrue(abs(z[0] - 1.97) < 0.05, "zoom(log2) = $z") // log2(0.9 / (0.2 * 1.15))
+    }
+}
+
 class RegionTest {
     @Test
     fun boundsAndPick() {

@@ -109,6 +109,8 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
     var draw by remember { mutableStateOf(initialMode == "freehand") } // Part 18: freehand region instead of a tap
     val strokes = remember { androidx.compose.runtime.mutableStateListOf<List<Offset>>() }
     var curStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    var multi by remember { mutableStateOf(false) } // Point mode: several dots on one limb (the first tap = `tap`, up to 2 more in `extra`)
+    val extra = remember { androidx.compose.runtime.mutableStateListOf<Offset>() }
     var zoomLog2 by remember { mutableStateOf(1.5f) }
     var regionFixed by remember { mutableStateOf(false) } // freehand: false = keep the area's size (zoom follows it), true = fixed zoom
     var regionFill by remember { mutableStateOf(0.9f) }
@@ -208,7 +210,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
         if (u == null) return@rememberLauncherForActivityResult
         runCatching { ctx.contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         scope.launch {
-            error = ""; tap = null; frame = null; ScanService.reset()
+            error = ""; tap = null; extra.clear(); frame = null; ScanService.reset()
             try {
                 videoId = withContext(Dispatchers.IO) { videoIdOf(ctx, u) }
                 durationS = withContext(Dispatchers.IO) { runCatching { VideoDecoder.probe(ctx, u).durationS }.getOrDefault(0.0) }
@@ -234,7 +236,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
             try {
                 VideoDecoder.sample(ctx, u, 1.0, clampT(t)) { f ->
                     frame = f.bitmap; frameT = f.t
-                    tap = null; strokes.clear(); curStroke = emptyList() // those points belonged to the previous frame
+                    tap = null; extra.clear(); strokes.clear(); curStroke = emptyList() // those points belonged to the previous frame
                     false
                 }
             } catch (e: CancellationException) {
@@ -255,7 +257,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
         rot = normalizeRotation(rot + d)
         UserRot.set(ctx, u.toString(), rot)
         frame = Bitmap.createBitmap(b, 0, 0, b.width, b.height, Matrix().apply { postRotate(d.toFloat()) }, true)
-        tap = null; strokes.clear(); curStroke = emptyList(); found = null // those points belonged to the old orientation
+        tap = null; extra.clear(); strokes.clear(); curStroke = emptyList(); found = null // those points belonged to the old orientation
         if (loadJob?.isActive == true) loadAt(seekT.toDouble()) // a seek was still decoding with the old turn: decode again with the new one
     }
 
@@ -268,13 +270,13 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
         Text(stringResource(R.string.home_modes_title), style = MaterialTheme.typography.titleSmall)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !objectMode, enabled = !running, onClick = {
-                objectMode = false; draw = false; tap = null; strokes.clear(); curStroke = emptyList()
+                objectMode = false; draw = false; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
             }, label = { Text(stringResource(R.string.mode_tab_body)) })
             FilterChip(selected = objectMode && !draw, enabled = !running, onClick = {
-                objectMode = true; draw = false; tap = null; strokes.clear(); curStroke = emptyList()
+                objectMode = true; draw = false; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
             }, label = { Text(stringResource(R.string.mode_tab_point)) })
             FilterChip(selected = objectMode && draw, enabled = !running, onClick = {
-                objectMode = true; draw = true; tap = null; strokes.clear(); curStroke = emptyList()
+                objectMode = true; draw = true; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
             }, label = { Text(stringResource(R.string.mode_tab_freehand)) })
         }
         // What really works in this install, in plain words
@@ -332,7 +334,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                             onDrag = { c, _ -> curStroke = curStroke + nrm(c.position) },
                             onDragEnd = { if (curStroke.size >= 3) strokes.add(curStroke); curStroke = emptyList() },
                             onDragCancel = { curStroke = emptyList() },
-                        ) else detectTapGestures { o -> tap = nrm(o) }
+                        ) else detectTapGestures { o -> if (multi && tap != null) { if (extra.size < 2) extra.add(nrm(o)) } else tap = nrm(o) }
                     },
                 ) {
                     if (!objectMode) found?.forEach { p ->
@@ -400,6 +402,13 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     if (!draw) tap?.let { c ->
                         val p = Offset(c.x * size.width, c.y * size.height)
                         drawCircle(Color.Red, 14f, p, style = Stroke(width = 4f)); drawCircle(Color.White, 4f, p)
+                        var prev = p
+                        extra.forEach { e ->
+                            val q = Offset(e.x * size.width, e.y * size.height)
+                            drawLine(Color.Red, prev, q, strokeWidth = 3f)
+                            drawCircle(Color.Red, 14f, q, style = Stroke(width = 4f)); drawCircle(Color.White, 4f, q)
+                            prev = q
+                        }
                     }
                 }
             }
@@ -432,6 +441,13 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     }
                 }
             } else {
+                if (!draw) {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        androidx.compose.material3.Switch(checked = multi, enabled = !running, onCheckedChange = { multi = it; if (!it) extra.clear() })
+                        Text(stringResource(R.string.pick_multi), Modifier.padding(start = 8.dp))
+                    }
+                    if (multi) OutlinedButton(enabled = tap != null, onClick = { if (extra.isNotEmpty()) extra.removeAt(extra.size - 1) else tap = null }) { Text(stringResource(R.string.pick_dot_undo)) }
+                }
                 if (draw) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(enabled = strokes.isNotEmpty(), onClick = { strokes.removeLastOrNull() }) { Text(stringResource(R.string.pick_undo)) }
                     OutlinedButton(enabled = strokes.isNotEmpty(), onClick = { strokes.clear() }) { Text(stringResource(R.string.pick_clear)) }
@@ -449,7 +465,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     FilterChip(selected = npu, onClick = { npu = !npu }, label = { Text("NPU", maxLines = 1, softWrap = false) })
                     FilterChip(selected = preview, onClick = { preview = !preview }, label = { Text(stringResource(R.string.pick_preview)) })
                 }
-                if (objectMode && (!draw || regionFixed)) {
+                if (objectMode && (!draw || regionFixed) && extra.isEmpty()) {
                     Text(stringResource(R.string.pick_zoom, Math.pow(2.0, zoomLog2.toDouble())), style = MaterialTheme.typography.labelLarge)
                     androidx.compose.material3.Slider(value = zoomLog2, onValueChange = { zoomLog2 = it }, valueRange = 0.5f..2.5f)
                 }
@@ -471,9 +487,12 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 onClick = {
                     val shapes = if (draw) strokes.map { st -> com.takipli.oynat.core.simplifyStroke(st.map { listOf(it.x.toDouble(), it.y.toDouble()) }, 0.004) }.filter { it.size >= 3 } else emptyList()
                     if (draw && shapes.isEmpty()) return@Button
-                    val t = if (draw) com.takipli.oynat.core.shapeBounds(shapes)!!.let { Offset(it[0].toFloat(), it[1].toFloat()) } else tap ?: return@Button
+                    val dots = if (!draw && multi && extra.isNotEmpty() && tap != null) (listOf(tap!!) + extra).map { listOf(it.x.toDouble(), it.y.toDouble()) } else emptyList()
+                    val t = if (draw) com.takipli.oynat.core.shapeBounds(shapes)!!.let { Offset(it[0].toFloat(), it[1].toFloat()) }
+                    else if (dots.size >= 2) Offset(dots.map { it[0] }.average().toFloat(), dots.map { it[1] }.average().toFloat())
+                    else tap ?: return@Button
                     notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = if (objectMode) null else preset, exact = exact && preset == null && !objectMode, free = free, zoom = if (free && (!draw || regionFixed)) zoomLog2.toDouble() else null, shapes = shapes, fill = if (draw && !regionFixed) regionFill.toDouble() else null), preview)
+                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = if (objectMode) null else preset, exact = exact && preset == null && !objectMode, free = free, zoom = if (free && (!draw || regionFixed) && dots.isEmpty()) zoomLog2.toDouble() else null, shapes = shapes, fill = if (draw && !regionFixed) regionFill.toDouble() else null, dots = dots), preview)
                 },
             ) { Text(stringResource(R.string.pick_start)) }
         }

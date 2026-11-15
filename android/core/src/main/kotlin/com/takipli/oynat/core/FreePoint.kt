@@ -16,7 +16,12 @@ data class FreePick(val t: Double, val x: Double, val y: Double, val id: Int? = 
     val shapes: List<List<List<Double>>> = emptyList(),
     /** Region + `zoom` null: the area is kept at this fraction of the frame (size lock, zoom follows its size). Null = [regionFill] default. */
     val fill: Double? = null,
-)
+    /** Multi-dot pick (2..3 taps on one limb/object): normalized `[x, y]`; x/y above = their centroid. Framed like a region: the group's extent sets the zoom. */
+    val dots: List<List<Double>> = emptyList(),
+) {
+    /** Region or multi-dot pick: the target has an extent (zoom follows its size) instead of being a bare point. */
+    val framed: Boolean get() = shapes.isNotEmpty() || dots.size >= 2
+}
 
 /**
  * Point observations from the phone, aligned to `TrackDoc.samples`; rows `[x, y, conf]` normalized, empty = lost.
@@ -25,6 +30,32 @@ data class FreePick(val t: Double, val x: Double, val y: Double, val id: Int? = 
  */
 @Serializable
 data class PointTrack(val a: List<List<Double>> = emptyList(), val b: List<List<Double>> = emptyList())
+
+/**
+ * Multi-dot pick: `tracks[d][i]` = `[x, y, conf]` of dot `d` at sample `i` (empty = lost), `start` = the dots at pick time.
+ * Returns one `[x, y, conf, w, h]` row per sample (the region row format): the centre is the median of the dots' votes
+ * (each dot minus its pick-time offset from the centroid, so one drifting dot is outvoted when there are 3), the size is the
+ * dots' bounding box while all of them are tracked and the last full size while one is lost. Empty row = every dot lost.
+ */
+fun combineDots(tracks: List<List<List<Double>>>, start: List<List<Double>>, n: Int): List<List<Double>> {
+    val m = start.size
+    if (m < 2 || tracks.size != m) return List(n) { emptyList() }
+    val cx0 = start.sumOf { it[0] } / m; val cy0 = start.sumOf { it[1] } / m
+    val offX = start.map { it[0] - cx0 }; val offY = start.map { it[1] - cy0 }
+    fun median(v: List<Double>): Double { val s = v.sorted(); return if (s.size % 2 == 1) s[s.size / 2] else (s[s.size / 2 - 1] + s[s.size / 2]) / 2.0 }
+    var lastW = start.maxOf { it[0] } - start.minOf { it[0] }
+    var lastH = start.maxOf { it[1] } - start.minOf { it[1] }
+    return (0 until n).map { i ->
+        val ok = (0 until m).filter { d -> tracks[d].getOrNull(i)?.let { it.size >= 3 && it[2] > 0.0 } == true }
+        if (ok.isEmpty()) return@map emptyList<Double>()
+        val cx = median(ok.map { tracks[it][i][0] - offX[it] }); val cy = median(ok.map { tracks[it][i][1] - offY[it] })
+        if (ok.size == m) {
+            lastW = ok.maxOf { tracks[it][i][0] } - ok.minOf { tracks[it][i][0] }
+            lastH = ok.maxOf { tracks[it][i][1] } - ok.minOf { tracks[it][i][1] }
+        }
+        listOf(cx, cy, ok.sumOf { tracks[it][i][2] } / ok.size, lastW, lastH)
+    }
+}
 
 /** Point stored relative to the person (nearest <= 2 confident joints, offsets in person-height units; box fraction as fallback). */
 class Anchor(val id: Int, val joints: IntArray, val offX: DoubleArray, val offY: DoubleArray, val u: Double, val v: Double, val hPx0: Double = 0.0)
@@ -88,7 +119,7 @@ fun fuseFreePoint(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleAr
     val n = doc.samples.size
     val (w, h) = videoSize(doc)
     val anchor = makeAnchor(doc, pick, cfg)
-    val base = shapeBounds(pick.shapes)
+    val base = shapeBounds(pick.shapes) ?: if (pick.dots.size >= 2) shapeBounds(listOf(pick.dots)) else null
     val i0 = if (n > 0) nearestIndex(doc, pick.t) else 0
     fun obs(l: List<List<Double>>?, i: Int) = l?.getOrNull(i)?.takeIf { it.size >= 3 && it[2] > 0.0 }
     val raw = HashMap<Int, DoubleArray>()
@@ -133,7 +164,7 @@ fun fuseFreePoint(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleAr
 /** Square boxes `[cx, cy, s, s]` around the fused point so `computeView` yields exactly the chosen zoom (log2), clamped to the config. */
 fun freePointBoxes(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleArray> {
     // Part 18: frame the drawn region itself (size lock). With a chosen zoom (`pick.zoom`) the region is only followed: fixed zoom like a tapped spot.
-    if (pick.shapes.isNotEmpty() && pick.zoom == null)
+    if (pick.framed && pick.zoom == null)
         return fuseFreePoint(doc, pick, cfg).mapValues { (_, p) -> doubleArrayOf(p[0], p[1], max(p.getOrElse(3) { 0.1 } * 1.15, 0.02), max(p.getOrElse(4) { 0.1 } * 1.15, 0.02)) }
     val z = (pick.zoom ?: 1.5).coerceIn(cfg.minZoom, cfg.maxZoom)
     val s = cfg.targetFill / 2.0.pow(z)

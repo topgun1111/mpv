@@ -114,6 +114,8 @@
     <string name="pick_draw_hint">Nesnenin (ör. iki bacak) etrafını parmağınızla çizin; birden fazla çizim olabilir. Kamera çizilen alanın tamamını izler.</string>
     <string name="pick_undo">Son çizimi geri al</string>
     <string name="pick_clear">Çizimi temizle</string>
+    <string name="pick_multi">Bir uzuv üzerinde birkaç nokta (en çok 3): her birine dokunun</string>
+    <string name="pick_dot_undo">Son noktayı kaldır</string>
     <string name="pick_frame_time">Kare: %1$s / %2$s</string>
     <string name="pick_frame_hint">İlk kare siyah veya videonun geri kalanıyla ilgisiz mi? Hedefin göründüğü bir kareye gidip onu seçin. Takip o kareden hem ileri hem geri yönde çalışır.</string>
     <string name="open_update">Güncellemeler</string>

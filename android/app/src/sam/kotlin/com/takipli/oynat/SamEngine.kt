@@ -160,6 +160,18 @@ object SamEngine {
         return c to l
     }
 
+    /** First-frame prompt: a multi-dot pick sends its dots (up to the decoder's 3 slots) as positive points; otherwise box/tap as before. */
+    private fun firstPrompt(pick: FreePick): Pair<FloatArray, FloatArray> {
+        if (pick.dots.size >= 2) {
+            val d = pick.dots.take(3)
+            val c = FloatArray(6); val l = floatArrayOf(-1f, -1f, -1f)
+            for ((k, p) in d.withIndex()) { c[2 * k] = (p[0] * S).toFloat(); c[2 * k + 1] = (p[1] * S).toFloat(); l[k] = 1f }
+            return c to l
+        }
+        val seed = seedBox(pick)
+        return prompt3(seed, seed?.cx ?: pick.x, seed?.cy ?: pick.y)
+    }
+
     private fun seedBox(pick: FreePick): Box? {
         val region = pick.shapes.filter { it.size >= 3 }.flatten()
         return if (region.isNotEmpty()) Box(region.minOf { it[0] }, region.minOf { it[1] }, region.maxOf { it[0] }, region.maxOf { it[1] }) else null
@@ -201,8 +213,7 @@ object SamEngine {
                     val hr0 = enc.get("high_res_feats_0").get() as OnnxTensor; val hr1 = enc.get("high_res_feats_1").get() as OnnxTensor
                     val feat = enc.get("image_feat").get() as OnnxTensor
                     if (!started) {
-                        val seed = seedBox(pick)
-                        val (c, l) = prompt3(seed, seed?.cx ?: pick.x, seed?.cy ?: pick.y)
+                        val (c, l) = firstPrompt(pick)
                         val d = timed(DEC) { decode(env, s.dec, enc.get("image_embed").get() as OnnxTensor, hr0, hr1, c, l) }
                         val cands = (0 until d.n).map { analyse(d.masks, it, d.iou[it].toDouble()) }
                         val b = pickCandidate(cands)
@@ -262,8 +273,7 @@ object SamEngine {
                         return (0 until d.n).map { analyse(d.masks, it, d.iou[it].toDouble()) }.filter { it.area > 0 }
                     }
                     if (step == 0) {
-                        val seed = seedBox(pick)
-                        val (c, l) = prompt3(seed, seed?.cx ?: pick.x, seed?.cy ?: pick.y)
+                        val (c, l) = firstPrompt(pick)
                         val cs = cands(c, l)
                         if (cs.isEmpty()) return res
                         val pc = cs.filter { it.iouPred >= 0.85 * cs.maxOf { x -> x.iouPred } }.minByOrNull { it.area }!!
