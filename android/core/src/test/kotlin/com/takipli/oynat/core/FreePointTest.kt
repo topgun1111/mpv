@@ -104,7 +104,7 @@ class RegionTest {
         val views = buildTargetViews(d, Target(-1, free = pick), cfg)
         val z = views.map { it[1] }
         assertTrue(z.all { it > 0.5 }, "zoom(log2) = $z") // expected ~ log2(0.9 / (0.5 * 1.15)) = 0.65
-        assertTrue(abs(z[3] - 0.65) < 0.1, "zoom(log2) = ${z[3]}")
+        assertTrue(abs(z[0] - 0.65) < 0.1, "zoom(log2) = ${z[0]}") // constant box: buildTargetViews drops repeated keys, so only the ends remain
         // a tapped spot keeps its own rule (30% fill, no region framing)
         assertEquals(0.30, cfg.targetFill, 1e-9)
         assertEquals(0.90, regionFill(0.30), 1e-9)
@@ -125,7 +125,7 @@ class RegionTest {
         val d = regionDoc(listOf(0.2 to 0.2, 0.2 to 0.2, 0.2 to 0.2, 0.4 to 0.4, 0.4 to 0.4, 0.4 to 0.4))
         val cfg = Config(kpWorld = false, offlineAlpha = 1.0)
         val z = buildTargetViews(d, Target(-1, free = regionPick(0.0, shapes)), cfg).map { it[1] }
-        assertTrue(z[0] > z[5] + 0.8, "zoom(log2) = $z")
+        assertTrue(z[0] > z[5] + 0.5, "zoom(log2) = $z") // size is smoothed (alpha x 0.4, as offline.py): 6 samples give ~0.66 of the full 1.0
         // a lower chosen fill zooms out: 0.45 instead of 0.90 = exactly 1 log2 less (when not clamped)
         val zLow = buildTargetViews(d, Target(-1, free = regionPick(0.0, shapes).copy(fill = 0.45)), cfg).map { it[1] }
         assertTrue(abs((z[0] - zLow[0]) - 1.0) < 0.05 || zLow[0] == 0.0, "z=${z[0]} zLow=${zLow[0]}")

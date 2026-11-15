@@ -33,13 +33,13 @@ def test_release_signing_comes_from_the_environment_only():
 
 def test_android_workflow_release_step():
     y = _text(WORKFLOWS / "android.yml")
-    for secret in ("KEYSTORE_B64", "KEYSTORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD"):
-        assert f"secrets.ANDROID_{secret}" in y
+    # imza: depodaki sabit app/stable.jks (iş akışı sır/anahtar dosyası yazmaz; gradle ortam değişkeni yoksa bunu kullanır)
+    assert 'file("stable.jks")' in _text(ANDROID / "app" / "build.gradle.kts")
+    assert "secrets.ANDROID_" not in y
     assert re.search(r"assemble(\$\{\{ matrix\.gradle_task \}\})?Release", y)  # iki derleme (pose/sam) matrix ile
     assert "matrix.flavor" in y and "- flavor: sam" in y
     # AGPL modelli APK yalnız özel depoda Release'e eklenir
     assert "github.event.repository.private == true" in y
-    assert 'rm -f "$KEYSTORE_PATH"' in y  # anahtar dosyası iş bitince silinir
     assert "android" not in _text(WORKFLOWS / "build.yml").lower()  # PC iş akışına dokunulmadı
 
 
