@@ -41,15 +41,19 @@ fun ScanPreviewView(p: ScanPreview) {
             fun at(x: Double, y: Double) = Offset((x * size.width).toFloat(), (y * size.height).toFloat())
             fun rect(b: DoubleArray, c: Color, w: Float) =
                 drawRect(c, at(b[0], b[1]), Size(((b[2] - b[0]) * size.width).toFloat(), ((b[3] - b[1]) * size.height).toFloat()), style = Stroke(w))
+            val part = p.overlay.partBox
+            fun inPart(x: Double, y: Double) = part != null && x in part[0]..part[2] && y in part[1]..part[3]
             for (o in p.overlay.persons) {
                 val c = if (o.isTarget) Color.Yellow else Color.White
                 rect(o.box, c.copy(alpha = if (o.isTarget) 1f else 0.5f), 2f)
                 val k = o.kp ?: continue
                 for ((a, b) in COCO_SKELETON) if (k[3 * a + 2] >= KP_MIN && k[3 * b + 2] >= KP_MIN) {
-                    drawLine(c, at(k[3 * a], k[3 * a + 1]), at(k[3 * b], k[3 * b + 1]), 3f)
+                    // the tracked part (bones inside the red box) is bold; the rest of the body is faint, so the stick figure does not hide what is followed
+                    val bold = o.isTarget && (part == null || (inPart(k[3 * a], k[3 * a + 1]) && inPart(k[3 * b], k[3 * b + 1])))
+                    drawLine(if (bold) c else c.copy(alpha = 0.3f), at(k[3 * a], k[3 * a + 1]), at(k[3 * b], k[3 * b + 1]), if (bold) 6f else 2f)
                 }
             }
-            p.overlay.partBox?.let { rect(it, Color.Red, 4f) }
+            part?.let { rect(it, Color.Red, 4f) }
             p.overlay.crop?.let { rect(it, Color.Green, 3f) }
         }
     }

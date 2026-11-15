@@ -89,6 +89,7 @@ object Scanner {
         var lastSave = SystemClock.elapsedRealtime()
         var lastPreview = 0L
         var liveTarget: Target? = null
+        var liveTried = false
         // Debug Part 1: predictive watch (throttling, memory, battery) + where the time goes per frame
         val watch = ScanWatch(ctx, "scan", total, fps)
         var lastCb = 0L
@@ -119,7 +120,12 @@ object Scanner {
                 if (onPreview != null && now - lastPreview >= PREVIEW_MIN_MS) {
                     lastPreview = now
                     val pv0 = System.nanoTime()
-                    if (liveTarget == null && pick != null) liveTarget = livePickTarget(pipe.samples, bmp.width, bmp.height, pick, cfg)
+                    // The scan starts at 0 s but the pick was made on a later frame: resolve only once the scan has reached the pick frame
+                    // (resolveTap takes the sample nearest to pick.t, so earlier it hit a wrong frame or nothing, and no green crop / red box showed).
+                    if (liveTarget == null && !liveTried && pick != null && s.t >= pick.t - 0.5 / fps) {
+                        liveTried = true
+                        liveTarget = livePickTarget(pipe.samples, bmp.width, bmp.height, pick, cfg)
+                    }
                     onPreview(ScanPreview(f.t, previewBitmap(bmp), previewOverlay(s, bmp.width, bmp.height, liveTarget, cfg)))
                     pvMs = (System.nanoTime() - pv0) / 1e6
                 }

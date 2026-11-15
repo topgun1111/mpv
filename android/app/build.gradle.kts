@@ -51,27 +51,37 @@ android {
         }
     }
 
-    // Part 15: release signing from the environment (CI writes the keystore from GitHub secrets; see .github/workflows/android.yml).
-    // Without KEYSTORE_PATH the release build stays unsigned: CI then skips it, local builds just use assembleDebug.
+    // ONE stable signing key for every build (debug and release). Android only installs an APK over the installed app when both are
+    // signed with the same key and the versionCode is higher; the CI debug key is random per run, which forced uninstall + install
+    // (and lost scans and the NPU context cache). The key is the keystore from the environment (CI secrets, optional) or the
+    // committed app/stable.jks (personal app; to use a private key instead, set the four ANDROID_KEYSTORE_* secrets in GitHub).
     val keystorePath: String? = System.getenv("KEYSTORE_PATH")
     signingConfigs {
-        if (!keystorePath.isNullOrEmpty() && file(keystorePath).isFile) {
-            create("release") {
+        create("stable") {
+            if (!keystorePath.isNullOrEmpty() && file(keystorePath).isFile) {
                 storeFile = file(keystorePath)
                 storePassword = System.getenv("KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("KEY_ALIAS")
                 keyPassword = System.getenv("KEY_PASSWORD")
+            } else {
+                storeFile = file("stable.jks")
+                storePassword = "takipli-stable"
+                keyAlias = "takipli"
+                keyPassword = "takipli-stable"
             }
         }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("stable")
+        }
         release {
             // No R8: ONNX Runtime, OpenCV and kotlinx.serialization need keep rules that were never tested here, and the APK
             // is dominated by the models and native libraries anyway.
             isMinifyEnabled = false
             isShrinkResources = false
-            signingConfig = signingConfigs.findByName("release")
+            signingConfig = signingConfigs.getByName("stable")
         }
     }
 

@@ -125,22 +125,10 @@ jobs:
           v=$(tr -d "[:space:]" < VERSION)
           mkdir -p dist-android/release
           cp android/app/build/outputs/apk/${{ matrix.flavor }}/debug/app-${{ matrix.flavor }}-debug.apk "dist-android/TakipliOynat-Android-${{ matrix.flavor }}-$v-debug.apk"
-      - name: Signed release APK (every push to main and v* tags; needs the keystore secrets, otherwise skipped with a warning)
+      - name: Signed release APK (every push to main and v* tags; same committed key as the debug APK, so both install over each other)
         if: github.event_name == 'push'
-        env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
-            echo "::warning::Android keystore secrets are not set: the signed release APK is skipped (the debug APK is still uploaded)"
-            exit 0
-          fi
-          export KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
-          echo "$KEYSTORE_B64" | base64 -d > "$KEYSTORE_PATH"
           (cd android && gradle --no-daemon --stacktrace :app:assemble${{ matrix.gradle_task }}Release)
-          rm -f "$KEYSTORE_PATH"
           apk=android/app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk
           test -s "$apk" || { echo "release APK was not produced (unsigned?)"; ls -l android/app/build/outputs/apk/${{ matrix.flavor }}/release; exit 1; }
           v=$(tr -d "[:space:]" < VERSION)
