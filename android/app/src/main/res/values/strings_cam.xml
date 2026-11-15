@@ -15,16 +15,20 @@
     <string name="cam_zoom_only">Zoom only</string>
     <string name="export_saving_partial">Cancelled: saving the part that is already done (it is encoded again as a short clip).</string>
     <string name="export_partial_done">Partial export saved to Movies/TakipliOynat/%1$s (first %2$s s).</string>
-    <string name="rec_chip">Record (manual zoom and position)</string>
+    <string name="rec_chip">Free hand (record)</string>
     <string name="rec_hint">Recording: play the video, pinch to zoom, drag to move. Tap Record again to stop; the take replaces the automatic framing for that part.</string>
     <string name="rec_clear">Remove manual takes</string>
     <string name="speed_label">Playback speed (preview only): %1$sx</string>
     <string name="tab_target">Target</string>
     <string name="tab_camera">Camera</string>
-    <string name="tab_manual">Manual</string>
+    <string name="tab_manual">Freehand</string>
     <string name="tab_export">Export</string>
     <string name="track_kind_person">Tracking: person / body part</string>
     <string name="track_kind_object">Tracking: object or drawn region</string>
     <string name="track_object_hint">A tapped spot or drawn region is followed as it is. Body-part presets do not apply. Size and smoothness are in the Camera tab.</string>
     <string name="rec_idle_hint">Turn on Record, press Play, then use two fingers on the video: pinch to zoom and drag at the same time. Use the speed slider to record in slow motion.</string>
+    <string name="rec_badge">● REC</string>
+    <string name="rec_start">● Start recording</string>
+    <string name="rec_stop">■ Stop recording</string>
+    <string name="rec_count">Recorded takes: %1$d</string>
 </resources>

@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -235,9 +236,10 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
         }
     }
 
+    fun clock(ms: Long) = String.format(Locale.ROOT, "%d:%02d", ms / 60000, (ms / 1000) % 60)
     val vw = doc.video.w.coerceAtLeast(1); val vh = doc.video.h.coerceAtLeast(1)
     if (rot != 0) Text(stringResource(R.string.result_rotated, rot), fontSize = 12.sp)
-    Box(Modifier.fillMaxWidth().aspectRatio(vw / vh.toFloat()).clipToBounds().pointerInput(recording) {
+    Box(Modifier.fillMaxWidth().aspectRatio(vw / vh.toFloat()).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).clipToBounds().pointerInput(recording) {
         if (recording) detectTransformGestures { centroid, pan, zoom, _ -> // serbest el: iki parmakla aynı anda zoom + taşıma; zoom parmakların ortasına göre
             val w = size.width.toDouble(); val h = size.height.toDouble()
             recView = applyGestureAt(recView, centroid.x / w, centroid.y / h, pan.x / w, pan.y / h, zoom.toDouble(), 3.5)
@@ -253,19 +255,19 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                 }
             },
         )
+        if (recording) Text(stringResource(R.string.rec_badge), color = androidx.compose.ui.graphics.Color.Red, modifier = Modifier.align(androidx.compose.ui.Alignment.TopStart).padding(8.dp)) // kayıt açık: iki parmakla yakınlaştır + sürükle
     }
     if (!readable) Text(stringResource(R.string.err_video), color = MaterialTheme.colorScheme.error)
     if (playerMsg.isNotEmpty()) Text(playerMsg, color = MaterialTheme.colorScheme.error)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = { if (player.isPlaying) player.pause() else player.play() }) { Text(stringResource(if (playing) R.string.result_pause else R.string.result_play)) }
         FilterChip(selected = follow, enabled = !recording, onClick = { follow = !follow }, label = { Text(stringResource(R.string.result_follow)) })
+        Text(clock(posMs) + " / " + clock(durMs), modifier = Modifier.align(androidx.compose.ui.Alignment.CenterVertically), style = MaterialTheme.typography.labelLarge)
     }
     Slider(value = posMs.toFloat(), valueRange = 0f..durMs.toFloat(), onValueChange = { posMs = it.toLong(); player.seekTo(it.toLong()) })
 
     // Oynatma hızı (yalnız önizleme/kayıt için; dışa aktarma hızı değişmez)
     var speed by remember { mutableStateOf(1f) }
-    Text(stringResource(R.string.speed_label, String.format(Locale.ROOT, "%.2f", speed)))
-    Slider(value = speed, valueRange = 0.25f..2f, onValueChange = { speed = it; player.setPlaybackParameters(PlaybackParameters(it)) })
     var tab by remember { mutableStateOf(0) }
     ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
         listOf(R.string.tab_target, R.string.tab_camera, R.string.tab_manual, R.string.tab_export).forEachIndexed { i, n ->
@@ -342,87 +344,101 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
         }
         if (started != null && !finished) exporter = started
     }
-    when (tab) {
-        0 -> { // izleme yöntemine özgü ayarlar
-            Text(stringResource(if (isObject) R.string.track_kind_object else R.string.track_kind_person), style = MaterialTheme.typography.titleSmall)
-            if (isObject) {
-                Text(stringResource(R.string.track_object_hint), fontSize = 12.sp)
-            } else {
-        Text(stringResource(R.string.pick_part), style = MaterialTheme.typography.labelLarge)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PRESETS.keys.forEach { p ->
-                FilterChip(selected = target.preset == p, onClick = { target = Target(base.id, preset = p, linked = base.linked); rebuild(target, tuning) }, label = { Text(p.replace('_', ' ')) })
-            }
-        }
-    tune(R.string.tune_box, tuning.kpBox, 0.04f..0.4f) { tuning.copy(kpBox = it) }
-            }
-            tune(R.string.tune_hold, tuning.lostHoldS, 0f..3f) { tuning.copy(lostHoldS = it) }
-        }
-        1 -> {
-    Text(stringResource(R.string.cam_title), style = MaterialTheme.typography.titleSmall)
-    camRow(R.string.cam_mode, tuning.director.mode, listOf(CamMode.SIZE to R.string.cam_mode_size, CamMode.CINEMATIC to R.string.cam_mode_cine, CamMode.FOLLOW to R.string.cam_mode_follow)) { tuning.copy(director = tuning.director.copy(mode = it)) }
-    camRow(R.string.cam_pos, tuning.director.pos, listOf(CamPos.LEFT to R.string.cam_pos_left, CamPos.CENTER to R.string.cam_pos_center, CamPos.RIGHT to R.string.cam_pos_right)) { tuning.copy(director = tuning.director.copy(pos = it)) }
-    camRow(R.string.cam_zoom, tuning.director.zoom, listOf(CamZoom.ZOOM_CROP to R.string.cam_zoom_crop, CamZoom.CROP_ONLY to R.string.cam_zoom_only_crop, CamZoom.ZOOM_ONLY to R.string.cam_zoom_only)) { tuning.copy(director = tuning.director.copy(zoom = it)) }
-    tune(R.string.tune_fill, tuning.targetFill, 0.10f..0.85f) { tuning.copy(targetFill = it) }
-    tune(R.string.tune_maxzoom, tuning.maxZoom, 0.5f..3.5f) { tuning.copy(maxZoom = it) }
-    tune(R.string.tune_follow, tuning.followAlpha, 0.1f..0.9f) { tuning.copy(followAlpha = it) }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { tuning = Tuning.of(cfg); rebuild(target, tuning) }) { Text(stringResource(R.string.tune_reset)) }
-    }
-        }
-        2 -> {
-            FilterChip(selected = recording, enabled = !exporting && views.isNotEmpty(), onClick = { if (recording) stopRecording() else startRecording() }, label = { Text(stringResource(R.string.rec_chip)) })
-            Text(stringResource(if (recording) R.string.rec_hint else R.string.rec_idle_hint), fontSize = 12.sp)
-            if (manual.isNotEmpty() && !recording) OutlinedButton(onClick = { manual = emptyList(); rebuild(target, tuning) }) { Text(stringResource(R.string.rec_clear)) }
-        }
-        else -> {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = {
-            scope.launch {
-                try {
-                    withContext(Dispatchers.IO) {
-                        val out = doc.copy(target = target, views = views)
-                        Scanner.writeAtomic(file, out)
-                        File(file.path.replace(".track.json", ".views.json")).writeText(Formats.encodeViews(Formats.viewsOf(out)))
+    androidx.compose.material3.Surface(tonalElevation = 2.dp, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            when (tab) {
+                0 -> { // izleme yöntemine özgü ayarlar
+                    Text(stringResource(if (isObject) R.string.track_kind_object else R.string.track_kind_person), style = MaterialTheme.typography.titleSmall)
+                    if (isObject) {
+                        Text(stringResource(R.string.track_object_hint), fontSize = 12.sp)
+                    } else {
+                        Text(stringResource(R.string.pick_part), style = MaterialTheme.typography.labelLarge)
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PRESETS.keys.forEach { p ->
+                                FilterChip(selected = target.preset == p, onClick = { target = Target(base.id, preset = p, linked = base.linked); rebuild(target, tuning) }, label = { Text(p.replace('_', ' ')) })
+                            }
+                        }
+                        tune(R.string.tune_box, tuning.kpBox, 0.04f..0.4f) { tuning.copy(kpBox = it) }
                     }
-                    saved = ctx.getString(R.string.result_saved)
-                } catch (e: Throwable) {
-                    ErrorLog.record(ctx, "save-views", e)
-                    saved = Safety.friendly(ctx, e)
+                    tune(R.string.tune_hold, tuning.lostHoldS, 0f..3f) { tuning.copy(lostHoldS = it) }
+                }
+                1 -> {
+                    Text(stringResource(R.string.cam_title), style = MaterialTheme.typography.titleSmall)
+                    camRow(R.string.cam_mode, tuning.director.mode, listOf(CamMode.SIZE to R.string.cam_mode_size, CamMode.CINEMATIC to R.string.cam_mode_cine, CamMode.FOLLOW to R.string.cam_mode_follow)) { tuning.copy(director = tuning.director.copy(mode = it)) }
+                    camRow(R.string.cam_pos, tuning.director.pos, listOf(CamPos.LEFT to R.string.cam_pos_left, CamPos.CENTER to R.string.cam_pos_center, CamPos.RIGHT to R.string.cam_pos_right)) { tuning.copy(director = tuning.director.copy(pos = it)) }
+                    camRow(R.string.cam_zoom, tuning.director.zoom, listOf(CamZoom.ZOOM_CROP to R.string.cam_zoom_crop, CamZoom.CROP_ONLY to R.string.cam_zoom_only_crop, CamZoom.ZOOM_ONLY to R.string.cam_zoom_only)) { tuning.copy(director = tuning.director.copy(zoom = it)) }
+                    tune(R.string.tune_fill, tuning.targetFill, 0.10f..0.85f) { tuning.copy(targetFill = it) }
+                    tune(R.string.tune_maxzoom, tuning.maxZoom, 0.5f..3.5f) { tuning.copy(maxZoom = it) }
+                    tune(R.string.tune_follow, tuning.followAlpha, 0.1f..0.9f) { tuning.copy(followAlpha = it) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { tuning = Tuning.of(cfg); rebuild(target, tuning) }) { Text(stringResource(R.string.tune_reset)) }
+                    }
+                }
+                2 -> { // Serbest el: oynarken iki parmakla yakınlaştır + sürükle, hareketler kaydedilir
+                    Button(
+                        enabled = !exporting && views.isNotEmpty(),
+                        colors = if (recording) androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else androidx.compose.material3.ButtonDefaults.buttonColors(),
+                        onClick = { if (recording) stopRecording() else startRecording() },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(if (recording) R.string.rec_stop else R.string.rec_start)) }
+                    Text(stringResource(if (recording) R.string.rec_hint else R.string.rec_idle_hint), fontSize = 12.sp)
+                    Text(stringResource(R.string.speed_label, String.format(Locale.ROOT, "%.2f", speed)))
+                    Slider(value = speed, valueRange = 0.25f..2f, onValueChange = { speed = it; player.setPlaybackParameters(PlaybackParameters(it)) })
+                    if (manual.isNotEmpty() && !recording) {
+                        Text(stringResource(R.string.rec_count, manual.size), fontSize = 12.sp)
+                        OutlinedButton(onClick = { manual = emptyList(); rebuild(target, tuning) }) { Text(stringResource(R.string.rec_clear)) }
+                    }
+                }
+                else -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                                scope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            val out = doc.copy(target = target, views = views)
+                                            Scanner.writeAtomic(file, out)
+                                            File(file.path.replace(".track.json", ".views.json")).writeText(Formats.encodeViews(Formats.viewsOf(out)))
+                                        }
+                                        saved = ctx.getString(R.string.result_saved)
+                                    } catch (e: Throwable) {
+                                        ErrorLog.record(ctx, "save-views", e)
+                                        saved = Safety.friendly(ctx, e)
+                                    }
+                                }
+                        }) { Text(stringResource(R.string.result_save)) }
+                    }
+                    if (saved.isNotEmpty()) Text(saved)
+                    if (saved.isNotEmpty()) Text(saved)
+                    Text(stringResource(R.string.export_title), style = MaterialTheme.typography.labelLarge)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = !hevc, enabled = !exporting, onClick = { hevc = false }, label = { Text("H.264") })
+                        FilterChip(selected = hevc, enabled = !exporting, onClick = { hevc = true }, label = { Text("HEVC") })
+                    }
+                    FilterChip(selected = stab, enabled = !exporting && !stabBusy, onClick = { stab = !stab }, label = { Text(stringResource(R.string.stab_chip)) })
+                    if (stabBusy) {
+                        LinearProgressIndicator(progress = { stabP.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                        Text(stringResource(R.string.stab_working))
+                    }
+                    if (stabMsg.isNotEmpty()) Text(stabMsg)
+                    BatteryWarning()
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(enabled = !exporting && !stabBusy && !recording && views.isNotEmpty() && readable, onClick = { startExport(null) }) { Text(stringResource(R.string.export_start)) }
+                        OutlinedButton(enabled = exporting, onClick = {
+                                val p = exportP
+                                Diag.note(ctx, "export", "EXPORT_CANCEL", "cancelled by user at ${(p * 100).toInt()} %")
+                                exporter?.cancel(); exporter = null
+                                // Cancel keeps what is done: the first part (a little under the reported progress) is exported again as a short clip. Too little done: nothing to keep.
+                                val endMs = (p * durMs * 0.98).toLong()
+                                if (p >= 0.02f && endMs >= 1000L) startExport(endMs) else { exportMsg = ctx.getString(R.string.export_cancelled); resumePlayer() }
+                        }) { Text(stringResource(R.string.scan_cancel)) }
+                    }
+                    if (exporting) {
+                        if (exportP >= 0f) LinearProgressIndicator(progress = { exportP.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                        Text(stringResource(R.string.export_keep_open))
+                    }
+                    if (exportMsg.isNotEmpty()) Text(exportMsg)
                 }
             }
-        }) { Text(stringResource(R.string.result_save)) }
-    }
-    if (saved.isNotEmpty()) Text(saved)
-    if (saved.isNotEmpty()) Text(saved)
-    Text(stringResource(R.string.export_title), style = MaterialTheme.typography.labelLarge)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected = !hevc, enabled = !exporting, onClick = { hevc = false }, label = { Text("H.264") })
-        FilterChip(selected = hevc, enabled = !exporting, onClick = { hevc = true }, label = { Text("HEVC") })
-    }
-    FilterChip(selected = stab, enabled = !exporting && !stabBusy, onClick = { stab = !stab }, label = { Text(stringResource(R.string.stab_chip)) })
-    if (stabBusy) {
-        LinearProgressIndicator(progress = { stabP.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-        Text(stringResource(R.string.stab_working))
-    }
-    if (stabMsg.isNotEmpty()) Text(stabMsg)
-    BatteryWarning()
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(enabled = !exporting && !stabBusy && !recording && views.isNotEmpty() && readable, onClick = { startExport(null) }) { Text(stringResource(R.string.export_start)) }
-        OutlinedButton(enabled = exporting, onClick = {
-            val p = exportP
-            Diag.note(ctx, "export", "EXPORT_CANCEL", "cancelled by user at ${(p * 100).toInt()} %")
-            exporter?.cancel(); exporter = null
-            // Cancel keeps what is done: the first part (a little under the reported progress) is exported again as a short clip. Too little done: nothing to keep.
-            val endMs = (p * durMs * 0.98).toLong()
-            if (p >= 0.02f && endMs >= 1000L) startExport(endMs) else { exportMsg = ctx.getString(R.string.export_cancelled); resumePlayer() }
-        }) { Text(stringResource(R.string.scan_cancel)) }
-    }
-    if (exporting) {
-        if (exportP >= 0f) LinearProgressIndicator(progress = { exportP.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-        Text(stringResource(R.string.export_keep_open))
-    }
-    if (exportMsg.isNotEmpty()) Text(exportMsg)
         }
     }
 }

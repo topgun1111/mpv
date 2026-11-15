@@ -15,16 +15,20 @@
     <string name="cam_zoom_only">Yalnız zoom</string>
     <string name="export_saving_partial">İptal edildi: bitmiş kısım kaydediliyor (kısa klip olarak yeniden kodlanır).</string>
     <string name="export_partial_done">Kısmi dışa aktarma Movies/TakipliOynat/%1$s dosyasına kaydedildi (ilk %2$s sn).</string>
-    <string name="rec_chip">Kayıt (elle zoom ve konum)</string>
+    <string name="rec_chip">Serbest el (kayıt)</string>
     <string name="rec_hint">Kayıt açık: videoyu oynat, iki parmakla yakınlaştır, sürükleyerek konumu değiştir. Bitirmek için Kayıt düğmesine tekrar dokun; o bölümde otomatik kadrajın yerine geçer.</string>
     <string name="rec_clear">Elle çekimleri kaldır</string>
     <string name="speed_label">Oynatma hızı (yalnız önizleme): %1$sx</string>
     <string name="tab_target">Hedef</string>
     <string name="tab_camera">Kamera</string>
-    <string name="tab_manual">Elle</string>
+    <string name="tab_manual">Serbest el</string>
     <string name="tab_export">Dışa aktar</string>
     <string name="track_kind_person">İzleme: kişi / vücut parçası</string>
     <string name="track_kind_object">İzleme: nesne veya çizilen bölge</string>
     <string name="track_object_hint">Dokunulan nokta ya da çizilen bölge olduğu gibi izlenir. Vücut parçası ön ayarları geçerli değil. Boyut ve yumuşaklık Kamera sekmesinde.</string>
     <string name="rec_idle_hint">Kaydı aç, Oynat düğmesine bas, sonra videonun üstünde iki parmakla aynı anda yakınlaştır ve sürükle. Yavaş çekimde kaydetmek için hız kaydırıcısını kullan.</string>
+    <string name="rec_badge">● KAYIT</string>
+    <string name="rec_start">● Kaydı başlat</string>
+    <string name="rec_stop">■ Kaydı durdur</string>
+    <string name="rec_count">Kayıtlı çekim sayısı: %1$d</string>
 </resources>
