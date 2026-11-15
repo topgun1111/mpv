@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Takipli Kayıt</string>
+    <string name="title">Manuel kamera</string>
+    <string name="subtitle">Videoyu oynat, yakınlaştırıp sürükleyerek kadrajı değiştir. Kayıt kamera hareketini yakalar ve yeni bir video olarak dışa aktarır.</string>
+    <string name="choose_video">Video seç</string>
+    <string name="change_video">Videoyu değiştir</string>
+    <string name="full_screen">Tam ekran</string>
+    <string name="exit_full_screen">Çık</string>
+    <string name="rotate_left">↺ 90°</string>
+    <string name="rotate_right">90° ↻</string>
+    <string name="rotate_note">Videoyu döndürmek dışa aktarılan videoyu da çevirir. Döndürünce kaydedilmiş kamera hareketleri silinir.</string>
+    <string name="play">Oynat</string>
+    <string name="pause">Duraklat</string>
+    <string name="reset_view">Görünümü sıfırla</string>
+    <string name="rec_start">● Kaydı başlat</string>
+    <string name="rec_stop">■ Kaydı durdur</string>
+    <string name="rec_short">● KAYIT</string>
+    <string name="stop_short">■ DUR</string>
+    <string name="rec_badge">● KAYIT</string>
+    <string name="export_mp4">MP4 dışa aktar</string>
+    <string name="speed_title">Oynatma hızı</string>
+    <string name="speed_note">Yalnız önizlemeyi yavaşlatır ya da hızlandırır. Kamera hareketleri videonun kendi zamanına kaydedilir; dışa aktarılan video özgün hızında kalır.</string>
+    <string name="keyframes_info">%1$s / %2$s · %3$d kamera anahtar karesi</string>
+    <string name="fs_hint">KAYIT\'a bas, sonra iki parmakla yakınlaştır ve sürükle. Bitince DUR\'a bas.</string>
+    <string name="record_first">Dışa aktarmadan önce bir kamera hareketi kaydet.</string>
+    <string name="preparing">Video hazırlanıyor…</string>
+    <string name="exporting">Dışa aktarılıyor… %1$d%%</string>
+    <string name="saved">Movies/TakipliOynat/%1$s konumuna kaydedildi</string>
+    <string name="version_label">Sürüm %1$s</string>
+    <string name="err_no_space">Yeterli boş depolama yok. Biraz yer aç ve tekrar dene.</string>
+    <string name="err_video">Video okunamıyor (taşınmış, silinmiş ya da erişim izni kaybolmuş). Yeniden seç.</string>
+    <string name="err_codec">Bu telefon bu video biçimini çözemiyor ya da kodlayamıyor. Başka bir klip dene.</string>
+    <string name="err_other">Bir şeyler ters gitti.</string>
+</resources>

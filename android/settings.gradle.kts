@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "TakipliOynatAndroid"
-include(":core", ":app")
+include(":core", ":app", ":rec")

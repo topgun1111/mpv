@@ -65,3 +65,15 @@ crashes); **Clear error log** empties it. The file is `files/logs/error.log` (ca
 - **Rules the phone enforces:** the update must be signed with the same key as the installed app, and its versionCode must be higher.
   CI **debug** APKs get a random debug key each run, so they can never update each other: install the signed release once (uninstall a debug build first), then update in-app.
   Allow "install unknown apps" for the app when asked.
+
+## Record-only variant (`rec/`)
+
+A second, much smaller app from the same repo: **Takipli Record** (`com.takipli.oynat.rec`, installs next to the full app). Only the manual
+camera: pick a clip, play it, pinch to zoom and drag at the same time while recording, export the recorded camera path to MP4
+(`Movies/TakipliOynat`). No pose, tracking, scanning, ONNX Runtime, QNN, OpenCV, updater or network permission. It depends only on `:core`
+(pure Kotlin view/export maths) and reads the same `VERSION`.
+
+- **Full screen** button on the preview: the preview fills the screen (system bars hidden) and every control is an overlay: exit, rotate left/right,
+  play/pause, seek, speed, REC/STOP, Export. Back exits full screen (stops the take first if recording).
+- **Rotate** buttons turn the video 90 degrees (preview and export); recorded moves are cleared on rotate because they were made in the old orientation.
+- Build: `cd android && gradle :rec:assembleDebug` -> `rec/build/outputs/apk/debug/rec-debug.apk`. CI: `.github/workflows/android-rec.yml` (artifact `TakipliKayit-Android`).
