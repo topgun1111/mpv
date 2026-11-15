@@ -163,6 +163,8 @@
     <string name="mode_point_desc">Bir nesneye veya noktaya kilitlen.</string>
     <string name="mode_freehand">Serbest çizim alanı</string>
     <string name="mode_freehand_desc">Video boyunca takip edilecek alanın çevresini çiz.</string>
+    <string name="mode_record">Manuel kamera kaydı</string>
+    <string name="mode_record_desc">Videoyu oynat, yakınlaştırıp sürükleyerek kadrajı canlı değiştir ve kamera hareketini dışa aktar.</string>
     <string name="mode_tab_body">Vücut</string>
     <string name="mode_tab_point">Nokta</string>
     <string name="mode_tab_freehand">Serbest</string>

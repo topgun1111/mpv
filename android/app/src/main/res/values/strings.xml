@@ -163,6 +163,8 @@
     <string name="mode_point_desc">Lock onto an object or a point.</string>
     <string name="mode_freehand">Freehand region</string>
     <string name="mode_freehand_desc">Draw around an area to track its shape through the clip.</string>
+    <string name="mode_record">Manual camera recording</string>
+    <string name="mode_record_desc">Play a video, zoom and drag live, then export your recorded camera movement.</string>
     <string name="mode_tab_body">Body</string>
     <string name="mode_tab_point">Point</string>
     <string name="mode_tab_freehand">Freehand</string>

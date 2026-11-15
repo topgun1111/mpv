@@ -518,3 +518,7 @@ Done from the two-stage recommendation (user: "do these").
 - Added persistent Body / Point / Freehand mode tabs to the video target-selection screen. The home mode cards now open the selected mode directly.
 - Mode mapping preserves the existing engine paths: Body = pose/person-part tracking; Point = free-point/object tracking; Freehand = drawn-region tracking. Existing scan and export logic was not changed.
 - Added English and Turkish strings. XML resources were parsed successfully. Gradle build could not be run in this environment because Gradle is not installed; validate with `gradle :app:assemblePoseDebug` in Android CI or a configured Android build environment.
+
+## Standalone manual camera recording mode
+
+The home screen now includes a separate **Manual camera recording** mode. It opens any video directly, plays it in an ExoPlayer preview, and lets the user pinch-zoom and drag the frame while recording. Camera transforms are sampled as timestamped keyframes and exported through the existing Media3 `Exporter` pipeline to `Movies/TakipliOynat` as a new MP4. This mode is independent of body/point/freehand tracking and does not run an AI tracker.

@@ -49,11 +49,12 @@ class MainActivity : ComponentActivity() {
                         "decode" -> DecodeScreen(onBack = { screen = "home" })
                         "scan" -> ScanScreen(onBack = { screen = "home" })
                         "pick" -> PickScreen(initialMode = selectedMode, onBack = { screen = "home" }, onResult = { resultFile = it; screen = "result" })
+                        "record" -> RecordScreen(onBack = { screen = "home" })
                         "result" -> ResultScreen(resultFile, onBack = { screen = "pick" })
                         "update" -> UpdateScreen(onBack = { screen = "home" })
                         else -> HomeScreen(
                             onBench = { screen = "bench" }, onDecode = { screen = "decode" },
-                            onScan = { screen = "scan" }, onPick = { mode -> selectedMode = mode; screen = "pick" }, onUpdate = { screen = "update" },
+                            onScan = { screen = "scan" }, onPick = { mode -> selectedMode = mode; screen = "pick" }, onRecord = { screen = "record" }, onUpdate = { screen = "update" },
                         )
                     }
                 }
@@ -63,7 +64,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit, onScan: () -> Unit, onPick: (String) -> Unit, onUpdate: () -> Unit) {
+fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit, onScan: () -> Unit, onPick: (String) -> Unit, onRecord: () -> Unit, onUpdate: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -95,6 +96,7 @@ fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit, onScan: () -> Unit, on
             ModePreviewCard("✦", stringResource(R.string.mode_point), stringResource(R.string.mode_point_desc), Modifier.weight(1f)) { onPick("point") }
         }
         ModePreviewCard("〰", stringResource(R.string.mode_freehand), stringResource(R.string.mode_freehand_desc), Modifier.fillMaxWidth()) { onPick("freehand") }
+        ModePreviewCard("🎥", stringResource(R.string.mode_record), stringResource(R.string.mode_record_desc), Modifier.fillMaxWidth()) { onRecord() }
 
         Text(stringResource(R.string.home_tools_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
