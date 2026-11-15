@@ -10,4 +10,6 @@ captures/
 *.jks
 # models are copied here at build time (never committed)
 app/src/*/assets/models/
-!app/stable.jks # fixed signing key, committed on purpose: every build (debug and release) is signed with it, so a new build installs OVER the old one
+# fixed signing key, committed on purpose: every build (debug and release) is signed with it, so a new build installs OVER the old one
+# (no trailing comment on the pattern line: gitignore would read it as part of the file name and the key would stay ignored)
+!app/stable.jks

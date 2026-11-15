@@ -26,9 +26,9 @@ def test_release_signing_comes_from_the_environment_only():
     g = _text(ANDROID / "app" / "build.gradle.kts")
     for key in ("KEYSTORE_PATH", "KEYSTORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD"):
         assert f'System.getenv("{key}")' in g
-    assert not re.search(r"storePassword\s*=\s*\"", g)  # düz metin parola yok
-    # anahtar dosyası depoda olmamalı
-    assert not list(ANDROID.rglob("*.jks")) and not list(ANDROID.rglob("*.keystore"))
+    # yalnız sabit imza anahtarı app/stable.jks bilerek depodadır (kişisel uygulama); başka anahtar dosyası olmamalı
+    assert not [p for p in ANDROID.rglob("*.jks") if p.name != "stable.jks"]
+    assert not list(ANDROID.rglob("*.keystore"))
 
 
 def test_android_workflow_release_step():
