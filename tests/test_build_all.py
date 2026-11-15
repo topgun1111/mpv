@@ -18,3 +18,9 @@ def test_called_workflows_have_no_own_push_trigger():
         assert "workflow_call:" in t, name
         assert "push:" not in t and "pull_request:" not in t, name
         assert "concurrency:" not in t, name  # tek grup build-all.yml'de
+
+
+def test_build_all_collects_one_error_log():
+    t = (WF / "build-all.yml").read_text(encoding="utf-8")
+    assert "error-log:" in t and "name: error-log" in t and "actions: read" in t
+    assert "if: ${{ !cancelled() }}" in t  # başarısız iş olsa da çalışır

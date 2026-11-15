@@ -43,3 +43,40 @@ jobs:
   android-rec:
     if: ${{ !startsWith(github.ref, 'refs/tags/kayit-v') }}
     uses: ./.github/workflows/android-rec.yml
+
+  # One combined error log for the whole run: only the failed jobs, only the error lines with a little context.
+  # Download the artifact "error-log" (or open the run summary) instead of the per-job logs zip.
+  error-log:
+    if: ${{ !cancelled() }}
+    needs: [tests, pc-full, pc-recording, android, android-rec]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Collect the errors of every failed job into one file
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out=error-log.txt
+          echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID ($GITHUB_REF_NAME, $GITHUB_SHA)" > "$out"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
+            --jq '.jobs[] | select(.conclusion=="failure" or .conclusion=="timed_out") | [.id,.name] | @tsv' > failed.tsv || true
+          if [ ! -s failed.tsv ]; then echo "No failed jobs." >> "$out"; fi
+          while IFS=$'\t' read -r id name; do
+            [ -n "$id" ] || continue
+            { echo; echo "=================== $name (job $id)"; } >> "$out"
+            if gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$id/logs" > job.log 2>/dev/null; then
+              sed -E 's/^[0-9T:.-]+Z //; s/\x1b\[[0-9;]*m//g' job.log | grep -v -E '^\s+(at |\.\.\. [0-9]+ more)' > clean.log
+              grep -n -E -B2 -A8 '##\[error\]|^e: |FAILED|What went wrong|Traceback|AssertionError|Error:|error:' clean.log | head -n 300 >> "$out" || true
+            else
+              echo "(could not download the log of this job)" >> "$out"
+            fi
+          done < failed.tsv
+          { echo '```'; head -c 900000 "$out"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: error-log
+          path: error-log.txt
+          if-no-files-found: ignore
