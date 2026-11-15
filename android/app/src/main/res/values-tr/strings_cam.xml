@@ -13,4 +13,6 @@
     <string name="cam_zoom_crop">Zoom + kırpma</string>
     <string name="cam_zoom_only_crop">Yalnız kırpma</string>
     <string name="cam_zoom_only">Yalnız zoom</string>
+    <string name="export_saving_partial">İptal edildi: bitmiş kısım kaydediliyor (kısa klip olarak yeniden kodlanır).</string>
+    <string name="export_partial_done">Kısmi dışa aktarma Movies/TakipliOynat/%1$s dosyasına kaydedildi (ilk %2$s sn).</string>
 </resources>

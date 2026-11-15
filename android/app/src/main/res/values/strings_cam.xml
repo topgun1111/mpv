@@ -13,4 +13,6 @@
     <string name="cam_zoom_crop">Zoom + crop</string>
     <string name="cam_zoom_only_crop">Crop only</string>
     <string name="cam_zoom_only">Zoom only</string>
+    <string name="export_saving_partial">Cancelled: saving the part that is already done (it is encoded again as a short clip).</string>
+    <string name="export_partial_done">Partial export saved to Movies/TakipliOynat/%1$s (first %2$s s).</string>
 </resources>

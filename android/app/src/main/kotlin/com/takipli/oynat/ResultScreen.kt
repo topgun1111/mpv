@@ -281,61 +281,72 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     }
     if (stabMsg.isNotEmpty()) Text(stabMsg)
     BatteryWarning()
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(enabled = !exporting && !stabBusy && views.isNotEmpty() && readable, onClick = {
-            exportMsg = ""; exportP = 0f
-            // preflight: enough storage for the cache file plus the copy in Movies (core `enoughSpaceForExport`)
-            val need = exportBytesNeeded(exportBitrate(vw, vh, doc.video.fps, hevc), durMs / 1000.0)
-            val freeCache = Safety.freeBytes(ctx.cacheDir)
-            val freeMovies = Safety.freeBytes(ctx.getExternalFilesDir(null) ?: ctx.cacheDir)
-            Diag.preflightStorage(ctx, "export (cache copy + Movies copy)", need * 2)
-            Diag.note(ctx, "export", "EXPORT_START", "${vw}x$vh ${doc.video.fps} fps ${if (hevc) "HEVC" else "H.264"} stab=$stab ${durMs / 1000} s, ~${need shr 20} MB | ${Diag.vitals(ctx)}")
-            if (!enoughSpaceForExport(freeCache, freeMovies, need)) {
-                exportMsg = ctx.getString(R.string.err_no_space_export, need / 1_048_576L, minOf(freeCache, freeMovies) / 1_048_576L)
-                return@Button
-            }
-            val t0 = SystemClock.elapsedRealtime()
-            val tmp = File(ctx.cacheDir, "export/out.mp4")
-            var finished = false // an error can arrive before start() returns: then there is no running exporter to remember
-            fun finish(msg: String) { finished = true; exporter = null; exportMsg = msg; resumePlayer() }
-            val rt = Runtime.getRuntime()
-            val heapBefore = (rt.totalMemory() - rt.freeMemory()) shr 20
-            parkPlayer(); System.gc()
-            Diag.note(ctx, "export", "EXPORT_PREP", "player parked; heap $heapBefore -> ${(rt.totalMemory() - rt.freeMemory()) shr 20} of ${rt.maxMemory() shr 20} MB, stab=$stab")
-            val started = try { Exporter.start(
-                ctx, Uri.parse(doc.video.path), views, tmp, vw, vh, doc.video.fps, hevc,
-                plan = if (stab) camPath?.let { StabPlan(it, views, vw, vh) } else null,
-                rot = rot,
-                onDone = {
-                    scope.launch {
-                        val name = "Takipli_" + java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(java.util.Date()) + ".mp4"
-                        try {
-                            withContext(Dispatchers.IO) { Exporter.saveToMovies(ctx, tmp, name); tmp.delete() }
-                            val wall = (SystemClock.elapsedRealtime() - t0) / 1000.0
-                            val x = if (wall > 0) durMs / 1000.0 / wall else 0.0
-                            Diag.event(ctx, "export", com.takipli.oynat.core.speedFinding("export", x, 0.3))
-                            finish(ctx.getString(R.string.export_done, name, String.format(Locale.ROOT, "%.2f", x)))
-                        } catch (e: Throwable) {
-                            ErrorLog.record(ctx, "export-save", e)
-                            tmp.delete()
-                            finish(Safety.friendly(ctx, e))
-                        }
+    // endMs != null: partial export of the first endMs (after Cancel); null: the whole clip
+    fun startExport(endMs: Long?) {
+        val totalMs = endMs ?: durMs
+        exportMsg = if (endMs != null) ctx.getString(R.string.export_saving_partial) else ""; exportP = 0f
+        // preflight: enough storage for the cache file plus the copy in Movies (core `enoughSpaceForExport`)
+        val need = exportBytesNeeded(exportBitrate(vw, vh, doc.video.fps, hevc), totalMs / 1000.0)
+        val freeCache = Safety.freeBytes(ctx.cacheDir)
+        val freeMovies = Safety.freeBytes(ctx.getExternalFilesDir(null) ?: ctx.cacheDir)
+        Diag.preflightStorage(ctx, "export (cache copy + Movies copy)", need * 2)
+        Diag.note(ctx, "export", "EXPORT_START", "${vw}x$vh ${doc.video.fps} fps ${if (hevc) "HEVC" else "H.264"} stab=$stab ${totalMs / 1000} s${if (endMs != null) " (partial)" else ""}, ~${need shr 20} MB | ${Diag.vitals(ctx)}")
+        if (!enoughSpaceForExport(freeCache, freeMovies, need)) {
+            exportMsg = ctx.getString(R.string.err_no_space_export, need / 1_048_576L, minOf(freeCache, freeMovies) / 1_048_576L)
+            return
+        }
+        val t0 = SystemClock.elapsedRealtime()
+        val tmp = File(ctx.cacheDir, "export/out.mp4")
+        var finished = false // an error can arrive before start() returns: then there is no running exporter to remember
+        fun finish(msg: String) { finished = true; exporter = null; exportMsg = msg; resumePlayer() }
+        val rt = Runtime.getRuntime()
+        val heapBefore = (rt.totalMemory() - rt.freeMemory()) shr 20
+        parkPlayer(); System.gc()
+        Diag.note(ctx, "export", "EXPORT_PREP", "player parked; heap $heapBefore -> ${(rt.totalMemory() - rt.freeMemory()) shr 20} of ${rt.maxMemory() shr 20} MB, stab=$stab")
+        val started = try { Exporter.start(
+            ctx, Uri.parse(doc.video.path), views, tmp, vw, vh, doc.video.fps, hevc,
+            plan = if (stab) camPath?.let { StabPlan(it, views, vw, vh) } else null,
+            endMs = endMs,
+            rot = rot,
+            onDone = {
+                scope.launch {
+                    val name = "Takipli_" + java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(java.util.Date()) + ".mp4"
+                    try {
+                        withContext(Dispatchers.IO) { Exporter.saveToMovies(ctx, tmp, name); tmp.delete() }
+                        val wall = (SystemClock.elapsedRealtime() - t0) / 1000.0
+                        val x = if (wall > 0) totalMs / 1000.0 / wall else 0.0
+                        Diag.event(ctx, "export", com.takipli.oynat.core.speedFinding("export", x, 0.3))
+                        finish(if (endMs == null) ctx.getString(R.string.export_done, name, String.format(Locale.ROOT, "%.2f", x)) else ctx.getString(R.string.export_partial_done, name, String.format(Locale.ROOT, "%.1f", totalMs / 1000.0)))
+                    } catch (e: Throwable) {
+                        ErrorLog.record(ctx, "export-save", e)
+                        tmp.delete()
+                        finish(Safety.friendly(ctx, e))
                     }
-                },
-                onError = { e ->
-                    Diag.note(ctx, "export", "EXPORT_FAIL", "${e.errorCodeName} after ${(SystemClock.elapsedRealtime() - t0) / 1000} s | ${Diag.vitals(ctx)}", com.takipli.oynat.core.Sev.ERROR)
-                    ErrorLog.record(ctx, "export", e, e.errorCodeName)
-                    tmp.delete()
-                    finish(Safety.friendly(ctx, e, e.errorCodeName))
-                },
-            ) } catch (e: Throwable) {
-                ErrorLog.record(ctx, "export-start", e)
-                finish(Safety.friendly(ctx, e))
-                null
-            }
-            if (started != null && !finished) exporter = started
-        }) { Text(stringResource(R.string.export_start)) }
-        OutlinedButton(enabled = exporting, onClick = { Diag.note(ctx, "export", "EXPORT_CANCEL", "cancelled by user at ${(exportP * 100).toInt()} %"); exporter?.cancel(); exporter = null; exportMsg = ctx.getString(R.string.export_cancelled); resumePlayer() }) { Text(stringResource(R.string.scan_cancel)) }
+                }
+            },
+            onError = { e ->
+                Diag.note(ctx, "export", "EXPORT_FAIL", "${e.errorCodeName} after ${(SystemClock.elapsedRealtime() - t0) / 1000} s | ${Diag.vitals(ctx)}", com.takipli.oynat.core.Sev.ERROR)
+                ErrorLog.record(ctx, "export", e, e.errorCodeName)
+                tmp.delete()
+                finish(Safety.friendly(ctx, e, e.errorCodeName))
+            },
+        ) } catch (e: Throwable) {
+            ErrorLog.record(ctx, "export-start", e)
+            finish(Safety.friendly(ctx, e))
+            null
+        }
+        if (started != null && !finished) exporter = started
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(enabled = !exporting && !stabBusy && views.isNotEmpty() && readable, onClick = { startExport(null) }) { Text(stringResource(R.string.export_start)) }
+        OutlinedButton(enabled = exporting, onClick = {
+            val p = exportP
+            Diag.note(ctx, "export", "EXPORT_CANCEL", "cancelled by user at ${(p * 100).toInt()} %")
+            exporter?.cancel(); exporter = null
+            // Cancel keeps what is done: the first part (a little under the reported progress) is exported again as a short clip. Too little done: nothing to keep.
+            val endMs = (p * durMs * 0.98).toLong()
+            if (p >= 0.02f && endMs >= 1000L) startExport(endMs) else { exportMsg = ctx.getString(R.string.export_cancelled); resumePlayer() }
+        }) { Text(stringResource(R.string.scan_cancel)) }
     }
     if (exporting) {
         if (exportP >= 0f) LinearProgressIndicator(progress = { exportP.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())

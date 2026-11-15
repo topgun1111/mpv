@@ -43,6 +43,7 @@ object Exporter {
         ctx: Context, source: Uri, views: List<ViewKey>, outFile: File,
         w: Int, h: Int, fps: Double, hevc: Boolean,
         plan: StabPlan? = null,
+        endMs: Long? = null, // partial export (cancel pressed): only the first endMs of the clip is encoded; audio is cut the same way
         rot: Int = 0, // the scan's manual clockwise turn (UserRot.forDoc): applied first, the crop/stabilization matrices are in the turned frame
         onDone: (ExportResult) -> Unit, onError: (ExportException) -> Unit,
     ): Transformer {
@@ -57,7 +58,10 @@ object Exporter {
                 Matrix().apply { setTranslate(n[1].toFloat(), n[2].toFloat()); postScale(n[0].toFloat(), n[0].toFloat()) }
             }
         }
-        val item = EditedMediaItem.Builder(MediaItem.fromUri(source)).setEffects(Effects(emptyList(), listOfNotNull(rotationEffect(rot), crop))).build()
+        val mediaItem = MediaItem.Builder().setUri(source).apply {
+            if (endMs != null) setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setEndPositionMs(endMs).build())
+        }.build()
+        val item = EditedMediaItem.Builder(mediaItem).setEffects(Effects(emptyList(), listOfNotNull(rotationEffect(rot), crop))).build()
         val encoder = DefaultEncoderFactory.Builder(ctx)
             .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(exportBitrate(w, h, fps, hevc)).build())
             .build()
