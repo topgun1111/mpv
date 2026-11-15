@@ -16,6 +16,7 @@ import com.takipli.oynat.core.buildScanDoc
 import com.takipli.oynat.core.livePickTarget
 import com.takipli.oynat.core.liveRelink
 import com.takipli.oynat.core.previewOverlay
+import com.takipli.oynat.core.rangeTag
 import com.takipli.oynat.core.scanSig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
