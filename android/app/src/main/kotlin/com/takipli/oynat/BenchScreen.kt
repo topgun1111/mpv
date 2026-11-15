@@ -95,7 +95,7 @@ private fun ms(v: Double) = String.format(Locale.ROOT, "%.1f", v)
 fun BenchScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val models = remember { ModelStore.list(ctx) }
+    val models = remember { ModelStore.list(ctx).filterNot { it.startsWith("sam-") } } // sam-* graphs are not pose models (their own bench is the EdgeTAM section)
     var model by remember { mutableStateOf(models.firstOrNull()) }
     var threads by remember { mutableIntStateOf(4) }
     var npu by remember { mutableStateOf(false) }
