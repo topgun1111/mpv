@@ -86,7 +86,9 @@
     <string name="about_licences">Kişisel kullanım sürümü. Pose modelleri: Ultralytics YOLOv8 / YOLO11 (AGPL-3.0), dağıtım için değil. ONNX Runtime (MIT), Qualcomm QNN çalışma zamanı (Qualcomm koşulları), OpenCV, AndroidX Media3 ve Compose (Apache-2.0). Ayrıntı: depodaki THIRD_PARTY_NOTICES.md.</string>
     <string name="pick_detecting">Bu karede kişiler aranıyor …</string>
     <string name="pick_none">Bu karede kimse algılanmadı, tarama büyük olasılıkla kimseyi bulamaz. Kare dik mi? Başka bir klip dene.</string>
-    <string name="pick_found">%1$d kişi algılandı (kutular ve iskeletler gösteriliyor). Takip edilecek kişiye dokun.</string>
+    <string name="pick_found">Takip etmek için renkli bir vücut parçasına dokun (ya da aşağıdan seç); tüm kişiyi izlemek için kişinin gövdesine dokun. %1$d kişi algılandı.</string>
+    <string name="pick_sel">Kişi %1$d, %2$s seçildi (renkli alan). Tarama bunu takip edecek. Değiştirmek için başka bir parçaya dokun ya da aşağıdan seç.</string>
+    <string name="pick_sel_nobody">O noktada kimse yok. Bir kişiye ya da renkli vücut parçalarından birine dokun.</string>
     <string name="pick_free">Tam noktayı takip et (herhangi bir nokta)</string>
     <string name="pick_zoom">Yakınlaştırma %1$.1fx</string>
     <string name="pick_draw">Bölge çiz</string>

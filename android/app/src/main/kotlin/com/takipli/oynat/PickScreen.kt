@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -41,6 +42,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -51,9 +53,20 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import com.takipli.oynat.core.COCO_SKELETON
+import com.takipli.oynat.core.Config
+import com.takipli.oynat.core.PART_GROUPS
+import com.takipli.oynat.core.PART_RGB
 import com.takipli.oynat.core.PRESETS
 import com.takipli.oynat.core.Pose
 import com.takipli.oynat.core.TargetPick
+import com.takipli.oynat.core.firstFrameDoc
+import com.takipli.oynat.core.highlightPick
+import com.takipli.oynat.core.partHit
+import com.takipli.oynat.core.partLabel
+import com.takipli.oynat.core.pickPersons
+import com.takipli.oynat.core.presetForJoint
+import com.takipli.oynat.core.presetRegions
+import com.takipli.oynat.core.withMinScore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -67,6 +80,8 @@ private fun fmtClock(s: Double): String {
     val m = (v / 60).toInt()
     return String.format(Locale.US, "%d:%04.1f", m, v - m * 60)
 }
+
+private fun partColor(preset: String?): Color = Color(0xFF000000.toInt() or ((preset?.let { PART_RGB[it] }) ?: 0xFFFFFF))
 
 /**
  * Part 11: open a video -> first frame -> tap a person or a body part (and/or choose a part preset) -> scan in the
@@ -119,6 +134,37 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
         } catch (e: Throwable) {
             ErrorLog.record(ctx, "first-frame-detect", e)
             emptyList()
+        }
+    }
+
+    // Part 20: the same people as coloured body parts. Built from the first-frame poses with the functions the scan uses
+    // (`resolvePick`, `presetBoxes`), so the highlighted part is the one that gets followed.
+    val cfg = remember { Config() }
+    val pickDoc = remember(found, frame, frameT) {
+        val f = frame; val ps = found
+        if (f == null || ps == null) null else firstFrameDoc(ps.withMinScore(cfg.poseConf), f.width, f.height, frameT)
+    }
+    val people = remember(pickDoc) { pickDoc?.let { pickPersons(it, cfg) }.orEmpty() }
+    val hl = remember(pickDoc, tap, preset, exact, objectMode) {
+        val d = pickDoc; val t = tap
+        if (d == null || t == null || objectMode) null
+        else highlightPick(d, TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = preset, exact = exact && preset == null), cfg)
+    }
+    // a chosen chip with no tap yet: that part on everybody
+    val chipRegions = remember(pickDoc, preset, objectMode) {
+        val d = pickDoc; val pr = preset
+        if (d == null || pr == null || objectMode) emptyMap() else presetRegions(d, pr, cfg)
+    }
+    // tapping inside a drawn part selects that part (the chip follows the tap); "exact joint" keeps the tapped joint
+    LaunchedEffect(tap) {
+        val t = tap ?: return@LaunchedEffect
+        if (objectMode || exact) return@LaunchedEffect
+        partHit(people, t.x.toDouble(), t.y.toDouble())?.let { preset = it.second }
+    }
+    val labelPaint = remember {
+        android.graphics.Paint().apply {
+            isAntiAlias = true; textSize = 38f; color = android.graphics.Color.WHITE
+            setShadowLayer(5f, 0f, 0f, android.graphics.Color.BLACK)
         }
     }
 
@@ -218,6 +264,8 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                     !objectMode -> when {
                         fl == null -> stringResource(R.string.pick_detecting)
                         fl.isEmpty() -> stringResource(R.string.pick_none)
+                        hl != null -> stringResource(R.string.pick_sel, hl.target.id, partLabel(hl.target))
+                        tap != null -> stringResource(R.string.pick_sel_nobody)
                         else -> stringResource(R.string.pick_found, fl.size)
                     }
                     draw -> stringResource(R.string.pick_draw_hint)
@@ -258,6 +306,48 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                             if (p.conf(a) >= 0.35 && p.conf(c) >= 0.35) drawLine(Color.Yellow, Offset(fx(p.x(a)), fy(p.y(a))), Offset(fx(p.x(c)), fy(p.y(c))), 3f)
                         }
                     }
+                    if (!objectMode && people.isNotEmpty()) {
+                        fun rx(v: Double) = (v * size.width).toFloat()
+                        fun ry(v: Double) = (v * size.height).toFloat()
+                        fun region(b: DoubleArray, c: Color, fillA: Float, w: Float) {
+                            val tl = Offset(rx(b[0]), ry(b[1])); val sz = Size(rx(b[2]) - rx(b[0]), ry(b[3]) - ry(b[1]))
+                            if (fillA > 0f) drawRect(c.copy(alpha = fillA), tl, sz)
+                            drawRect(c, tl, sz, style = Stroke(w))
+                        }
+                        val sel = hl
+                        val nat = drawContext.canvas.nativeCanvas
+                        people.forEach { p ->
+                            val mine = sel != null && sel.target.id == p.id
+                            when {
+                                // the picked person: other parts faint, the picked part strong
+                                sel != null && mine -> {
+                                    p.parts.forEach { (g, b) -> region(b, partColor(g), 0.06f, 1.5f) }
+                                    sel.box?.let { b ->
+                                        val c = partColor(sel.target.preset ?: sel.target.part?.let { presetForJoint(it) })
+                                        region(b, c, 0.40f, 5f)
+                                        nat.drawText(partLabel(sel.target), rx(b[0]).coerceAtLeast(4f), (ry(b[1]) - 10f).coerceAtLeast(40f), labelPaint)
+                                    }
+                                }
+                                sel != null -> {}
+                                // a chip is chosen, nobody tapped yet: that part on everyone
+                                chipRegions.isNotEmpty() -> chipRegions[p.id]?.let { b ->
+                                    region(b, partColor(preset), 0.40f, 4f)
+                                    nat.drawText(partLabel(com.takipli.oynat.core.Target(p.id, preset = preset)), rx(b[0]).coerceAtLeast(4f), (ry(b[1]) - 10f).coerceAtLeast(40f), labelPaint)
+                                }
+                                // nothing chosen: every part, coloured
+                                else -> p.parts.forEach { (g, b) -> region(b, partColor(g), 0.22f, 2f) }
+                            }
+                            // joint dots, coloured like the part they belong to
+                            val groupJoints = if (mine) sel?.target?.preset?.let { PRESETS[it] } else null
+                            p.joints.forEach { (k, jx, jy) ->
+                                val big = groupJoints != null && k in groupJoints
+                                val c = Offset(rx(jx), ry(jy))
+                                drawCircle(Color.Black, if (big) 11f else 8f, c)
+                                drawCircle(partColor(presetForJoint(k)), if (big) 8f else 5f, c)
+                            }
+                            if (people.size > 1) nat.drawText(p.id.toString(), rx(p.box[0]) + 8f, ry(p.box[1]) + 40f, labelPaint)
+                        }
+                    }
                     maskImg?.let { drawImage(it, dstSize = IntSize(size.width.toInt(), size.height.toInt())) }
                     samMask?.let { m ->
                         drawRect(Color.Cyan, Offset((m.x1 * size.width).toFloat(), (m.y1 * size.height).toFloat()),
@@ -296,7 +386,12 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                 Text(stringResource(R.string.pick_part), style = MaterialTheme.typography.labelLarge)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = preset == null, onClick = { preset = null }, label = { Text(stringResource(R.string.pick_auto)) })
-                    PRESETS.keys.forEach { p -> FilterChip(selected = preset == p, onClick = { preset = p }, label = { Text(p.replace('_', ' ')) }) }
+                    PRESETS.keys.forEach { p ->
+                        if (p in PART_GROUPS) FilterChip(
+                            selected = preset == p, onClick = { preset = p }, label = { Text(p.replace('_', ' ')) },
+                            leadingIcon = { Canvas(Modifier.size(10.dp)) { drawCircle(partColor(p)) } },
+                        ) else FilterChip(selected = preset == p, onClick = { preset = p }, label = { Text(p.replace('_', ' ')) })
+                    }
                 }
             } else {
                 OutlinedButton(onClick = { draw = !draw; tap = null; strokes.clear(); curStroke = emptyList() }) {

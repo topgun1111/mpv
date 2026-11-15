@@ -86,7 +86,9 @@
     <string name="about_licences">Personal-use build. Pose models: Ultralytics YOLOv8 / YOLO11 (AGPL-3.0), not for redistribution. ONNX Runtime (MIT), Qualcomm QNN runtime (Qualcomm terms), OpenCV, AndroidX Media3 and Compose (Apache-2.0). Details: THIRD_PARTY_NOTICES.md in the repository.</string>
     <string name="pick_detecting">Detecting people on this frame …</string>
     <string name="pick_none">No person detected on this frame, so a scan will probably find nobody. Is the frame upright? Try another clip.</string>
-    <string name="pick_found">%1$d person(s) detected (boxes and skeletons shown). Tap the one to follow.</string>
+    <string name="pick_found">Tap a coloured body part (or choose one below) to follow it, or tap the person\'s body to follow the whole person. %1$d person(s) detected.</string>
+    <string name="pick_sel">Person %1$d, %2$s selected (coloured). This is what the scan will follow. Tap another part or choose one below to change it.</string>
+    <string name="pick_sel_nobody">Nobody at that spot. Tap on a person or on one of the coloured body parts.</string>
     <string name="pick_free">Follow exact spot (any point)</string>
     <string name="pick_zoom">Zoom %1$.1fx</string>
     <string name="pick_draw">Draw region</string>
