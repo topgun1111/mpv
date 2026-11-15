@@ -3,18 +3,27 @@ package com.takipli.oynat
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.takipli.oynat.core.COCO_SKELETON
 import com.takipli.oynat.core.PreviewOverlay
+import com.takipli.oynat.core.TargetState
+import com.takipli.oynat.core.previewInfoLines
 import kotlin.math.max
 
 /** Part 12: one preview frame from the running scan: small bitmap (longer side <= [PREVIEW_SIDE]) + what to draw on it. */
@@ -32,7 +41,7 @@ fun previewBitmap(src: Bitmap): Bitmap {
 
 private const val KP_MIN = 0.35 // = Config.kpMinConf (joints below it are not drawn)
 
-/** Frame + skeletons + target person (yellow) + part box (red) + camera crop (green). */
+/** Frame + skeletons + target person (yellow) + part box (red) + camera crop (green) + status text (zoom, target state, camera motion / cut). */
 @Composable
 fun ScanPreviewView(p: ScanPreview) {
     Box(Modifier.fillMaxWidth().aspectRatio(p.bitmap.width / p.bitmap.height.toFloat())) {
@@ -55,6 +64,16 @@ fun ScanPreviewView(p: ScanPreview) {
             }
             part?.let { rect(it, Color.Red, 4f) }
             p.overlay.crop?.let { rect(it, Color.Green, 3f) }
+        }
+        val (l1, l2) = previewInfoLines(p.overlay)
+        val c1 = when (p.overlay.targetState) {
+            TargetState.TRACKING -> Color.Green
+            TargetState.LOST -> Color.Red
+            TargetState.NONE -> Color.White
+        }
+        Column(Modifier.align(Alignment.TopStart).padding(4.dp).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 4.dp, vertical = 2.dp)) {
+            Text(l1, color = c1, fontSize = 11.sp)
+            Text(l2, color = if (p.overlay.cut) Color.Yellow else Color.White, fontSize = 11.sp)
         }
     }
 }

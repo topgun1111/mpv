@@ -1,5 +1,7 @@
 package com.takipli.oynat.core
 
+import java.util.Locale
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.pow
 
@@ -9,7 +11,37 @@ import kotlin.math.pow
 class PersonOverlay(val id: Int, val box: DoubleArray, val kp: DoubleArray?, val isTarget: Boolean)
 
 /** `partBox` = box of the chosen part, `crop` = the rectangle the follow camera would show (both `[x1, y1, x2, y2]`); null when there is no target in this sample. */
-class PreviewOverlay(val persons: List<PersonOverlay>, val partBox: DoubleArray?, val crop: DoubleArray?)
+class PreviewOverlay(
+    val persons: List<PersonOverlay>,
+    val partBox: DoubleArray?,
+    val crop: DoubleArray?,
+    /** Zoom the follow camera would use (1.0 = whole frame); null when there is no crop. */
+    val zoom: Double? = null,
+    val targetState: TargetState = TargetState.NONE,
+    /** This sample is a hard cut. */
+    val cut: Boolean = false,
+    /** Camera motion previous sample -> this sample, `[a, b, tx/h, ty/h]` (as `Sample.cam`); null = no estimate. */
+    val cam: DoubleArray? = null,
+)
+
+/** NONE = no target picked / not found yet, TRACKING = the part is visible in this sample, LOST = target known but not in this sample. */
+enum class TargetState { NONE, TRACKING, LOST }
+
+/** Two short status lines drawn on the preview: zoom + target state, then camera motion / cut. Plain ASCII-safe, locale independent. */
+fun previewInfoLines(o: PreviewOverlay): Pair<String, String> {
+    val z = o.zoom?.let { String.format(Locale.US, "%.1fx", it) } ?: "-"
+    val st = when (o.targetState) {
+        TargetState.TRACKING -> "TRACKING"
+        TargetState.LOST -> "LOST"
+        TargetState.NONE -> "NO TARGET"
+    }
+    val cam = when {
+        o.cut -> "CUT"
+        o.cam == null -> "cam: no estimate"
+        else -> String.format(Locale.US, "cam: moved %.1f%%", hypot(o.cam[2], o.cam[3]) * 100) // translation in frame-height units
+    }
+    return "zoom $z  $st" to cam
+}
 
 /** Crop the camera would use for a `[cx, cy, w, h]` (normalized) box: `computeView` + the centre/size maths of `cropRect`, unrounded. */
 fun cropForBox(box: DoubleArray, w: Int, h: Int, cfg: Config, minFit: Double = 0.0): DoubleArray {
@@ -42,7 +74,17 @@ fun previewOverlay(s: Sample, w: Int, h: Int, target: Target?, cfg: Config): Pre
     val box = target?.let { partBoxNow(s, w, h, it, cfg) }
     val part = box?.let { doubleArrayOf(it[0] - it[2] / 2, it[1] - it[3] / 2, it[0] + it[2] / 2, it[1] + it[3] / 2) }
     val fit = if (target?.preset != null && target.preset != "person") PART_FIT else 0.0 // same framing as `buildTargetViews`
-    return PreviewOverlay(persons, part, box?.let { cropForBox(it, w, h, cfg, fit) })
+    val crop = box?.let { cropForBox(it, w, h, cfg, fit) }
+    val state = when {
+        target == null -> TargetState.NONE
+        box != null -> TargetState.TRACKING
+        else -> TargetState.LOST
+    }
+    return PreviewOverlay(
+        persons, part, crop,
+        zoom = crop?.let { 1.0 / (it[2] - it[0]) }, // crop width = 1 / 2^zoom of the frame
+        targetState = state, cut = s.cut == 1, cam = s.cam?.takeIf { it.size >= 4 }?.toDoubleArray(),
+    )
 }
 
 /** Target for the preview while the scan runs: the pick resolved on the samples so far (null until a person is at the pick). */

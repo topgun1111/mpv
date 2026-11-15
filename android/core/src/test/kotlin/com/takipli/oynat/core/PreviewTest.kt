@@ -58,4 +58,20 @@ class PreviewTest {
         assertEquals(Target(1, preset = "left_foot"), livePickTarget(listOf(s), 1000, 1000, TargetPick(0.0, 0.27, 0.85), cfg))
         assertNull(livePickTarget(listOf(s), 1000, 1000, TargetPick(0.0, 0.9, 0.9), cfg))
     }
+
+    @Test
+    fun infoLinesZoomStateAndCamera() {
+        val none = previewOverlay(s, 1000, 1000, null, cfg)
+        assertEquals(TargetState.NONE, none.targetState); assertNull(none.zoom)
+        assertEquals("zoom -  NO TARGET" to "cam: no estimate", previewInfoLines(none))
+
+        val foot = previewOverlay(s.copy(cam = listOf(1.0, 0.0, 0.03, 0.04)), 1000, 1000, Target(1, preset = "left_foot"), cfg)
+        assertEquals(TargetState.TRACKING, foot.targetState)
+        assertEquals(3.75, assertNotNull(foot.zoom), 1e-9) // same case as footTargetGivesPartBoxAndCrop
+        assertEquals("zoom 3.8x  TRACKING" to "cam: moved 5.0%", previewInfoLines(foot))
+
+        val lost = previewOverlay(s.copy(cut = 1), 1000, 1000, Target(7, preset = "head"), cfg)
+        assertEquals(TargetState.LOST, lost.targetState)
+        assertEquals("zoom -  LOST" to "CUT", previewInfoLines(lost))
+    }
 }
