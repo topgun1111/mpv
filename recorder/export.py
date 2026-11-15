@@ -62,11 +62,17 @@ def out_size(w: int, h: int, rotate: int = 0) -> tuple[int, int]:
     return w - w % 2, h - h % 2
 
 
+def state_path(out: str | os.PathLike) -> Path:
+    """İlerleme/hata dosyası: `<çıktı>.export.json` (kayit.lua bunu okur)."""
+    p = Path(out)
+    return p.with_name(p.name + ".export.json")
+
+
 def _write_state(path: Path, state: str, n: int, total: int, error: str | None = None) -> None:
     tmp = path.with_name(path.name + ".tmp")
     pct = round(100 * n / total) if total else None
     tmp.write_text(json.dumps({"state": state, "n": n, "total": total, "pct": pct,
-                               "error": error}), encoding="utf-8")
+                               "error": error}, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, path)
 
 

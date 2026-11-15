@@ -81,6 +81,8 @@ TakipliOynat/
 ├─ tests/                        # pytest + texlua ile Lua harness testleri
 ├─ .github/workflows/            # ci.yml (ruff + pytest, ubuntu/windows), build.yml (paket + installer)
 ├─ installer.iss                 # Inno Setup
+├─ recorder/, launcher_recording/, mpv/portable_config_recording/, installer-recording.iss,
+│  requirements-recording.txt     # KAYIT varyantı (aşağıda «Kayıt varyantı»)
 ├─ VERSION, requirements.txt, requirements-dev.txt, pyproject.toml
 ├─ THIRD_PARTY_NOTICES.md        # üçüncü taraf lisanslar + GPL kaynak teklifi
 └─ handover.md                   # parça parça ilerleme notu + yol haritası
@@ -217,3 +219,17 @@ Paket derleme (CI): `python scripts/make_package.py` → `python scripts/build_e
 4. `git tag v1.0.0 && git push origin v1.0.0` → GitHub Release otomatik oluşur (`generate_release_notes`).
 
 İlk gerçek denemede kontrol: `python -m tracker detect kare.jpg --model models\yolox_s.onnx --out sonuc.jpg` (kutular doğru yerde mi, `provider=DmlExecutionProvider`); `live --stats 2` (fps/gecikme); `o` ile offline oynatma; Ctrl+S ayar kaydı.
+
+### Kayıt varyantı (R1–R3): elle zoom + sürükleme kamerası
+Ana uygulamadan ayrı, **model içermeyen** küçük paket (`dist/TakipliOynatKayit`, installer «Takipli Oynat Kayit»). Tek özellik: video oynarken zoom düzeyini ayarlayıp videoyu **aynı anda** sürüklemek; kamera hareketi kaydedilir ve yeni video olarak dışa aktarılır. Poz/YOLO/Re-ID/takip yoktur; ana varyantla yan yana kurulabilir (ayrı klasör, ayrı mpv IPC borusu `mpv-kayit`).
+
+| Tuş / eylem | İşlev |
+|---|---|
+| Sol tuş basılı + sürükle | Videoyu kaydır |
+| Tekerlek (sürüklerken de) | İmleç etrafında zoom (1×–16×) |
+| `+` / `-` / `0` | Zoom düzeyi (basılı tut = sürekli) / sıfırla |
+| `[` `]` / `K` | Önizleme hızı 0.25×–2× / videoyu 90° döndür (kayıt sırasında yok) |
+| `R` | Kaydı başlat (başa sarar) / durdur → `<video>.rec.json` |
+| `E` | Kaydı yeni videoya aktar → `<video>.kamera.mp4` (ilerleme OSD'de, `Esc` = iptal) |
+
+Akış: `Kayit.bat` ya da kısayol → video aç → zoom + sürükle → `R` (kaydı bitir) → `E`. Çıktı özgün hızda, özgün sesle (`-shortest`) ve kaynakla aynı boyutta yazılır; önizleme hızı çıktıyı etkilemez. Komut satırından: `python -m recorder export video.mp4 [--rec F] [--out F] [--crf 18] [--no-audio]`; sürükle-bırak için `Disa-Aktar.bat`. Derleme: `build-recording.yml` (etiket `kayit-v*` Release'i açar; ana `v*` etiketinden bağımsız). Lisanslar: `THIRD_PARTY_NOTICES.md` Madde 3c.

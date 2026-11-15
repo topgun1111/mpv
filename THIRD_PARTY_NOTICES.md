@@ -65,6 +65,22 @@ SHA256) listeler; `scripts/verify_models.py` derlemede denetler, `models\\SHA256
 dosyaların özetini verir. Yeni bir model (Re-ID, tüm-vücut pose...) eklenirken **önce** manifest ve bu
 belge (lisansıyla) güncellenir.
 
+## 3c. Kayıt varyantı paketi (`TakipliOynatKayit`)
+
+Kayıt varyantı (yalnız elle zoom + sürükleme kamerası) ayrı bir pakettir (`scripts/make_package.py
+--variant recording`, `build-recording.yml`, `installer-recording.iss`). **Hiçbir model, ONNX Runtime,
+PyTorch ya da `tracker/` içermez**; bu yüzden Madde 1'deki model satırları (YOLOX, YOLOv8/YOLO11-pose, OSNet,
+RTMPose; AGPL ve veri lisansı koşulları) bu pakete UYGULANMAZ. Dağıtılanlar:
+
+| Bileşen | Lisans | Not |
+|---|---|---|
+| **mpv** (`mpv\\mpv.exe`) | GPL-2.0+ (derlemeye göre GPL-3.0) | Madde 1 ile aynı; kaynak teklifi Madde 3; `mpv\\BUILD_INFO.txt` |
+| **ffmpeg** (`ffmpeg\\ffmpeg.exe`, BtbN GPL derlemesi, libx264) | GPL-2.0+/GPL-3.0 | Yalnız `recorder export` alt süreç olarak çalıştırır; kaynak teklifi Madde 3 |
+| **Python 3.11** (embeddable) | PSF License 2.0 | Madde 1 ile aynı |
+| **NumPy** | BSD-3-Clause | Madde 1 ile aynı |
+| **opencv-python-headless** | Sarmalayıcı MIT; OpenCV Apache-2.0; tekerlekteki FFmpeg LGPL-2.1+ | Madde 1 ile aynı |
+| `recorder/`, `kayit.lua` | Proje koduna bağlı (Madde 4) | Poz/takip kodu yok |
+
 ## 4. Takipli Oynat kodu ile ilişki
 
 - `tracker/` içindeki kod bu projeye özgüdür; Ultralytics/YOLOX/torchreid kodu **kopyalanmamıştır**

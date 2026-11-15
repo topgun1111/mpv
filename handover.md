@@ -5,7 +5,7 @@ Kurallar: (1) her parça sonunda `handover.md` güncelle → TÜM projeyi ZIP'le
 Proje GitHub'a push edilip Actions ile derlenir (`ci.yml`: test+lint, `build.yml`: paket+installer). `build.yml` artık `main`'e her push'ta (yalnız .md değişikliği hariç), `v*` etiketinde ve elle çalışır; GitHub Release yalnız `v*` etiketinde oluşur. Çıktılar ayrı: çalışmanın sayfasında Artifacts → **TakipliOynat-Setup** (`TakipliOynat-Setup-<sürüm>.exe`) ve **TakipliOynat-Portable** (`TakipliOynat-Portable-<sürüm>.zip`; artifact kendisi de bir zip olduğundan indirince içinde zip çıkar). Release'e de bu iki dosya ayrı eklenir.
 
 ## Kayıt varyantı (PC, 2026-11-15)
-PC iki varyanta ayrılıyor: **ana** (bu dosya) ve **kayıt** (yalnız elle zoom+sürükleme kamerası; model yok). Plan, kararlar ve parça listesi: **`recording.handover.md`** (R1 ✅ Python çekirdek + paketleme; R2 Lua arayüz ⬜; R3 dışa aktarma akışı/installer/CI ⬜). Ana varyant davranışı değişmedi.
+PC iki varyanta ayrılıyor: **ana** (bu dosya) ve **kayıt** (yalnız elle zoom+sürükleme kamerası; model yok). Plan, kararlar ve parça listesi: **`recording.handover.md`** (R1 ✅ Python çekirdek + paketleme; R2 ✅ Lua arayüz; R3 ✅ dışa aktarma akışı/installer/CI — kodlama bitti, Windows doğrulaması açık). Ana varyant davranışı değişmedi.
 
 ## Durum
 - Tamamlanan: **Parça 15/15 — PLAN BİTTİ** + ek parçalar 16–22 (16: düğme paneli, 17: sağ tık + zoom kontrolü + modelli/güncellenen installer, 18: sınıfsız nesne takibi, 19: kamera telafili nokta takibi, 20: sağ tuşla dikdörtgen, 21: sol tuş işlevleri kaldırıldı + beyaz nokta, 22: eklem takibi) + P23, M1, M2 (+ çift tık/HUD, tek takip programı, takip günlüğü düzeltmeleri).

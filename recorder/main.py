@@ -9,6 +9,15 @@ from . import __version__
 from .keys import default_out, load_recording, rec_path
 
 
+def _utf8_stdio() -> None:
+    """Windows konsolu/borusu cp125x: Türkçe harfli çıktı UnicodeEncodeError vermesin."""
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):  # pythonw: akış yok
+            pass
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="recorder", description="Takipli Oynat Kayıt")
     ap.add_argument("--version", action="version", version=f"takipli-oynat-kayit {__version__}")
@@ -25,14 +34,28 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _report_failure(out: str, msg: str) -> None:
+    """Konsolsuz (pythonw) çalışırken hata yine de görünsün: kayit.lua `.export.json`'u okur."""
+    from .export import _write_state, state_path
+
+    try:
+        _write_state(state_path(out), "error", 0, 0, msg)
+    except OSError:
+        pass
+
+
 def run_export(args: argparse.Namespace) -> int:
     from .export import export_video
 
-    rec = load_recording(args.rec or rec_path(args.video), video=args.video)
     out = args.out or default_out(args.video)
     t0 = time.monotonic()
-    r = export_video(args.video, rec["views"], out, rotate=rec["rotate"], ffmpeg=args.ffmpeg,
-                     audio=not args.no_audio, crf=args.crf)
+    try:
+        rec = load_recording(args.rec or rec_path(args.video), video=args.video)
+        r = export_video(args.video, rec["views"], out, rotate=rec["rotate"], ffmpeg=args.ffmpeg,
+                         audio=not args.no_audio, crf=args.crf)
+    except (OSError, ValueError, RuntimeError) as e:
+        _report_failure(out, str(e))
+        raise
     if r.get("cancelled"):
         print("dışa aktarma iptal edildi")
         return 3
@@ -51,6 +74,7 @@ def run_info(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _utf8_stdio()
     ap = build_parser()
     args = ap.parse_args(argv)
     try:
