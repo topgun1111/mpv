@@ -45,3 +45,19 @@ fun appendKey(keys: List<ViewKey>, t: Double, v: View, minDt: Double = 0.03): Li
     if (last != null && t < last[0] + minDt) return keys
     return keys + listOf(listOf(t, v.zoom, v.panX, v.panY))
 }
+
+/**
+ * Serbest el: iki parmakla aynı anda zoom ve taşıma. [ax]/[ay]: parmakların orta noktası (yüzeyin genişlik/yüksekliğine oranı),
+ * [dxFrac]/[dyFrac]: o ortanın kayması, [zoomFactor]: parmak aralığı oranı. Parmakların altındaki kare noktası parmaklarla birlikte
+ * kalır (zoom parmakların ortasına göre yapılır, kare ortasına göre değil).
+ */
+fun applyGestureAt(v: View, ax: Double, ay: Double, dxFrac: Double, dyFrac: Double, zoomFactor: Double, maxZoom: Double): View {
+    val z0 = max(v.zoom, 0.0)
+    val z1 = min(max(z0 + (if (zoomFactor > 0) ln(zoomFactor) / LN2 else 0.0), 0.0), maxZoom)
+    val s0 = 2.0.pow(z0); val s1 = 2.0.pow(z1)
+    val fx = (0.5 - v.panX) + (ax - 0.5) / s0 // parmakların altındaki kare noktası
+    val fy = (0.5 - v.panY) + (ay - 0.5) / s0
+    val cx = fx - (ax + dxFrac - 0.5) / s1
+    val cy = fy - (ay + dyFrac - 0.5) / s1
+    return clampView(View(z1, 0.5 - cx, 0.5 - cy), maxZoom)
+}
