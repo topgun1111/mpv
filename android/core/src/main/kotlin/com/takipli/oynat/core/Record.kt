@@ -61,3 +61,22 @@ fun applyGestureAt(v: View, ax: Double, ay: Double, dxFrac: Double, dyFrac: Doub
     val cy = fy - (ay + dyFrac - 0.5) / s1
     return clampView(View(z1, 0.5 - cx, 0.5 - cy), maxZoom)
 }
+
+// ---- Oynatma hızı: yalnız önizleme oynatıcısını yavaşlatır/hızlandırır; kayıt videonun kendi zamanına (t) yazılır, dışa aktarma hep orijinal hızda. ----
+
+const val REC_SPEED_MIN = 0.25
+const val REC_SPEED_MAX = 2.0
+val REC_SPEED_PRESETS: List<Double> = listOf(0.25, 0.5, 0.75, 1.0, 1.5, 2.0)
+
+/** Hızı [REC_SPEED_MIN, REC_SPEED_MAX] aralığına ve 0.05'lik adıma yuvarlar (kayan nokta kırıntısı kalmaz). */
+fun clampRecSpeed(speed: Double): Double {
+    if (speed.isNaN()) return 1.0
+    val r = Math.round(min(max(speed, REC_SPEED_MIN), REC_SPEED_MAX) * 20.0) / 20.0
+    return min(max(r, REC_SPEED_MIN), REC_SPEED_MAX)
+}
+
+/**
+ * Kayıt örnekleme aralığı (video saniyesi). Duvar saati ~33 ms'lik örnekleme [speed] ile ölçeklenir:
+ * yavaşta parmak hareketi seyrelmez, hızlıda gereksiz sık anahtar üretilmez. Kare süresinden (~16 ms) sık olmaz.
+ */
+fun recKeyDt(speed: Double): Double = min(max(0.033 * clampRecSpeed(speed), 0.012), 0.066)

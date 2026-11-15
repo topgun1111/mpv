@@ -66,4 +66,32 @@ class RecordTest {
         assertEquals(before, after2, 1e-9)
         assertEquals(0.0, applyGestureAt(v1, 0.5, 0.5, 0.0, 0.0, 0.01, 3.5).zoom, 1e-9) // 1x altına inmez
     }
+
+    @Test
+    fun speedIsClampedAndSnapped() {
+        assertEquals(0.25, clampRecSpeed(0.01), 1e-9)
+        assertEquals(2.0, clampRecSpeed(9.0), 1e-9)
+        assertEquals(1.0, clampRecSpeed(Double.NaN), 1e-9)
+        assertEquals(0.75, clampRecSpeed(0.7499999), 1e-9)
+        assertTrue(REC_SPEED_PRESETS.all { clampRecSpeed(it) == it })
+    }
+
+    @Test
+    fun keyIntervalScalesWithSpeedInVideoTime() {
+        assertEquals(0.033, recKeyDt(1.0), 1e-9)
+        assertEquals(0.012, recKeyDt(0.25), 1e-9) // 0.25x: video saniyesi 4x yavaş akar, aralık sıkılaşır (alt sınır 12 ms)
+        assertEquals(0.066, recKeyDt(2.0), 1e-9)
+        // duvar saatinde aralık hızdan bağımsız kalır (alt sınıra takılmadığı sürece)
+        assertEquals(recKeyDt(0.5) / 0.5, recKeyDt(1.0) / 1.0, 1e-9)
+    }
+
+    @Test
+    fun slowRecordingKeepsMoreKeysThanFast() {
+        fun count(speed: Double): Int {
+            var k: List<ViewKey> = emptyList(); var t = 0.0
+            while (t < 2.0) { k = appendKey(k, t, View(0.0, 0.0, 0.0), recKeyDt(speed)); t += 0.034 * speed }
+            return k.size
+        }
+        assertTrue(count(0.25) > count(1.0) && count(1.0) > count(2.0))
+    }
 }

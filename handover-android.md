@@ -522,3 +522,9 @@ Done from the two-stage recommendation (user: "do these").
 ## Standalone manual camera recording mode
 
 The home screen now includes a separate **Manual camera recording** mode. It opens any video directly, plays it in an ExoPlayer preview, and lets the user pinch-zoom and drag the frame while recording. Camera transforms are sampled as timestamped keyframes and exported through the existing Media3 `Exporter` pipeline to `Movies/TakipliOynat` as a new MP4. This mode is independent of body/point/freehand tracking and does not run an AI tracker.
+
+### Manual camera: playback-speed slider (2026-11-15)
+- `RecordScreen` has a **Playback speed** card: slider 0.25×–2.0× (0.25 steps) + chips 0.25/0.5/0.75/1/1.5/2×. It sets `player.playbackParameters` only; usable before and during recording.
+- Keys are stamped with `player.currentPosition` (the video's own clock), so a move recorded at 0.25× lands on the same frames at 1×. Export is unchanged and keeps the original speed. Audio is not recorded, so pitch does not matter.
+- Sampling interval scales with speed (`recKeyDt`: 12–66 ms of video time ≈ 33 ms wall) so slow recordings keep detail and fast ones do not spam keys. Helpers `clampRecSpeed`, `recKeyDt`, `REC_SPEED_PRESETS` in `core/Record.kt`, tests in `RecordTest` (math checked in Python; Kotlin not compiled here, CI pending).
+- Gesture check: `detectTransformGestures` + `applyGestureAt` already give pinch zoom and two-finger drag in one gesture (zoom about the fingers' midpoint, pan from centroid movement). Gestures are active only while recording (`pointerInput(recording)`).

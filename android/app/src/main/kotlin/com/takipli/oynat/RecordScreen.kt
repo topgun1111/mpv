@@ -19,9 +19,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -52,13 +54,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.transformer.Transformer
+import com.takipli.oynat.core.REC_SPEED_MAX
+import com.takipli.oynat.core.REC_SPEED_MIN
+import com.takipli.oynat.core.REC_SPEED_PRESETS
 import com.takipli.oynat.core.View as CamView
 import com.takipli.oynat.core.ViewKey
 import com.takipli.oynat.core.appendKey
 import com.takipli.oynat.core.applyGestureAt
+import com.takipli.oynat.core.clampRecSpeed
+import com.takipli.oynat.core.recKeyDt
 import com.takipli.oynat.core.viewTransform
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -88,6 +96,7 @@ fun RecordScreen(onBack: () -> Unit) {
     var exportProgress by remember { mutableStateOf(0f) }
     var exportMessage by remember { mutableStateOf("") }
     var hevc by remember { mutableStateOf(false) }
+    var speed by remember { mutableStateOf(1.0) }
     val player = remember { ExoPlayer.Builder(ctx).build() }
     val hostView = LocalView.current
     SideEffect { hostView.keepScreenOn = recording || exporter != null }
@@ -118,7 +127,7 @@ fun RecordScreen(onBack: () -> Unit) {
     }
     LaunchedEffect(recording) {
         while (recording) {
-            if (player.isPlaying) keys = appendKey(keys, player.currentPosition.coerceAtLeast(0) / 1000.0, view)
+            if (player.isPlaying) keys = appendKey(keys, player.currentPosition.coerceAtLeast(0) / 1000.0, view, recKeyDt(speed))
             delay(33)
         }
     }
@@ -130,8 +139,15 @@ fun RecordScreen(onBack: () -> Unit) {
         }
     }
 
+    // Speed only changes the preview player. Keys are stamped with the video's own clock (currentPosition),
+    // so a move recorded at 0.25x lands on the same frames at 1x, and the export keeps the original speed.
+    fun applySpeed(s: Double) {
+        speed = clampRecSpeed(s)
+        player.playbackParameters = PlaybackParameters(speed.toFloat())
+    }
+
     fun restorePreview(source: Uri) {
-        runCatching { player.setMediaItem(MediaItem.fromUri(source)); player.prepare(); player.seekTo(posMs); player.pause() }
+        runCatching { player.setMediaItem(MediaItem.fromUri(source)); player.prepare(); player.seekTo(posMs); player.pause(); player.playbackParameters = PlaybackParameters(speed.toFloat()) }
     }
 
     fun startExport() {
@@ -207,6 +223,23 @@ fun RecordScreen(onBack: () -> Unit) {
             }
             Slider(value = posMs.toFloat().coerceIn(0f, durationMs.toFloat()), onValueChange = { if (!recording) { posMs = it.toLong(); player.seekTo(posMs) } }, valueRange = 0f..durationMs.toFloat(), enabled = !recording && exporter == null)
             Text("${posMs / 1000}s / ${durationMs / 1000}s · ${keys.size} camera keyframes", style = MaterialTheme.typography.labelSmall)
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Playback speed", style = MaterialTheme.typography.titleSmall)
+                    Text(String.format(Locale.ROOT, "%.2f×", speed), style = MaterialTheme.typography.headlineMedium)
+                    Slider(
+                        value = speed.toFloat(), onValueChange = { applySpeed(it.toDouble()) },
+                        valueRange = REC_SPEED_MIN.toFloat()..REC_SPEED_MAX.toFloat(), steps = 6, // 0.25 steps
+                        enabled = exporter == null
+                    )
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        REC_SPEED_PRESETS.forEach { p ->
+                            FilterChip(selected = speed == p, enabled = exporter == null, onClick = { applySpeed(p) }, label = { Text(if (p == 1.0) "1×" else "${p}×".replace(".0×", "×")) })
+                        }
+                    }
+                    Text("Slows or speeds up the preview only. Your camera moves are saved against the video's own time, and the exported video keeps its original speed.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
                     if (!recording) {
