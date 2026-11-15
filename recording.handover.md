@@ -95,3 +95,8 @@ Kodlama **üç parçaya** bölündü (aşağıda). **R1, R2, R3 yapıldı — ka
 - **Geri sayım**: hazırken `Space` → `COUNTDOWN = 5` sn (HUD ortasında büyük sayı, sol üstte «BAŞLIYOR… (Space: iptal)»); video duraklı kalır, kayıt başlamaz. Sayarken `Space` = vazgeç (hazır durumuna döner). Sayaç 0 olunca `start_run()` oynatma + kaydı başlatır.
   Duraklamadan devam (`Space`) geri sayımsız. KAYDET/`R` ile durdurma geri sayımı da iptal eder.
 - Testler: harness `COUNT`, `COUNT_CANCEL`, `DRAG_BTN` satırları; `test_lua_kayit.py` güncellendi. texlua ile yeşil. Gerçek Windows'ta denenmedi (sol tuş bağı mpv'nin kendi sol tuş davranışı/OSC ile çakışmıyor mu bakılacak).
+
+### R6 — Yapıldı (2026-11-15): ekrandaki döndürme düğmeleri
+- `kayit.lua`: üstte HIZ'ın soluna **◄ 90°** (`ROTL`, saat yönü tersi) ve **90° ►** (`ROTR`) düğmeleri; sol tık `kayit/drag` bağında isabet denetimiyle (`rotate_by(∓90)`). `rotate_by` K tuşuyla ortak. Döndürme **kayıt başlamadan** (boşta ya da hazırken) çalışır; geri sayım/kayıt/duraklatma sırasında düğmeler gizli, tık/K döndürmez (`rot_visible`). Döndürünce görünüm sıfırlanır, OSD «döndürme N°».
+- Akış: video aç → KAYDET (hazır) → ◄/► ile döndür → Space (geri sayım) → zoom/sürükle → durdur → S. Dönüş `.rec.json` `rotate` alanına yazılır; dışa aktarma önce döndürür, sonra kırpar (`recorder/export.py` DEĞİŞMEDİ) → `.kamera.mp4` döndürülmüş boyutta çıkar.
+- Testler: harness `ROT_BTN_READY`, `ROT_LOCK`; `test_lua_kayit.py::test_rotate_buttons`. `kayit.lua` 468 satır (sınır 470 — bir sonraki eklemede `test_lua_kayit.py` sınırını yükselt). texlua ile yeşil; gerçek Windows'ta DENENMEDİ (◄ ► glifleri mpv fontunda; düğme konumu HUD 1280×720'de x716–890).

@@ -110,6 +110,14 @@ def test_rotate_speed_and_write_failure(run):
     assert d["WRITEFAIL"][0] == ["true"]
 
 
+def test_rotate_buttons(run):
+    d, _ = run
+    # hazırken ► = +90°, ◄ = geri 0°; düğmeler HUD'da görünür
+    assert d["ROT_BTN_READY"][0] == ["90", "0", "true"]
+    # geri sayım başlayınca düğmeler gizli, tık ve K döndürmez, K uyarı verir
+    assert d["ROT_LOCK"][0] == ["0", "0", "false", "true"]
+
+
 def test_export_flow_launches_recorder_and_reports(run):
     d, video = run
     out = str(video.with_name("clip.kamera.mp4"))

@@ -189,7 +189,17 @@ move(1200, 30) -- KAYDET düğmesi
 reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" })
 local r8 = A.state()
 out("BTN_READY", tostring(r8.on), tostring(r8.run), tostring(reg.props.pause), tostring(has(hud(), "DURDUR")), tostring(has(hud(), "HAZIR")))
+-- döndürme düğmeleri (◄ 90° / 90° ►): hazırken çalışır (ROTL merkezi ~758, ROTR ~848)
+reg.props["video-rotate"] = 0
+move(848, 30); reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" })
+local rot_r = reg.props["video-rotate"]
+move(758, 30); reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" })
+out("ROT_BTN_READY", tostring(rot_r), tostring(reg.props["video-rotate"]), tostring(has(hud(), "◄ 90°")))
 reg.bind.space(); local counting = r8.count -- geri sayım başladı
+move(848, 30); reg.bind.drag({ event = "down" }); reg.bind.drag({ event = "up" }) -- geri sayımda gizli: tık döndürmez
+local rot_hidden = reg.props["video-rotate"]
+reg.bind.rotate() -- K de kilitli
+out("ROT_LOCK", tostring(rot_hidden), tostring(reg.props["video-rotate"]), tostring(has(hud(), "◄ 90°")), tostring(has(last_osd(), "döndürülemez")))
 reg.bind.space() -- sayarken Space = iptal
 out("COUNT_CANCEL", tostring(counting), tostring(r8.count), tostring(r8.run), tostring(reg.props.pause), tostring(r8.on))
 move(640, 360)

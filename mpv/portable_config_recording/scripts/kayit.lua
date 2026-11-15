@@ -12,6 +12,8 @@ local WALL_DT, HUD_Z = 0.033, 5 -- kayıt örnekleme (duvar saati, sn); HUD katm
 local BTN = { x = 1090, y = 12, w = 178, h = 46 } -- KAYDET düğmesi (1280×720 HUD koordinatı)
 local COUNTDOWN = 5 -- Space'ten kayıt başlayana kadar geri sayım (sn)
 local SPD = { x = 900, y = 12, w = 178, h = 46 } -- HIZ düğmesi (KAYDET'in solunda)
+local ROTL = { x = 716, y = 12, w = 84, h = 46 } -- ◄ 90° (saat yönü tersi) döndür düğmesi
+local ROTR = { x = 806, y = 12, w = 84, h = 46 } -- 90° ► (saat yönü) döndür düğmesi
 
 local function clamp(v, lo, hi) return math.min(math.max(v, lo), hi) end
 local function log2(x) return math.log(x) / math.log(2) end
@@ -137,12 +139,19 @@ local function box_ass(b, col, label)
     .. string.format("\n{\\an5\\pos(%d,%d)\\fs26\\bord0\\shad0\\1c&HFFFFFF&}%s", b.x + b.w / 2, b.y + b.h / 2, label)
 end
 
+-- Döndürme düğmeleri yalnız kayıt BAŞLAMADAN (boşta / hazır) görünür ve çalışır; kayıt başlayınca döndürme kilitli.
+local function rot_visible() return not (rec.on and (rec.started or rec.count)) end
+
 local function buttons_ass(exporting)
   local label, col = "●  KAYDET", "&H3030C8&"
   if rec.on then label, col = "■  DURDUR", "&H2020F0&" end
   if exporting then label, col = "AKTARILIYOR…", "&H606060&" end
   local sp = clamp_speed(mp.get_property_number("speed", 1) or 1)
-  return box_ass(BTN, col, label) .. box_ass(SPD, "&H805030&", string.format("HIZ %g×", sp))
+  local rot = ""
+  if rot_visible() then
+    rot = box_ass(ROTL, "&H606060&", "◄ 90°") .. box_ass(ROTR, "&H606060&", "90° ►")
+  end
+  return box_ass(BTN, col, label) .. box_ass(SPD, "&H805030&", string.format("HIZ %g×", sp)) .. rot
 end
 
 local function hud_update()
@@ -182,7 +191,7 @@ local function set_view(nv)
 end
 
 local start_export -- aşağıda
-local toggle_record, speed_cycle -- aşağıda tanımlanır
+local toggle_record, speed_cycle, rotate_by -- aşağıda tanımlanır
 local function hit(pos, b) -- imleç ekrandaki düğmenin üstünde mi (osd piksel → 1280×720)
   local d = mp.get_property_native("osd-dimensions")
   local w, h = mp.get_property_number("osd-width", 0) or 0, mp.get_property_number("osd-height", 0) or 0
@@ -200,6 +209,8 @@ mp.add_key_binding(nil, "drag", function(ev)
     local pos = mouse_xy()
     if pos and pos.x and hit(pos, BTN) then drag.on = false; toggle_record(); return end
     if pos and pos.x and hit(pos, SPD) then drag.on = false; speed_cycle(1); return end
+    if pos and pos.x and rot_visible() and hit(pos, ROTL) then drag.on = false; rotate_by(-90); return end
+    if pos and pos.x and rot_visible() and hit(pos, ROTR) then drag.on = false; rotate_by(90); return end
     if pos and pos.x then drag.on, drag.x, drag.y = true, pos.x, pos.y end
   elseif e == "up" or e == "press" then
     drag.on = false
@@ -240,11 +251,16 @@ mp.add_key_binding(nil, "zoom-in", function() zoom_key(1) end, { repeatable = tr
 mp.add_key_binding(nil, "zoom-out", function() zoom_key(-1) end, { repeatable = true })
 mp.add_key_binding(nil, "reset", function() set_view({ 0, 0, 0 }) end)
 
-mp.add_key_binding(nil, "rotate", function()
-  if rec.on then osd("kayıt sırasında döndürülemez"); return end
-  mp.set_property_number("video-rotate", ((mp.get_property_number("video-rotate", 0) or 0) + 90) % 360)
+-- Döndürme: kayıt başlamadan önce (boşta ya da hazırken) yapılır; dönüş kayda yazılır (rec.json "rotate") ve
+-- dışa aktarma önce kareyi döndürür, sonra kırpar → kaydedilen video döndürülmüş çıkar.
+function rotate_by(delta)
+  if not rot_visible() then osd("kayıt sırasında döndürülemez"); return end
+  local r = ((mp.get_property_number("video-rotate", 0) or 0) + delta) % 360
+  mp.set_property_number("video-rotate", r)
   set_view({ 0, 0, 0 })
-end)
+  osd(string.format("döndürme %d°", r), 1.5)
+end
+mp.add_key_binding(nil, "rotate", function() rotate_by(90) end)
 
 local function speed_step(dir)
   local cur, idx = clamp_speed(mp.get_property_number("speed", 1) or 1), 1
