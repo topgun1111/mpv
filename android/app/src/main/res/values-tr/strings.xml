@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Takipli Oynat</string>
     <string name="home_title">Takip kamerası dışa aktarma</string>
-    <string name="home_subtitle">Android sürümü, geliştirme aşamasında: hedefi seç, videoyu tara, takipli videoyu dışa aktar.</string>
+    <string name="home_subtitle">Takip modunu seç, videonu aç ve akıcı bir takip kamerası kadrajı oluştur.</string>
     <string name="version_label">Sürüm %1$s</string>
     <string name="core_check">Çekirdek modül: %1$s</string>
     <string name="open_bench">Poz kıyaslaması (CPU / NPU)</string>
@@ -153,4 +153,17 @@
     <string name="status_sam_none">Akıllı nesne takibi: bu sürümde yok (nesneler basit hareket takibiyle izlenir)</string>
     <string name="status_pose_ok">Vücut bölgesi algılama: hazır</string>
     <string name="status_pose_none">Vücut bölgesi algılama: model eksik</string>
+    <string name="home_start_title">Kameranın neyi takip edeceğini seç</string>
+    <string name="home_start_desc">Video seç, hedefi belirle ve takip kamerasının kadrajı oluşturmasına izin ver.</string>
+    <string name="home_modes_title">Takip modları</string>
+    <string name="home_tools_title">Araçlar ve tanılama</string>
+    <string name="mode_body">Vücut takibi</string>
+    <string name="mode_body_desc">Bir kişiyi veya belirli bir vücut bölümünü takip et.</string>
+    <string name="mode_point">Nokta takibi</string>
+    <string name="mode_point_desc">Bir nesneye veya noktaya kilitlen.</string>
+    <string name="mode_freehand">Serbest çizim alanı</string>
+    <string name="mode_freehand_desc">Video boyunca takip edilecek alanın çevresini çiz.</string>
+    <string name="mode_tab_body">Vücut</string>
+    <string name="mode_tab_point">Nokta</string>
+    <string name="mode_tab_freehand">Serbest</string>
 </resources>

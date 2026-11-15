@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Takipli Oynat</string>
     <string name="home_title">Follow-cam export</string>
-    <string name="home_subtitle">Android build, under development: pick a target, scan the video, export the tracked video.</string>
+    <string name="home_subtitle">Choose a tracking mode, select a video and build a smooth follow-camera shot.</string>
     <string name="version_label">Version %1$s</string>
     <string name="core_check">Core module: %1$s</string>
     <string name="open_bench">Pose benchmark (CPU / NPU)</string>
@@ -153,4 +153,17 @@
     <string name="status_sam_none">Smart object tracking: not in this app version (objects use simple motion tracking)</string>
     <string name="status_pose_ok">Body-part detection: ready</string>
     <string name="status_pose_none">Body-part detection: model missing</string>
+    <string name="home_start_title">Choose what the camera should follow</string>
+    <string name="home_start_desc">Pick a video, select a target and let the follow-camera build the shot.</string>
+    <string name="home_modes_title">Tracking modes</string>
+    <string name="home_tools_title">Tools &amp; diagnostics</string>
+    <string name="mode_body">Body tracking</string>
+    <string name="mode_body_desc">Follow a person or a specific body part.</string>
+    <string name="mode_point">Point tracking</string>
+    <string name="mode_point_desc">Lock onto an object or a point.</string>
+    <string name="mode_freehand">Freehand region</string>
+    <string name="mode_freehand_desc">Draw around an area to track its shape through the clip.</string>
+    <string name="mode_tab_body">Body</string>
+    <string name="mode_tab_point">Point</string>
+    <string name="mode_tab_freehand">Freehand</string>
 </resources>

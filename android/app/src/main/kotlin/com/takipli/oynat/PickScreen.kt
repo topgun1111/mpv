@@ -90,7 +90,7 @@ private fun partColor(preset: String?): Color = Color(0xFF000000.toInt() or ((pr
  * foreground service ([ScanService]); the screen can go off or the app can be closed while it runs.
  */
 @Composable
-fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
+fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val models = remember { ModelStore.list(ctx).filterNot { it.startsWith("sam-") } } // sam-* graphs are not pose models
@@ -106,7 +106,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     var tap by remember { mutableStateOf<Offset?>(null) } // normalized 0..1
     var preset by remember { mutableStateOf<String?>(null) } // null = automatic (tapped joint decides)
     var exact by remember { mutableStateOf(false) }
-    var draw by remember { mutableStateOf(false) } // Part 18: freehand region instead of a tap
+    var draw by remember { mutableStateOf(initialMode == "freehand") } // Part 18: freehand region instead of a tap
     val strokes = remember { androidx.compose.runtime.mutableStateListOf<List<Offset>>() }
     var curStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var zoomLog2 by remember { mutableStateOf(1.5f) }
@@ -115,7 +115,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     var preview by remember { mutableStateOf(true) }
     var model by remember { mutableStateOf(models.firstOrNull { it.contains("v8s") } ?: models.firstOrNull().orEmpty()) }
     var error by remember { mutableStateOf("") }
-    var objectMode by remember { mutableStateOf(false) } // false = person / body part (pose model), true = any object or spot
+    var objectMode by remember { mutableStateOf(initialMode != "body") } // false = person / body part (pose model), true = any object or spot
     val free = objectMode // "any object" = the free-point path (SAM when installed, optical flow otherwise)
     var adv by remember { mutableStateOf(false) }
     val samOk = remember { SamEngine.hasModels(ctx) }
@@ -263,6 +263,18 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     ) {
         TextButton(onClick = onBack, enabled = !running) { Text(stringResource(R.string.back)) }
         Text(stringResource(R.string.pick_title), style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.home_modes_title), style = MaterialTheme.typography.titleSmall)
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !objectMode, enabled = !running, onClick = {
+                objectMode = false; draw = false; tap = null; strokes.clear(); curStroke = emptyList()
+            }, label = { Text(stringResource(R.string.mode_tab_body)) })
+            FilterChip(selected = objectMode && !draw, enabled = !running, onClick = {
+                objectMode = true; draw = false; tap = null; strokes.clear(); curStroke = emptyList()
+            }, label = { Text(stringResource(R.string.mode_tab_point)) })
+            FilterChip(selected = objectMode && draw, enabled = !running, onClick = {
+                objectMode = true; draw = true; tap = null; strokes.clear(); curStroke = emptyList()
+            }, label = { Text(stringResource(R.string.mode_tab_freehand)) })
+        }
         // What really works in this install, in plain words
         Text(stringResource(R.string.status_version, BuildConfig.VERSION_NAME), fontSize = 12.sp)
         Text(stringResource(if (samMem) R.string.status_sam_full else if (samOk) R.string.status_sam_basic else R.string.status_sam_none), fontSize = 12.sp)
@@ -280,16 +292,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                 OutlinedButton(onClick = { turn(90) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_right)) }
                 OutlinedButton(onClick = { turn(360 - rot) }, enabled = rot != 0, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_reset)) }
             }
-            // 1. WHAT to follow: a person / body part (pose model) or any object (smart select)
-            Text(stringResource(R.string.pick_what), style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val toPerson = { objectMode = false; draw = false; tap = null }
-                val toObject = { objectMode = true; tap = null }
-                if (!objectMode) Button(onClick = toPerson, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_mode_person)) }
-                else OutlinedButton(onClick = toPerson, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_mode_person)) }
-                if (objectMode) Button(onClick = toObject, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_mode_object)) }
-                else OutlinedButton(onClick = toObject, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_mode_object)) }
-            }
+            // The selected mode is controlled by the three tabs above.
             // 2. say what to do next, in plain words
             val fl = found
             Text(
@@ -427,9 +430,6 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                     }
                 }
             } else {
-                OutlinedButton(onClick = { draw = !draw; tap = null; strokes.clear(); curStroke = emptyList() }) {
-                    Text(stringResource(if (draw) R.string.pick_tap_instead else R.string.pick_draw_instead))
-                }
                 if (draw) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(enabled = strokes.isNotEmpty(), onClick = { strokes.removeLastOrNull() }) { Text(stringResource(R.string.pick_undo)) }
                     OutlinedButton(enabled = strokes.isNotEmpty(), onClick = { strokes.clear() }) { Text(stringResource(R.string.pick_clear)) }

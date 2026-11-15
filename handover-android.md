@@ -511,3 +511,10 @@ Done from the two-stage recommendation (user: "do these").
 - Pick screen: ↺ 90° / ↻ 90° / Reset 0° buttons; the frame on screen is turned in memory (instant, lossless) and the angle saved, so the preview is exactly what is tracked and exported. Result screen shows "Video rotated N°" when the scan was turned.
 - `core.frameTurn(...)` = the retriever-orientation logic moved out of `VideoDecoder.uprightScaled` (pure, tested in `SamplingTest`).
 - NOT built or run (no Android SDK/Maven in the authoring sandbox): run `gradle :core:test`, build, then check on a phone: a portrait clip, a landscape clip, a 180° clip, each rotated 90/180/270, scan -> preview upright -> export upright; and "rotate again after scan, reopen the old result" stays correct. 180° metadata clips are still assumed already upright by the retriever.
+
+
+## UI refresh (2026-11-15)
+- Reworked the Android Compose home screen into a clearer dashboard with a prominent start action, tracking-mode cards, and a separate tools/diagnostics area.
+- Added persistent Body / Point / Freehand mode tabs to the video target-selection screen. The home mode cards now open the selected mode directly.
+- Mode mapping preserves the existing engine paths: Body = pose/person-part tracking; Point = free-point/object tracking; Freehand = drawn-region tracking. Existing scan and export logic was not changed.
+- Added English and Turkish strings. XML resources were parsed successfully. Gradle build could not be run in this environment because Gradle is not installed; validate with `gradle :app:assemblePoseDebug` in Android CI or a configured Android build environment.
