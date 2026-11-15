@@ -78,13 +78,13 @@ class ScanService : Service() {
                     if (now - lastNote >= 1000) { lastNote = now; notify(note(getString(R.string.scan_notify_run, p.samples, p.total), p)) }
                 }
             }
-            var picked = applyPick(if (pick.free) res.doc.copy(pt = null) else res.doc, pick, cfg)
+            var picked = applyPick(if (pick.free) res.doc.copy(pt = null) else res.doc, pick, cfg, robust = true)
             val fp = picked?.target?.free
             if (picked != null && fp != null && OpenCvFlow.available) { // Part 16b: tracker passes for the tapped spot
                 try {
                     val pt = PointScanner.run(this, uri, picked, fp) { d, tot, t -> post(ScanUi.Running(ScanProgress(d, tot, t, 0, 0), null)) }
                     val d2 = picked.copy(pt = pt)
-                    picked = d2.copy(views = buildTargetViews(d2, d2.target!!, cfg))
+                    picked = d2.copy(views = buildTargetViews(d2, d2.target!!, cfg, robust = true))
                 } catch (e: CancellationException) { throw e } catch (e: Throwable) { ErrorLog.record(this, "point", e) } // keeps the anchor-only views
             }
             val out = picked ?: res.doc

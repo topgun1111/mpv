@@ -3,8 +3,10 @@ package com.takipli.oynat
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
+import com.takipli.oynat.core.ByteTracker
 import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.Formats
+import com.takipli.oynat.core.PreviewHold
 import com.takipli.oynat.core.ScanPipeline
 import com.takipli.oynat.core.Target
 import com.takipli.oynat.core.TargetPick
@@ -82,7 +84,8 @@ object Scanner {
             return@withContext ScanResult(d, true, 0.0, 0, 0.0)
         }
         val prior = readDoc(partial, sig)?.samples.orEmpty()
-        val pipe = ScanPipeline(cfg)
+        val pipe = ScanPipeline(cfg, ByteTracker.fromConfig(cfg, fps)) // loss window in seconds, not samples: a few seconds of occlusion keep the ID at any scan fps
+        val pvHold = PreviewHold(cfg.kpHoldS)
         pipe.resume(prior)
         val startS = prior.lastOrNull()?.let { it.t + 0.5 / fps } ?: 0.0 // half a grid step: next grid time, no repeat
         val useAnalysis = (cfg.gmc || cfg.cutDetect) && OpenCvFlow.available
@@ -129,7 +132,7 @@ object Scanner {
                         liveTried = true
                         liveTarget = livePickTarget(pipe.samples, bmp.width, bmp.height, pick, cfg)
                     }
-                    onPreview(ScanPreview(f.t, previewBitmap(bmp), previewOverlay(s, bmp.width, bmp.height, liveTarget, cfg)))
+                    onPreview(ScanPreview(f.t, previewBitmap(bmp), pvHold.apply(f.t, previewOverlay(s, bmp.width, bmp.height, liveTarget, cfg))))
                     pvMs = (System.nanoTime() - pv0) / 1e6
                 }
                 bmp.recycle()

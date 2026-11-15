@@ -53,4 +53,13 @@ class TrackGateTest {
         assertEquals(0.1 to 0.2, TrackGate.size(0.9, 0.1, 0.2, 0.3, 0.5))
         assertEquals(0.1 to 0.2, TrackGate.size(0.4, 0.1, 0.2, 0.0, 0.0)) // no clean size known yet
     }
+
+    @Test fun longLossRelaxesTheResumeRuleSoItNeverDeadlocks() {
+        val g = learned(0.8)                        // resume needs 0.6 x 0.8 = 0.48
+        assertFalse(g.accept(0.1, 0.3, 5, 0.40))
+        assertFalse(g.accept(0.1, 0.3, 12, 0.40))   // relaxing only starts after RELAX_FROM lost frames
+        assertTrue(g.accept(0.1, 0.3, 36, 0.40))    // lost ~6 s: 0.24 is enough (a different angle / light)
+        assertFalse(g.accept(0.1, 0.3, 36, 0.10))   // something that looks nothing like it is still refused
+        assertEquals(1.0, TrackGate.relax(0), 1e-9); assertEquals(0.5, TrackGate.relax(1000), 1e-9)
+    }
 }

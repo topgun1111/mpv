@@ -189,4 +189,16 @@ class TrackingTest {
         assertTrue(t.boxes.isEmpty())
         assertEquals(2, t.update(listOf(det(100.0, 100.0))).single().id)
     }
+
+    @Test
+    fun lossWindowInSecondsKeepsTheIdThroughAFewSecondsAtAnyFps() {
+        fun run(t: ByteTracker): Int {
+            repeat(10) { t.update(listOf(det(100.0, 100.0))) }
+            repeat(50) { t.update(emptyList()) }            // 5 s at 10 fps = 2.5 s at 20 fps; more than the old fixed 30 samples
+            return t.update(listOf(det(100.0, 100.0))).single().id
+        }
+        assertEquals(2, run(ByteTracker.fromConfig(Config())))        // PC default: gone after 30 samples, a new ID
+        assertEquals(1, run(ByteTracker.fromConfig(Config(), 10.0)))  // 6 s window = 60 samples
+        assertEquals(1, run(ByteTracker.fromConfig(Config(), 20.0)))
+    }
 }

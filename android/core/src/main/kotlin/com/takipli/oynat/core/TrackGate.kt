@@ -29,7 +29,7 @@ class TrackGate {
     }
 
     private fun needed(dist: Double, boxSize: Double, lost: Int): Double =
-        max(if (lost > 0) RESUME_K * ref else 0.0, if (isJump(dist, boxSize, lost)) JUMP_K * ref else 0.0)
+        relax(lost) * max(if (lost > 0) RESUME_K * ref else 0.0, if (isJump(dist, boxSize, lost)) JUMP_K * ref else 0.0)
 
     fun summary(): String = "gate: kept $accepted, rejected $rejected (similarity ref ${"%.2f".format(java.util.Locale.ROOT, ref)}, ${learned} clean frames)"
 
@@ -43,6 +43,17 @@ class TrackGate {
         const val RESUME_K = 0.6
         /** Frames in a row that are tracked but never "clean" (the subject really changed size): adapt anyway, never deadlock. */
         const val FORCE_CLEAN_FRAMES = 12
+
+        /**
+         * Lost for a long time: the subject may come back in another pose / angle / light and look less like the clean frames.
+         * From [RELAX_FROM] lost frames on, the similarity needed shrinks linearly to [RELAX_FLOOR] of its value over [RELAX_SPAN] frames,
+         * so it can never deadlock in "lost" (a blocker that just looks a bit alike still has to pass the confidence and score checks).
+         */
+        const val RELAX_FROM = 12
+        const val RELAX_SPAN = 24
+        const val RELAX_FLOOR = 0.5
+
+        fun relax(lost: Int): Double = 1.0 - (1.0 - RELAX_FLOOR) * ((lost - RELAX_FROM).coerceIn(0, RELAX_SPAN) / RELAX_SPAN.toDouble())
 
         fun remember(conf: Double, ratio: Double): Boolean = conf >= REMEMBER_CONF && ratio in REMEMBER_MIN_RATIO..REMEMBER_MAX_RATIO
 

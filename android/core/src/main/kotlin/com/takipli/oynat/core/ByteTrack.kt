@@ -101,5 +101,14 @@ class ByteTracker(
     companion object {
         /** Same wiring as the PC app: `ByteTracker(low_thr=cfg.live_det_conf)`. */
         fun fromConfig(cfg: Config) = ByteTracker(lowThr = cfg.liveDetConf)
+
+        /**
+         * Android scan: the loss window is TIME based ([TRACK_LOST_S], at least the PC default of 30 samples), so a blocker that
+         * covers the subject for a few seconds does not give it a new ID at higher scan fps (30 samples = only 1.5 s at 20 fps).
+         */
+        fun fromConfig(cfg: Config, fps: Double): ByteTracker =
+            ByteTracker(lowThr = cfg.liveDetConf, maxLost = if (fps > 0.0) maxOf(30, Math.ceil(TRACK_LOST_S * fps).toInt()) else 30)
+
+        const val TRACK_LOST_S = 6.0
     }
 }

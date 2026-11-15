@@ -27,12 +27,32 @@ class PreviewOverlay(
 /** NONE = no target picked / not found yet, TRACKING = the part is visible in this sample, LOST = target known but not in this sample. */
 enum class TargetState { NONE, TRACKING, LOST }
 
+/**
+ * Keeps the last target box / crop on the live preview for [holdS] seconds while the target is missing (like the final views do:
+ * `kp_hold_s`), marked LOST, so a short block does not make the green/red boxes flicker away. A cut or a time jump back resets it.
+ */
+class PreviewHold(private val holdS: Double) {
+    private var part: DoubleArray? = null
+    private var crop: DoubleArray? = null
+    private var zoom: Double? = null
+    private var lastT = Double.NEGATIVE_INFINITY
+
+    fun apply(t: Double, o: PreviewOverlay): PreviewOverlay {
+        if (o.cut || t < lastT) { part = null; crop = null; zoom = null; lastT = Double.NEGATIVE_INFINITY }
+        if (o.partBox != null && o.crop != null) { part = o.partBox; crop = o.crop; zoom = o.zoom; lastT = t; return o }
+        val c = crop
+        if (o.targetState == TargetState.LOST && c != null && t - lastT <= holdS)
+            return PreviewOverlay(o.persons, part, c, zoom, TargetState.LOST, o.cut, o.cam)
+        return o
+    }
+}
+
 /** Two short status lines drawn on the preview: zoom + target state, then camera motion / cut. Plain ASCII-safe, locale independent. */
 fun previewInfoLines(o: PreviewOverlay): Pair<String, String> {
     val z = o.zoom?.let { String.format(Locale.US, "%.1fx", it) } ?: "-"
     val st = when (o.targetState) {
         TargetState.TRACKING -> "TRACKING"
-        TargetState.LOST -> "LOST"
+        TargetState.LOST -> if (o.crop != null) "LOST (holding)" else "LOST"
         TargetState.NONE -> "NO TARGET"
     }
     val cam = when {

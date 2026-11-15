@@ -74,4 +74,20 @@ class PreviewTest {
         assertEquals(TargetState.LOST, lost.targetState)
         assertEquals("zoom -  LOST" to "CUT", previewInfoLines(lost))
     }
+
+    @Test
+    fun holdKeepsTheLastBoxesForAWhileThenLetsGo() {
+        val hold = PreviewHold(1.5)
+        val seen = hold.apply(1.0, previewOverlay(s, 1000, 1000, Target(1, preset = "left_foot"), cfg))
+        assertEquals(TargetState.TRACKING, seen.targetState)
+        val gone = s.copy(d = emptyList(), kp = null)
+        val held = hold.apply(2.0, previewOverlay(gone, 1000, 1000, Target(1, preset = "left_foot"), cfg))
+        assertEquals(TargetState.LOST, held.targetState)
+        assertEquals(seen.crop!!.toList(), held.crop!!.toList())
+        assertEquals("zoom 3.8x  LOST (holding)", previewInfoLines(held).first)
+        assertNull(hold.apply(3.0, previewOverlay(gone, 1000, 1000, Target(1, preset = "left_foot"), cfg)).crop) // older than 1.5 s
+        // a cut forgets everything
+        hold.apply(4.0, previewOverlay(s, 1000, 1000, Target(1, preset = "left_foot"), cfg))
+        assertNull(hold.apply(4.1, previewOverlay(gone.copy(cut = 1), 1000, 1000, Target(1, preset = "left_foot"), cfg)).crop)
+    }
 }

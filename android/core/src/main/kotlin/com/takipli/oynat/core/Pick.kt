@@ -70,7 +70,7 @@ fun resolvePick(doc: TrackDoc, pick: TargetPick, cfg: Config): Target? {
 }
 
 /** Scan doc + pick -> the same doc with `target` and `views` filled in (no rescan), or null when nobody is at the pick. */
-fun applyPick(doc: TrackDoc, pick: TargetPick, cfg: Config): TrackDoc? {
+fun applyPick(doc: TrackDoc, pick: TargetPick, cfg: Config, robust: Boolean = false): TrackDoc? {
     val target = resolvePick(doc, pick, cfg) ?: return null
-    return doc.copy(target = target, views = buildTargetViews(doc, target, cfg))
+    return doc.copy(target = target, views = buildTargetViews(doc, target, cfg, robust = robust))
 }

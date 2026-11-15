@@ -62,8 +62,10 @@ fun ScanPreviewView(p: ScanPreview) {
                     drawLine(if (bold) c else c.copy(alpha = 0.3f), at(k[3 * a], k[3 * a + 1]), at(k[3 * b], k[3 * b + 1]), if (bold) 6f else 2f)
                 }
             }
-            part?.let { rect(it, Color.Red, 4f) }
-            p.overlay.crop?.let { rect(it, Color.Green, 3f) }
+            val held = p.overlay.targetState == TargetState.LOST // target hidden: the last boxes are kept (faded) for a moment
+            val fade = if (held) 0.5f else 1f
+            part?.let { rect(it, Color.Red.copy(alpha = fade), 4f) }
+            p.overlay.crop?.let { rect(it, Color.Green.copy(alpha = fade), 3f) }
         }
         val (l1, l2) = previewInfoLines(p.overlay)
         val c1 = when (p.overlay.targetState) {

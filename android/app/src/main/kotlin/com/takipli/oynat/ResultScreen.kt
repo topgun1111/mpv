@@ -218,7 +218,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     fun rebuild(t: Target, tu: Tuning) {
         job?.cancel(); saved = ""
         val segs = manual
-        job = scope.launch { views = withContext(Dispatchers.Default) { mergeSegments(rebuildViews(doc, t, cfg, tu), segs) } }
+        job = scope.launch { views = withContext(Dispatchers.Default) { mergeSegments(rebuildViews(doc, t, cfg, tu, robust = true), segs) } }
     }
     LaunchedEffect(Unit) { rebuild(target, tuning) } // the scan was built without the occlusion bridge: apply it once on open
     fun startRecording() {

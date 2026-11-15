@@ -316,14 +316,21 @@ fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config, kps: 
 }
 
 /** Views for a target: preset group, single joint (`part`) or the whole person; linked IDs count as the same target. */
-fun buildTargetViews(doc: TrackDoc, target: Target, cfg: Config, director: Director = Director()): List<ViewKey> {
-    val ts = doc.samples.map { it.t }
-    val ids = setOf(target.id) + target.linked
+fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Director = Director(), robust: Boolean = false): List<ViewKey> {
+    val ts = doc0.samples.map { it.t }
+    val base = setOf(target.id) + target.linked
+    // robust (Android app): re-link the target to the ID it got after an occlusion, and ignore samples where its ID teleported
+    // onto something else (a blocker that took the ID). Off by default = the PC / golden behaviour.
+    val ids = if (robust && target.free == null) relinkIds(doc0, base) else base
+    val bad = if (robust && target.free == null) suspectSamples(doc0, ids) else emptySet()
+    val doc = if (bad.isEmpty()) doc0 else dropSamples(doc0, ids, bad)
     var minFit = 0.0
     val boxes = when {
         target.free != null -> {
             // Part 16a: any tapped spot; fused multi-pass point, then the same camera-compensated off-screen propagation
-            val b = freePointBoxes(doc, target.free, cfg)
+            // the anchor person may have a new ID after an occlusion: let the anchor follow it
+            val alt = if (robust) makeAnchor(doc, target.free, cfg)?.id?.let { relinkIds(doc, setOf(it)) - it }.orEmpty() else emptySet()
+            val b = freePointBoxes(doc, target.free, cfg, alt)
             if (cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
         }
         target.preset != null -> {

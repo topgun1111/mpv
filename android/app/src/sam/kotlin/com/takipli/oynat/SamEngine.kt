@@ -281,14 +281,16 @@ object SamEngine {
         val out = HashMap<Int, Step>(); var budget = FILL_MAX_FRAMES
         for (q in 0 until keys.size - 1) {
             val a = keys[q]; val b = keys[q + 1]; val n = b - a - 1
-            if (n < 1 || n > budget) continue
+            if (n < 1) continue
+            if (budget <= 0) break
+            val m = min(n, budget) // a span longer than the budget left is filled from its reappearance end only: that is where the subject is found first
             val st = steps.getValue(b)
             val x1 = (st.cx - st.w / 2).coerceIn(0.0, 1.0); val x2 = (st.cx + st.w / 2).coerceIn(0.0, 1.0)
             val y1 = (st.cy - st.h / 2).coerceIn(0.0, 1.0); val y2 = (st.cy + st.h / 2).coerceIn(0.0, 1.0)
             val pick = FreePick(ts[b], st.cx, st.cy, shapes = listOf(listOf(listOf(x1, y1), listOf(x2, y1), listOf(x2, y2), listOf(x1, y2))))
-            val got = walkMemory(s, files, (b downTo a + 1).toList(), pick, ms, {}, gate)
+            val got = walkMemory(s, files, (b downTo b - m).toList(), pick, ms, {}, gate)
             for ((fi, step) in got) if (fi != b && fi !in steps) out[fi] = step
-            budget -= n
+            budget -= m
         }
         return out
     }

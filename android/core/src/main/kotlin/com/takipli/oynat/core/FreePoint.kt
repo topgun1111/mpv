@@ -91,15 +91,17 @@ fun makeAnchor(doc: TrackDoc, pick: FreePick, cfg: Config): Anchor? {
 }
 
 /** Where the picked spot should be in sample `i` if it simply moved with the person. Weak by design (conf <= 0.8). */
-fun anchorAt(doc: TrackDoc, a: Anchor, i: Int, cfg: Config): AnchorPos? {
+fun anchorAt(doc: TrackDoc, a: Anchor, i: Int, cfg: Config, alt: Set<Int> = emptySet()): AnchorPos? {
     val s = doc.samples[i]
-    val row = personRow(s, a.id) ?: return null
+    // `alt` = IDs the same person got after an occlusion (Relink.kt): the anchor keeps working when the tracker re-created the person
+    val pid = if (personRow(s, a.id) != null) a.id else alt.firstOrNull { personRow(s, it) != null } ?: return null
+    val row = personRow(s, pid) ?: return null
     val (w, h) = videoSize(doc)
     val hPx = (row[4] - row[2]) * h
     if (hPx <= 1.0) return null
     var sx = 0.0; var sy = 0.0; var sw = 0.0
     for ((k, j) in a.joints.withIndex()) {
-        val kp = s.keypoint(a.id, j)?.takeIf { it.conf >= cfg.kpMinConf } ?: continue
+        val kp = s.keypoint(pid, j)?.takeIf { it.conf >= cfg.kpMinConf } ?: continue
         sx += (kp.x + a.offX[k] * hPx / w) * kp.conf; sy += (kp.y + a.offY[k] * hPx / h) * kp.conf; sw += kp.conf
     }
     if (sw > 0) return AnchorPos(sx / sw, sy / sw, min(0.8, sw / a.joints.size * 0.8), hPx)
@@ -115,7 +117,7 @@ private const val SPIKE = 0.03        // median-of-3 replaces a value that devia
  * LK points that contradict the anchor are rejected; a/b disagreement is arbitrated by the anchor (else higher conf);
  * the anchor alone fills samples where the tracker lost the point (blur, fast limb, close shot); spikes are median-filtered.
  */
-fun fuseFreePoint(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleArray> {
+fun fuseFreePoint(doc: TrackDoc, pick: FreePick, cfg: Config, alt: Set<Int> = emptySet()): Map<Int, DoubleArray> {
     val n = doc.samples.size
     val (w, h) = videoSize(doc)
     val anchor = makeAnchor(doc, pick, cfg)
@@ -124,7 +126,7 @@ fun fuseFreePoint(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleAr
     fun obs(l: List<List<Double>>?, i: Int) = l?.getOrNull(i)?.takeIf { it.size >= 3 && it[2] > 0.0 }
     val raw = HashMap<Int, DoubleArray>()
     for (i in 0 until n) {
-        val an = anchor?.let { anchorAt(doc, it, i, cfg) }
+        val an = anchor?.let { anchorAt(doc, it, i, cfg, alt) }
         fun ok(p: List<Double>?): Boolean =
             p != null && (an == null || hypot((p[0] - an.x) * w, (p[1] - an.y) * h) / an.hPx <= GATE_HEIGHTS)
         var a = obs(doc.pt?.a, i)?.takeIf { ok(it) }
@@ -162,13 +164,13 @@ fun fuseFreePoint(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleAr
 }
 
 /** Square boxes `[cx, cy, s, s]` around the fused point so `computeView` yields exactly the chosen zoom (log2), clamped to the config. */
-fun freePointBoxes(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleArray> {
+fun freePointBoxes(doc: TrackDoc, pick: FreePick, cfg: Config, alt: Set<Int> = emptySet()): Map<Int, DoubleArray> {
     // Part 18: frame the drawn region itself (size lock). With a chosen zoom (`pick.zoom`) the region is only followed: fixed zoom like a tapped spot.
     if (pick.framed && pick.zoom == null)
-        return fuseFreePoint(doc, pick, cfg).mapValues { (_, p) -> doubleArrayOf(p[0], p[1], max(p.getOrElse(3) { 0.1 } * 1.15, 0.02), max(p.getOrElse(4) { 0.1 } * 1.15, 0.02)) }
+        return fuseFreePoint(doc, pick, cfg, alt).mapValues { (_, p) -> doubleArrayOf(p[0], p[1], max(p.getOrElse(3) { 0.1 } * 1.15, 0.02), max(p.getOrElse(4) { 0.1 } * 1.15, 0.02)) }
     val z = (pick.zoom ?: 1.5).coerceIn(cfg.minZoom, cfg.maxZoom)
     val s = cfg.targetFill / 2.0.pow(z)
-    return fuseFreePoint(doc, pick, cfg).mapValues { (_, p) -> doubleArrayOf(p[0], p[1], s, s) }
+    return fuseFreePoint(doc, pick, cfg, alt).mapValues { (_, p) -> doubleArrayOf(p[0], p[1], s, s) }
 }
 
 /** Part 16a: like `viewAt` but C1 cubic Hermite with monotone (Fritsch-Butland) tangents: no velocity jumps, no overshoot. */
