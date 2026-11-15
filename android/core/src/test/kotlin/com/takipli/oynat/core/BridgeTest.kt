@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 class BridgeTest {
     private val ts = (0..100).map { it * 0.1 } // 10 s at 10 fps
     // subject visible 0..2.9 s and 6.0..10 s (occluded 3.1 s), same size both times
-    private val boxes: Map<Int, DoubleArray> = (0..100).filter { it < 30 || it >= 60 }.associateWith { doubleArrayOf(0.5, 0.5, 0.2, 0.4) }
+    private val boxes: Map<Int, DoubleArray> = (0..100).filter { it < 30 || it >= 60 }.associateWith { doubleArrayOf(0.5, 0.5, 0.05, 0.10) }
 
     private fun zoomAt(v: List<ViewKey>, t: Double) = v.minByOrNull { Math.abs(it[0] - t) }!![1]
 
