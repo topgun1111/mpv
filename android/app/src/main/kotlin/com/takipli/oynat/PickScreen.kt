@@ -110,6 +110,8 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
     val strokes = remember { androidx.compose.runtime.mutableStateListOf<List<Offset>>() }
     var curStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var zoomLog2 by remember { mutableStateOf(1.5f) }
+    var regionFixed by remember { mutableStateOf(false) } // freehand: false = keep the area's size (zoom follows it), true = fixed zoom
+    var regionFill by remember { mutableStateOf(0.9f) }
     var fps by remember { mutableStateOf(PICK_FPS[3]) }
     var npu by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf(true) }
@@ -447,9 +449,20 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     FilterChip(selected = npu, onClick = { npu = !npu }, label = { Text("NPU", maxLines = 1, softWrap = false) })
                     FilterChip(selected = preview, onClick = { preview = !preview }, label = { Text(stringResource(R.string.pick_preview)) })
                 }
-                if (objectMode && !draw) {
+                if (objectMode && (!draw || regionFixed)) {
                     Text(stringResource(R.string.pick_zoom, Math.pow(2.0, zoomLog2.toDouble())), style = MaterialTheme.typography.labelLarge)
                     androidx.compose.material3.Slider(value = zoomLog2, onValueChange = { zoomLog2 = it }, valueRange = 0.5f..2.5f)
+                }
+                if (objectMode && draw) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = !regionFixed, enabled = !running, onClick = { regionFixed = false }, label = { Text(stringResource(R.string.pick_region_keep)) })
+                        FilterChip(selected = regionFixed, enabled = !running, onClick = { regionFixed = true }, label = { Text(stringResource(R.string.pick_region_fixed)) })
+                    }
+                    Text(stringResource(if (regionFixed) R.string.pick_region_fixed_hint else R.string.pick_region_keep_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (!regionFixed) {
+                        Text(stringResource(R.string.pick_region_fill, (regionFill * 100).toInt()), style = MaterialTheme.typography.labelLarge)
+                        androidx.compose.material3.Slider(value = regionFill, onValueChange = { regionFill = it }, valueRange = 0.3f..0.98f)
+                    }
                 }
             }
             BatteryWarning()
@@ -460,7 +473,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     if (draw && shapes.isEmpty()) return@Button
                     val t = if (draw) com.takipli.oynat.core.shapeBounds(shapes)!!.let { Offset(it[0].toFloat(), it[1].toFloat()) } else tap ?: return@Button
                     notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = if (objectMode) null else preset, exact = exact && preset == null && !objectMode, free = free, zoom = if (free && !draw) zoomLog2.toDouble() else null, shapes = shapes), preview)
+                    ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = if (objectMode) null else preset, exact = exact && preset == null && !objectMode, free = free, zoom = if (free && (!draw || regionFixed)) zoomLog2.toDouble() else null, shapes = shapes, fill = if (draw && !regionFixed) regionFill.toDouble() else null), preview)
                 },
             ) { Text(stringResource(R.string.pick_start)) }
         }

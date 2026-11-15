@@ -92,4 +92,50 @@ class RegionTest {
         val b = boxes.getValue(3)
         assertTrue(abs(b[2] - 0.2 * 1.15) < 0.01 && abs(b[3] - 0.3 * 1.15) < 0.01, "size ${b[2]} x ${b[3]}")
     }
+
+    @Test
+    fun drawnRegionFillsTheFrameInsteadOfStayingAt1x() {
+        val samples = (0 until 6).map { Sample(it / 10.0) }
+        // tall region: half of the frame height, a fifth of its width (before the fix: fill 0.30 < 0.575 -> zoom clamped to 0)
+        val rows = (0 until 6).map { listOf(0.5, 0.5, 0.9, 0.2, 0.5) }
+        val d = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples, pt = PointTrack(a = rows))
+        val pick = regionPick(0.0, listOf(listOf(listOf(0.4, 0.25), listOf(0.6, 0.75), listOf(0.5, 0.5))))
+        val cfg = Config(kpWorld = false)
+        val views = buildTargetViews(d, Target(-1, free = pick), cfg)
+        val z = views.map { it[1] }
+        assertTrue(z.all { it > 0.5 }, "zoom(log2) = $z") // expected ~ log2(0.9 / (0.5 * 1.15)) = 0.65
+        assertTrue(abs(z[3] - 0.65) < 0.1, "zoom(log2) = ${z[3]}")
+        // a tapped spot keeps its own rule (30% fill, no region framing)
+        assertEquals(0.30, cfg.targetFill, 1e-9)
+        assertEquals(0.90, regionFill(0.30), 1e-9)
+        assertEquals(0.98, regionFill(0.85), 1e-9)
+        assertEquals(0.30, regionFill(0.10), 1e-9)
+    }
+
+    private fun regionDoc(sizes: List<Pair<Double, Double>>): TrackDoc {
+        val samples = sizes.indices.map { Sample(it / 10.0) }
+        val rows = sizes.map { (w, h) -> listOf(0.5, 0.5, 0.9, w, h) }
+        return TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples, pt = PointTrack(a = rows))
+    }
+    private val shapes = listOf(listOf(listOf(0.4, 0.4), listOf(0.6, 0.6), listOf(0.5, 0.5)))
+
+    @Test
+    fun keepSizeZoomFollowsAreaSizeAndFillIsChosen() {
+        // the area grows 2x (object comes closer): zoom drops by 1 (log2); smaller area: zoom rises
+        val d = regionDoc(listOf(0.2 to 0.2, 0.2 to 0.2, 0.2 to 0.2, 0.4 to 0.4, 0.4 to 0.4, 0.4 to 0.4))
+        val cfg = Config(kpWorld = false, offlineAlpha = 1.0)
+        val z = buildTargetViews(d, Target(-1, free = regionPick(0.0, shapes)), cfg).map { it[1] }
+        assertTrue(z[0] > z[5] + 0.8, "zoom(log2) = $z")
+        // a lower chosen fill zooms out: 0.45 instead of 0.90 = exactly 1 log2 less (when not clamped)
+        val zLow = buildTargetViews(d, Target(-1, free = regionPick(0.0, shapes).copy(fill = 0.45)), cfg).map { it[1] }
+        assertTrue(abs((z[0] - zLow[0]) - 1.0) < 0.05 || zLow[0] == 0.0, "z=${z[0]} zLow=${zLow[0]}")
+    }
+
+    @Test
+    fun fixedZoomStaysConstantWhileAreaSizeChanges() {
+        val d = regionDoc(listOf(0.2 to 0.2, 0.2 to 0.2, 0.2 to 0.2, 0.4 to 0.4, 0.4 to 0.4, 0.4 to 0.4))
+        val cfg = Config(kpWorld = false)
+        val views = buildTargetViews(d, Target(-1, free = regionPick(0.0, shapes).copy(zoom = 1.5)), cfg)
+        assertTrue(views.all { abs(it[1] - 1.5) < 1e-6 }, "zoom(log2) = ${views.map { it[1] }}")
+    }
 }

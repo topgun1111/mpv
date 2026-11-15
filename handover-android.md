@@ -528,3 +528,13 @@ The home screen now includes a separate **Manual camera recording** mode. It ope
 - Keys are stamped with `player.currentPosition` (the video's own clock), so a move recorded at 0.25× lands on the same frames at 1×. Export is unchanged and keeps the original speed. Audio is not recorded, so pitch does not matter.
 - Sampling interval scales with speed (`recKeyDt`: 12–66 ms of video time ≈ 33 ms wall) so slow recordings keep detail and fast ones do not spam keys. Helpers `clampRecSpeed`, `recKeyDt`, `REC_SPEED_PRESETS` in `core/Record.kt`, tests in `RecordTest` (math checked in Python; Kotlin not compiled here, CI pending).
 - Gesture check: `detectTransformGestures` + `applyGestureAt` already give pinch zoom and two-finger drag in one gesture (zoom about the fingers' midpoint, pan from centroid movement). Gestures are active only while recording (`pointerInput(recording)`).
+
+### Freehand: drawn area now zooms to fill the frame (2026-11-15)
+- Cause: region targets went through `viewsFromBoxes` with `targetFill` = 0.30 (meant for a tapped spot/person). A drawn area taller than 30% of the frame height gave zoom < 1x -> clamped to 0 (no zoom); smaller areas only grew to 30% of the frame.
+- Fix: `regionFill(targetFill)` in `FreePoint.kt` (0.30 -> 0.90, scaled so the "fill" slider still works: 0.10 -> 0.30, 0.85 -> 0.98); `buildTargetViews` uses it only when `target.free.shapes` is non-empty. Region box already carries a 1.15x margin, so the area fills ~78% of the limiting side. Max zoom (`maxZoom`, default 2.5 log2) still caps it.
+- Test: `RegionTest.drawnRegionFillsTheFrameInsteadOfStayingAt1x` (Kotlin not compiled here; CI pending). Existing scans keep their old views until reopened/rebuilt (tuning slider or "apply" rebuilds from the saved doc).
+
+### Freehand: two zoom modes (2026-11-15)
+- Pick screen (Freehand tab): chips **Keep area size** (default; zoom follows the area's size so it stays the same size on screen as the object comes closer/farther) and **Fixed zoom** (constant zoom from the zoom slider; the camera only follows position). Keep-size has an "Area fills N%" slider (0.30-0.98, default 0.90).
+- Data: `TargetPick.fill` / `FreePick.fill` (keep-size fill); `zoom` set on a region = fixed zoom (`freePointBoxes` then uses the square-box point path). `regionFill(targetFill, base)` scales with the result screen "fill" slider. Strings in en + tr.
+- Tests in `RegionTest` (`keepSizeZoomFollowsAreaSizeAndFillIsChosen`, `fixedZoomStaysConstantWhileAreaSizeChanges`). Kotlin never compiled here; CI + phone check pending. Known limit: size comes from the polygon bounding box, so rotation can wobble the zoom in keep-size mode.

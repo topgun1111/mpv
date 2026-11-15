@@ -330,7 +330,11 @@ fun buildTargetViews(doc: TrackDoc, target: Target, cfg: Config, director: Direc
         target.part != null -> jointBoxes(doc, ids, target.part, cfg)
         else -> personBoxes(doc, ids)
     }
-    return viewsFromBoxes(ts, boxes, cfg, cutIndices(doc), minFit, director)
+    // a drawn region is framed to fill the screen (`regionFill`), not to 30% like a tapped spot or a person
+    // (fixed zoom = `free.zoom` set: boxes are squares sized for exactly that zoom, so the normal fill applies)
+    val fp = target.free
+    val viewCfg = if (fp != null && fp.shapes.isNotEmpty() && fp.zoom == null) cfg.copy(targetFill = regionFill(cfg.targetFill, fp.fill ?: 0.90)) else cfg
+    return viewsFromBoxes(ts, boxes, viewCfg, cutIndices(doc), minFit, director)
 }
 
 /** `live.py::pick_track` on pixel boxes: inside a box -> smallest centre offset (then area); else nearest within `tol`. */

@@ -14,6 +14,8 @@ import kotlin.math.pow
 data class FreePick(val t: Double, val x: Double, val y: Double, val id: Int? = null, val zoom: Double? = null,
     /** Part 18: freehand region(s): polygons of `[x, y]` normalized; x/y above = centre of their bounds. */
     val shapes: List<List<List<Double>>> = emptyList(),
+    /** Region + `zoom` null: the area is kept at this fraction of the frame (size lock, zoom follows its size). Null = [regionFill] default. */
+    val fill: Double? = null,
 )
 
 /**
@@ -130,7 +132,8 @@ fun fuseFreePoint(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleAr
 
 /** Square boxes `[cx, cy, s, s]` around the fused point so `computeView` yields exactly the chosen zoom (log2), clamped to the config. */
 fun freePointBoxes(doc: TrackDoc, pick: FreePick, cfg: Config): Map<Int, DoubleArray> {
-    if (pick.shapes.isNotEmpty()) // Part 18: frame the drawn region itself (the `targetFill` tuning decides how tight)
+    // Part 18: frame the drawn region itself (size lock). With a chosen zoom (`pick.zoom`) the region is only followed: fixed zoom like a tapped spot.
+    if (pick.shapes.isNotEmpty() && pick.zoom == null)
         return fuseFreePoint(doc, pick, cfg).mapValues { (_, p) -> doubleArrayOf(p[0], p[1], max(p.getOrElse(3) { 0.1 } * 1.15, 0.02), max(p.getOrElse(4) { 0.1 } * 1.15, 0.02)) }
     val z = (pick.zoom ?: 1.5).coerceIn(cfg.minZoom, cfg.maxZoom)
     val s = cfg.targetFill / 2.0.pow(z)
@@ -194,3 +197,11 @@ fun regionPick(t: Double, shapes: List<List<List<Double>>>, id: Int? = null): Fr
     val b = shapeBounds(shapes) ?: return FreePick(t, 0.5, 0.5, id)
     return FreePick(t, b[0], b[1], id, shapes = shapes)
 }
+
+/**
+ * Fill used when the target is a drawn region. `targetFill` (0.30) is meant for a small tapped spot or a person: with it a
+ * drawn area taller than 30% of the frame never zoomed at all (zoom clamps to 1x) and smaller ones only grew to 30%.
+ * A drawn area should fill the frame, so the default 0.30 maps to 0.90 (fits both width and height with a small margin);
+ * the "fill" tuning slider still works, scaled the same way (0.10 -> 0.30 ... 0.85 -> 0.98).
+ */
+fun regionFill(targetFill: Double, base: Double = 0.90): Double = (targetFill / 0.30 * base).coerceIn(0.30, 0.98)

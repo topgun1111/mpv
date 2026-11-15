@@ -105,6 +105,11 @@
     <string name="pick_sel_nobody">O noktada kimse yok. Bir kişiye ya da renkli vücut parçalarından birine dokun.</string>
     <string name="pick_free">Tam noktayı takip et (herhangi bir nokta)</string>
     <string name="pick_zoom">Yakınlaştırma %1$.1fx</string>
+    <string name="pick_region_keep">Alan boyutunu koru</string>
+    <string name="pick_region_fixed">Sabit zoom</string>
+    <string name="pick_region_keep_hint">Alan yaklaşırsa ya da uzaklaşırsa kamera yakınlaşıp uzaklaşarak alanı ekranda aynı boyutta tutar.</string>
+    <string name="pick_region_fixed_hint">Zoom sabit kalır; kamera yalnızca alanın konumunu izler.</string>
+    <string name="pick_region_fill">Alan ekranın %1$d%% kadarını kaplar</string>
     <string name="pick_draw">Bölge çiz</string>
     <string name="pick_draw_hint">Nesnenin (ör. iki bacak) etrafını parmağınızla çizin; birden fazla çizim olabilir. Kamera çizilen alanın tamamını izler.</string>
     <string name="pick_undo">Son çizimi geri al</string>

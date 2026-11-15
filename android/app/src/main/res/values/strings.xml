@@ -105,6 +105,11 @@
     <string name="pick_sel_nobody">Nobody at that spot. Tap on a person or on one of the coloured body parts.</string>
     <string name="pick_free">Follow exact spot (any point)</string>
     <string name="pick_zoom">Zoom %1$.1fx</string>
+    <string name="pick_region_keep">Keep area size</string>
+    <string name="pick_region_fixed">Fixed zoom</string>
+    <string name="pick_region_keep_hint">The camera zooms in and out so the area stays the same size on screen when it gets closer or farther.</string>
+    <string name="pick_region_fixed_hint">The zoom stays constant; the camera only follows the area\'s position.</string>
+    <string name="pick_region_fill">Area fills %1$d%% of the screen</string>
     <string name="pick_draw">Draw region</string>
     <string name="pick_draw_hint">Draw around the object (e.g. both legs) with your finger; several strokes are allowed. The camera follows the whole drawn area.</string>
     <string name="pick_undo">Undo stroke</string>
