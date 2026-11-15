@@ -7,9 +7,11 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -37,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
@@ -239,23 +242,38 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     fun clock(ms: Long) = String.format(Locale.ROOT, "%d:%02d", ms / 60000, (ms / 1000) % 60)
     val vw = doc.video.w.coerceAtLeast(1); val vh = doc.video.h.coerceAtLeast(1)
     if (rot != 0) Text(stringResource(R.string.result_rotated, rot), fontSize = 12.sp)
-    Box(Modifier.fillMaxWidth().aspectRatio(vw / vh.toFloat()).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).clipToBounds().pointerInput(recording) {
-        if (recording) detectTransformGestures { centroid, pan, zoom, _ -> // serbest el: iki parmakla aynı anda zoom + taşıma; zoom parmakların ortasına göre
-            val w = size.width.toDouble(); val h = size.height.toDouble()
-            recView = applyGestureAt(recView, centroid.x / w, centroid.y / h, pan.x / w, pan.y / h, zoom.toDouble(), 3.5)
-        }
-    }) {
-        AndroidView(
-            factory = { c -> TextureView(c).also { player.setVideoTextureView(it) } },
-            modifier = Modifier.fillMaxSize().graphicsLayer {
-                if (recording || (follow && views.isNotEmpty())) {
-                    val tr = viewTransform(if (recording) recView else viewAtSmooth(views, posMs / 1000.0)) // same crop as the export will cut
-                    scaleX = tr[0].toFloat(); scaleY = tr[0].toFloat()
-                    translationX = (tr[1] * size.width).toFloat(); translationY = (tr[2] * size.height).toFloat()
+    // Bound the result preview just like Manual Camera: portrait clips must not consume the whole page.
+    BoxWithConstraints(
+        Modifier.fillMaxWidth().height(300.dp)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .clipToBounds(),
+        contentAlignment = Alignment.Center,
+    ) {
+        val videoAspect = (vw.toFloat() / vh.toFloat()).coerceIn(0.25f, 4f)
+        val fittedWidth = minOf(maxWidth, maxHeight * videoAspect)
+        val fittedHeight = fittedWidth / videoAspect
+        Box(
+            Modifier.size(width = fittedWidth, height = fittedHeight)
+                .clipToBounds()
+                .pointerInput(recording) {
+                    if (recording) detectTransformGestures { centroid, pan, zoom, _ ->
+                        val w = size.width.toDouble(); val h = size.height.toDouble()
+                        recView = applyGestureAt(recView, centroid.x / w, centroid.y / h, pan.x / w, pan.y / h, zoom.toDouble(), 3.5)
+                    }
                 }
-            },
-        )
-        if (recording) Text(stringResource(R.string.rec_badge), color = androidx.compose.ui.graphics.Color.Red, modifier = Modifier.align(androidx.compose.ui.Alignment.TopStart).padding(8.dp)) // kayıt açık: iki parmakla yakınlaştır + sürükle
+        ) {
+            AndroidView(
+                factory = { c -> TextureView(c).also { player.setVideoTextureView(it) } },
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    if (recording || (follow && views.isNotEmpty())) {
+                        val tr = viewTransform(if (recording) recView else viewAtSmooth(views, posMs / 1000.0))
+                        scaleX = tr[0].toFloat(); scaleY = tr[0].toFloat()
+                        translationX = (tr[1] * size.width).toFloat(); translationY = (tr[2] * size.height).toFloat()
+                    }
+                },
+            )
+            if (recording) Text(stringResource(R.string.rec_badge), color = androidx.compose.ui.graphics.Color.Red, modifier = Modifier.align(Alignment.TopStart).padding(8.dp))
+        }
     }
     if (!readable) Text(stringResource(R.string.err_video), color = MaterialTheme.colorScheme.error)
     if (playerMsg.isNotEmpty()) Text(playerMsg, color = MaterialTheme.colorScheme.error)

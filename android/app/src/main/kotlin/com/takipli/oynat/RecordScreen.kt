@@ -11,10 +11,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -35,8 +39,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -158,7 +164,10 @@ fun RecordScreen(onBack: () -> Unit) {
         } catch (t: Throwable) { finish(Safety.friendly(ctx, t)) }
     }
 
-    Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         TextButton(onClick = onBack, enabled = exporter == null && !recording) { Text("← Back") }
         Text("Manual camera", style = MaterialTheme.typography.headlineSmall)
         Text("Play a video, then pinch to zoom and drag to reframe. Record captures your camera movement and exports a new video.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -166,17 +175,30 @@ fun RecordScreen(onBack: () -> Unit) {
         if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
         val vi = info
         if (uri != null && vi != null) {
-            Box(Modifier.fillMaxWidth().aspectRatio(vi.width / vi.height.toFloat()).clip(RoundedCornerShape(16.dp)).clipToBounds().pointerInput(recording) {
-                if (recording) detectTransformGestures { centroid, pan, zoom, _ ->
-                    val w = size.width.toDouble(); val h = size.height.toDouble()
-                    view = applyGestureAt(view, centroid.x / w, centroid.y / h, pan.x / w, pan.y / h, zoom.toDouble(), 4.0)
+            // Bounded viewport: portrait videos no longer expand the page beyond the screen.
+            androidx.compose.foundation.layout.BoxWithConstraints(
+                Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(16.dp))
+                    .clipToBounds().background(Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                val videoAspect = (vi.width.toFloat() / vi.height.toFloat()).coerceIn(0.25f, 4f)
+                val fittedWidth = minOf(maxWidth, maxHeight * videoAspect)
+                val fittedHeight = fittedWidth / videoAspect
+                Box(
+                    Modifier.size(width = fittedWidth, height = fittedHeight).clipToBounds()
+                        .pointerInput(recording) {
+                            if (recording) detectTransformGestures { centroid, pan, zoom, _ ->
+                                val w = size.width.toDouble(); val h = size.height.toDouble()
+                                view = applyGestureAt(view, centroid.x / w, centroid.y / h, pan.x / w, pan.y / h, zoom.toDouble(), 4.0)
+                            }
+                        }
+                ) {
+                    AndroidView(factory = { TextureView(it).also { tv -> player.setVideoTextureView(tv) } }, modifier = Modifier.fillMaxSize().graphicsLayer {
+                        val tr = viewTransform(view); scaleX = tr[0].toFloat(); scaleY = tr[0].toFloat()
+                        translationX = (tr[1] * size.width).toFloat(); translationY = (tr[2] * size.height).toFloat()
+                    })
+                    if (recording) Text("● REC", color = Color.Red, modifier = Modifier.padding(12.dp))
                 }
-            }) {
-                AndroidView(factory = { TextureView(it).also { tv -> player.setVideoTextureView(tv) } }, modifier = Modifier.fillMaxSize().graphicsLayer {
-                    val tr = viewTransform(view); scaleX = tr[0].toFloat(); scaleY = tr[0].toFloat()
-                    translationX = (tr[1] * size.width).toFloat(); translationY = (tr[2] * size.height).toFloat()
-                })
-                if (recording) Text("● REC", color = androidx.compose.ui.graphics.Color.Red, modifier = Modifier.padding(12.dp))
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { if (player.isPlaying) player.pause() else player.play() }, enabled = exporter == null) { Text(if (playing) "Pause" else "Play") }
