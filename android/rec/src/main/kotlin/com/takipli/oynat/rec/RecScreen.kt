@@ -268,7 +268,7 @@ fun RecScreen() {
         try {
             val started = RecExporter.start(
                 ctx, source, finalKeys, out, vi.width, vi.height,
-                (vi.frameRate ?: 30.0).coerceIn(1.0, 60.0), false, vi.userRot,
+                (vi.frameRate ?: 30.0).coerceIn(1.0, 60.0), false, vi.userRot, vi.bitrate,
                 onDone = {
                     scope.launch {
                         try {

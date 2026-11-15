@@ -63,6 +63,8 @@ def test_rec_screen_has_fullscreen_overlay_and_rotation():
     assert "BackHandler" in t  # geri tuşu tam ekrandan çıkar / kaydı durdurur
     e = _text(SRC / "RecExporter.kt")
     assert "rotationEffect(rot)" in e  # döndürme dışa aktarmaya da girer
+    assert "targetBitrate(sourceBitrate" in e  # çıkış bit hızı kaynakla aynı
+    assert "KEY_BIT_RATE" in _text(SRC / "RecVideo.kt")
 
 
 def test_rec_strings_en_tr_match_and_formats_agree():

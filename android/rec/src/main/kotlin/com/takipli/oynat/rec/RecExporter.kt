@@ -37,6 +37,7 @@ object RecExporter {
     fun start(
         ctx: Context, source: Uri, views: List<ViewKey>, outFile: File,
         w: Int, h: Int, fps: Double, hevc: Boolean, rot: Int,
+        sourceBitrate: Int?, // same bitrate as the source (2..100 Mbps); null = formula from size and fps
         onDone: (ExportResult) -> Unit, onError: (ExportException) -> Unit,
     ): Transformer {
         outFile.parentFile?.mkdirs()
@@ -49,7 +50,7 @@ object RecExporter {
             .setEffects(Effects(emptyList(), listOfNotNull(rotationEffect(rot), crop)))
             .build()
         val encoder = DefaultEncoderFactory.Builder(ctx)
-            .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(exportBitrate(w, h, fps, hevc)).build())
+            .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(targetBitrate(sourceBitrate, w, h, fps, hevc)).build())
             .build()
         val transformer = Transformer.Builder(ctx)
             .setVideoMimeType(if (hevc) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264)
@@ -62,6 +63,10 @@ object RecExporter {
         transformer.start(item, outFile.absolutePath)
         return transformer
     }
+
+    /** Output bitrate: the source's own, kept between 2 and 100 Mbps; the size/fps formula when the source's is unknown. */
+    fun targetBitrate(sourceBitrate: Int?, w: Int, h: Int, fps: Double, hevc: Boolean): Int =
+        sourceBitrate?.coerceIn(2_000_000, 100_000_000) ?: exportBitrate(w, h, fps, hevc)
 
     /** 0..1, or -1 when the transformer cannot tell yet. Main thread only. */
     fun progress(t: Transformer): Float {
