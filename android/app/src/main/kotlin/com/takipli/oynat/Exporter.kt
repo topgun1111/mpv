@@ -8,6 +8,7 @@ import android.provider.MediaStore
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.effect.MatrixTransformation
+import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
@@ -34,6 +35,10 @@ import java.io.File
  * the views; the frame size is still the source size (native resolution).
  */
 object Exporter {
+    /** The user's manual clockwise turn ([UserRot]) as a Media3 effect (Media3 rotates counterclockwise, hence the minus); null = none. Preview and export share it. */
+    fun rotationEffect(userRot: Int): ScaleAndRotateTransformation? =
+        if (userRot % 360 == 0) null else ScaleAndRotateTransformation.Builder().setRotationDegrees(-userRot.toFloat()).build()
+
     fun start(
         ctx: Context, source: Uri, views: List<ViewKey>, outFile: File,
         w: Int, h: Int, fps: Double, hevc: Boolean,
@@ -51,7 +56,7 @@ object Exporter {
                 Matrix().apply { setTranslate(n[1].toFloat(), n[2].toFloat()); postScale(n[0].toFloat(), n[0].toFloat()) }
             }
         }
-        val item = EditedMediaItem.Builder(MediaItem.fromUri(source)).setEffects(Effects(emptyList(), listOf(crop))).build()
+        val item = EditedMediaItem.Builder(MediaItem.fromUri(source)).setEffects(Effects(emptyList(), listOfNotNull(rotationEffect(UserRot.get(ctx, source.toString())), crop))).build()
         val encoder = DefaultEncoderFactory.Builder(ctx)
             .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(exportBitrate(w, h, fps, hevc)).build())
             .build()

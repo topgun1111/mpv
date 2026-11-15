@@ -47,6 +47,7 @@
     <string name="pick_background">The scan keeps running with the screen off or the app closed; a notification shows progress and a Cancel button.</string>
     <string name="pick_done">Done. Target: %1$s (%2$d samples). Views are saved; the preview and export come next.</string>
     <string name="pick_nobody">Scan done (%1$d samples), but nobody was found at the tapped point. The scan is kept: pick again.</string>
+    <string name="pick_rotate">Rotate video 90° (now %1$d°)</string>
     <string name="pick_again">New pick / scan</string>
     <string name="scan_channel">Video scan</string>
     <string name="scan_notify_start">Starting scan …</string>

@@ -175,6 +175,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                 playerMsg = Safety.friendly(ctx, error, error.errorCodeName)
             }
         })
+        Exporter.rotationEffect(UserRot.get(ctx, doc.video.path))?.let { player.setVideoEffects(listOf(it)) } // the manual rotation chosen on the pick screen
         player.setMediaItem(MediaItem.fromUri(Uri.parse(doc.video.path)))
         player.repeatMode = Player.REPEAT_MODE_ALL
         player.prepare()

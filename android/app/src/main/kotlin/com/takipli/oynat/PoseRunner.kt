@@ -6,6 +6,9 @@ import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Matrix
+import com.takipli.oynat.core.BBox
+import com.takipli.oynat.core.nms
 import com.takipli.oynat.core.BenchStats
 import com.takipli.oynat.core.Pose
 import com.takipli.oynat.core.benchStats
@@ -59,6 +62,9 @@ class BenchReport(
     val post: BenchStats,
     val poses: Int,
 )
+
+private const val KP_OK = 0.35
+private const val MIN_KPTS = 6
 
 /** YOLO-pose through ONNX Runtime (CPU). One instance = one session; calls must not overlap. */
 class PoseRunner(context: Context, val modelName: String, val threads: Int, val wantNpu: Boolean = false) : AutoCloseable {
@@ -139,6 +145,68 @@ class PoseRunner(context: Context, val modelName: String, val threads: Int, val 
         val poses = decodeYoloPose(raw, dim0, dim1, layout.info, bmp.width, bmp.height, conf, iou)
         val t3 = System.nanoTime()
         return PoseResult(poses, (t1 - t0) / 1e6, (t2 - t1) / 1e6, (t3 - t2) / 1e6)
+    }
+
+    /** Rotation-robust detection: lets the model see people who are sideways / upside-down in the frame (lying, flipping, rotated clips). */
+    var autoRotate = true
+    private var prefRot = 0 // clockwise quarter turns that worked last (0..3), tried first
+    private var missStreak = 0
+    private var frameNo = 0
+
+    private fun confidentKpts(p: Pose): Int { var n = 0; for (k in 0 until p.count) if (p.conf(k) >= KP_OK) n++; return n }
+    private fun weak(ps: List<Pose>) = ps.isEmpty() || ps.maxOf { confidentKpts(it) } < MIN_KPTS
+    private fun quality(ps: List<Pose>) = ps.maxOfOrNull { it.score * confidentKpts(it) } ?: 0.0
+
+    /** [detect] on the frame turned `k` x 90 degrees clockwise; poses are mapped back to the original frame. */
+    private fun detectRot(bmp: Bitmap, k: Int, conf: Double, iou: Double): PoseResult {
+        if (k == 0) return detect(bmp, conf, iou)
+        val rot = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, Matrix().apply { postRotate(90f * k) }, true)
+        try {
+            val r = detect(rot, conf, iou)
+            return PoseResult(r.poses.map { unrotate(it, k, bmp.width, bmp.height) }, r.preMs, r.inferMs, r.postMs)
+        } finally { if (rot !== bmp) rot.recycle() }
+    }
+
+    private fun unrotate(p: Pose, k: Int, ow: Int, oh: Int): Pose {
+        fun mx(x: Double, y: Double) = when (k) { 1 -> y; 2 -> ow - x; else -> ow - y }
+        fun my(x: Double, y: Double) = when (k) { 1 -> oh - x; 2 -> oh - y; else -> x }
+        val ax = mx(p.bbox.x1, p.bbox.y1); val ay = my(p.bbox.x1, p.bbox.y1)
+        val bx = mx(p.bbox.x2, p.bbox.y2); val by = my(p.bbox.x2, p.bbox.y2)
+        val kp = DoubleArray(p.kpts.size)
+        for (i in 0 until p.count) { kp[3 * i] = mx(p.x(i), p.y(i)); kp[3 * i + 1] = my(p.x(i), p.y(i)); kp[3 * i + 2] = p.conf(i) }
+        return Pose(BBox(minOf(ax, bx), minOf(ay, by), maxOf(ax, bx), maxOf(ay, by)), p.score, kp)
+    }
+
+    /**
+     * The last working rotation first; only when that finds nobody (or only junk poses) the other three are tried and the
+     * winner is remembered, so a clip that is sideways throughout costs 1 inference per frame after the first one.
+     * Poses from the other rotations must be confident (no ghosts); all are merged with NMS.
+     */
+    fun detectRobust(bmp: Bitmap, conf: Double = 0.25, iou: Double = 0.45): PoseResult {
+        if (!autoRotate) return detect(bmp, conf, iou)
+        frameNo++
+        val first = detectRot(bmp, prefRot, conf, iou)
+        if (!weak(first.poses)) { missStreak = 0; return first }
+        if (missStreak >= 3 && frameNo % 5 != 0) { missStreak++; return first } // nobody anywhere: do not pay 4x on every frame
+        var pre = first.preMs; var inf = first.inferMs; var post = first.postMs
+        val all = ArrayList<Pose>(first.poses)
+        var bestRot = prefRot; var bestQ = quality(first.poses)
+        for (k in 0..3) {
+            if (k == prefRot) continue
+            val r = detectRot(bmp, k, conf, iou)
+            pre += r.preMs; inf += r.inferMs; post += r.postMs
+            val good = r.poses.filter { confidentKpts(it) >= MIN_KPTS }
+            all += good
+            val q = quality(good)
+            if (q > bestQ) { bestQ = q; bestRot = k }
+        }
+        if (bestRot != prefRot) {
+            Diag.note(appCtx, "pose", "ROT_PREF", "people found at ${bestRot * 90} deg clockwise (was ${prefRot * 90}), quality ${"%.1f".format(java.util.Locale.ROOT, bestQ)}")
+            prefRot = bestRot
+        }
+        val keep = if (all.size <= 1) all else nms(all.map { it.bbox }, DoubleArray(all.size) { all[it].score }, iou).map { all[it] }
+        if (weak(keep)) missStreak++ else missStreak = 0
+        return PoseResult(keep, pre, inf, post)
     }
 
     /** Full pipeline (resize + preprocess + inference + decode) `runs` times after `warmup` unmeasured runs. */

@@ -35,9 +35,11 @@ data class VideoInfo(
     val durationS: Double,
     val frameRate: Double?,
     val mime: String,
+    /** Manual clockwise rotation chosen by the user ([UserRot]); `width`/`height` include it, `rotation` stays the file metadata. */
+    val userRot: Int = 0,
 ) {
-    val width: Int get() = displaySize(codedW, codedH, rotation).first
-    val height: Int get() = displaySize(codedW, codedH, rotation).second
+    val width: Int get() = displaySize(codedW, codedH, rotation + userRot).first
+    val height: Int get() = displaySize(codedW, codedH, rotation + userRot).second
 }
 
 /** One sampled frame: `t` = the frame's real presentation time (s); `bitmap` upright, longer side <= maxSide. */
@@ -72,6 +74,7 @@ object VideoDecoder {
                 durationS = if (f.containsKey(MediaFormat.KEY_DURATION)) f.getLong(MediaFormat.KEY_DURATION) / 1e6 else 0.0,
                 frameRate = if (f.containsKey(MediaFormat.KEY_FRAME_RATE)) f.getInteger(MediaFormat.KEY_FRAME_RATE).toDouble() else null,
                 mime = f.getString(MediaFormat.KEY_MIME).orEmpty(),
+                userRot = UserRot.get(ctx, uri.toString()),
             )
         } finally {
             ex.release()
@@ -124,6 +127,7 @@ object VideoDecoder {
                 misses = 0
                 val bm = uprightScaled(raw, info, maxSide)
                 if (delivered < 3) Trace.step(ctx, "frame t=$t raw=${raw.width}x${raw.height} -> ${bm.width}x${bm.height}")
+                if (delivered == 0) Diag.note(ctx, "decode", "FRAME_ORIENT", "raw ${raw.width}x${raw.height} -> out ${bm.width}x${bm.height} | coded ${info.codedW}x${info.codedH} rot ${info.rotation} display ${info.width}x${info.height} rotated=${bm !== raw}")
                 if (bm !== raw) raw.recycle()
                 delivered++
                 if (!onFrame(SampledFrame(t, bm))) break
@@ -162,12 +166,15 @@ object VideoDecoder {
      * rotated it. (A 180 degree clip cannot be told apart this way: it is left as returned.)
      */
     private fun uprightScaled(src: Bitmap, info: VideoInfo, maxSide: Int): Bitmap {
-        val needRotate = info.rotation % 180 != 0 && ((src.width >= src.height) != (info.width >= info.height))
-        val rotated = if (needRotate) src.height to src.width else src.width to src.height
+        val (mw, mh) = displaySize(info.codedW, info.codedH, info.rotation) // upright by the file metadata only
+        val needMeta = info.rotation % 180 != 0 && ((src.width >= src.height) != (mw >= mh))
+        val deg = ((if (needMeta) info.rotation else 0) + info.userRot) % 360 // metadata (when the retriever did not apply it) + the user's turn
+        val quarter = deg % 180 != 0
+        val rotated = if (quarter) src.height to src.width else src.width to src.height
         val (ow, oh) = scaledSize(rotated.first, rotated.second, maxSide)
-        if (!needRotate && ow == src.width && oh == src.height) return src
+        if (deg == 0 && ow == src.width && oh == src.height) return src
         val m = Matrix()
-        if (needRotate) m.postRotate(info.rotation.toFloat())
+        if (deg != 0) m.postRotate(deg.toFloat())
         m.postScale(ow.toFloat() / rotated.first, oh.toFloat() / rotated.second)
         return Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
     }

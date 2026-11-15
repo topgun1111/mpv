@@ -97,6 +97,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     var videoId by remember { mutableStateOf("") }
     var frame by remember { mutableStateOf<Bitmap?>(null) }
     var frameT by remember { mutableStateOf(0.0) }
+    var rot by remember { mutableStateOf(0) } // manual clockwise rotation of the video (UserRot)
     var durationS by remember { mutableStateOf(0.0) } // 0 = unknown
     var seekT by remember { mutableStateOf(0f) } // where the user wants the pick frame (seconds)
     var loadJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -131,7 +132,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
             withContext(Dispatchers.Default) {
                 PoseRunner(ctx, model, threads = 4).use { r ->
                     val t0 = System.nanoTime()
-                    val poses = r.detect(f).poses
+                    val poses = r.detectRobust(f).poses
                     Diag.note(ctx, "pick", "FIRST_FRAME_DETECT", "${poses.size} people in ${"%.0f".format(java.util.Locale.ROOT, (System.nanoTime() - t0) / 1e6)} ms (${f.width}x${f.height}, $model)")
                     if (poses.isEmpty()) Diag.note(ctx, "pick", "NO_PEOPLE", "no person on the picked frame: black/blank frame? seek to another frame before scanning", com.takipli.oynat.core.Sev.WARN)
                     poses
@@ -208,6 +209,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
                 videoId = withContext(Dispatchers.IO) { videoIdOf(ctx, u) }
                 durationS = withContext(Dispatchers.IO) { runCatching { VideoDecoder.probe(ctx, u).durationS }.getOrDefault(0.0) }
                 seekT = 0f
+                rot = UserRot.get(ctx, u.toString())
                 VideoDecoder.sample(ctx, u, 1.0, 0.0) { f -> frame = f.bitmap; frameT = f.t; false }
                 uri = u
             } catch (e: Throwable) {
@@ -255,6 +257,7 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
 
         val bmp = frame
         if (uri != null && bmp != null && !running && ui !is ScanUi.Done) {
+            OutlinedButton(onClick = { rot = (rot + 90) % 360; UserRot.set(ctx, uri.toString(), rot); found = null; loadAt(frameT) }) { Text(stringResource(R.string.pick_rotate, rot)) }
             // 1. WHAT to follow: a person / body part (pose model) or any object (smart select)
             Text(stringResource(R.string.pick_what), style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

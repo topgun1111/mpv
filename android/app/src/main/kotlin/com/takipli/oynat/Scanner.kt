@@ -74,7 +74,7 @@ object Scanner {
         val t0 = SystemClock.elapsedRealtime()
         val info = VideoDecoder.probe(ctx, uri)
         val modelTag = "${runner.modelName}:${(runner.modelMb * 1e6).toLong()}" + if (runner.npu) ":npu" else ""
-        val sig = scanSig(videoId, fps, modelTag)
+        val sig = scanSig(videoId + if (info.userRot != 0) "|rot${info.userRot}" else "", fps, modelTag) // a manual rotation changes every frame: new cache key
         val partial = File(trackFile.path + ".partial")
 
         readDoc(trackFile, sig)?.takeIf { it.version >= 2 }?.let { return@withContext ScanResult(it, true, 0.0, 0, 0.0) }
@@ -105,7 +105,7 @@ object Scanner {
                 currentCoroutineContext().ensureActive()
                 val cb0 = System.nanoTime()
                 val bmp = f.bitmap
-                val pr = runner.detect(bmp, cfg.liveDetConf, cfg.detIou)
+                val pr = runner.detectRobust(bmp, cfg.liveDetConf, cfg.detIou)
                 val poses = pr.poses
                 val an0 = System.nanoTime()
                 // Like Pipeline.step: a failed camera estimate never stops tracking.
