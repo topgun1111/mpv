@@ -106,7 +106,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     var saved by remember { mutableStateOf("") }
     var job by remember { mutableStateOf<Job?>(null) }
     var hevc by remember { mutableStateOf(false) }
-    var stab by remember { mutableStateOf(true) } // EIS-style stabilization of the export (needs one slow pass over every frame)
+    var stab by remember { mutableStateOf(false) } // EIS-style stabilization of the export (needs one slow pass over every frame): opt-in, so opening the preview never starts it
     var camPath by remember { mutableStateOf<CamPath?>(null) }
     var stabBusy by remember { mutableStateOf(false) }
     var stabP by remember { mutableStateOf(0f) }

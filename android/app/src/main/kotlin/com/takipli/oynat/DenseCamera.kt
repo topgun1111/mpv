@@ -134,12 +134,18 @@ object DenseCamera {
         var lastStep: DoubleArray? = null
         var misses = 0
         var prevT = 0.0
+        var n = 0
 
         val onFrame: suspend (SampledFrame) -> Boolean = { f ->
             currentCoroutineContext().ensureActive()
             val bmp = f.bitmap
             val b = builder ?: CamPathBuilder(bmp.height).also { builder = it }
-            val a = runCatching { analyzer.analyze(bmp, boxesAt(doc, prevT, bmp.width, bmp.height)) }.getOrNull()
+            n++
+            // Breadcrumbs: a native crash leaves no error line, the trace file shows how far the analysis got.
+            if (n <= 3 || n % 30 == 0) Trace.step(ctx, "dense frame $n t=${String.format(java.util.Locale.ROOT, "%.2f", f.t)} ${bmp.width}x${bmp.height}")
+            val a = runCatching { analyzer.analyze(bmp, boxesAt(doc, prevT, bmp.width, bmp.height)) }
+                .onFailure { if (n <= 3) ErrorLog.record(ctx, "dense-analyze", it) }.getOrNull()
+            if (n <= 3) Trace.step(ctx, "dense frame $n analysed ok=${a != null}")
             var step: DoubleArray? = null
             val cut = a?.cut == true
             if (cut) { lastStep = null; misses = 0 }
