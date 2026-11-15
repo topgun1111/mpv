@@ -1,0 +1,3 @@
+# Kayıt varyantı bağımlılıkları: yalnız dışa aktarma için (kare oku + kırp). Yapay zekâ çalışma zamanı YOK.
+numpy>=1.26
+opencv-python-headless>=4.9

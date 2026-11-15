@@ -87,7 +87,7 @@ def verify_sha256(name: str, data: bytes, expected: str | None) -> str:
     return digest
 
 
-def build(out: Path, install: bool = True) -> Path:
+def build(out: Path, install: bool = True, requirements: str = "requirements.txt") -> Path:
     py = out / "python"
     if py.exists():
         shutil.rmtree(py)
@@ -110,7 +110,7 @@ def build(out: Path, install: bool = True) -> Path:
         run = [str(exe), "-m", "pip", "install", "--no-warn-script-location",
                "--disable-pip-version-check"]
         subprocess.run([str(exe), str(gp), "--no-warn-script-location"], check=True)
-        subprocess.run([*run, "-r", str(ROOT / "requirements.txt")], check=True)
+        subprocess.run([*run, "-r", str(ROOT / requirements)], check=True)
         gp.unlink()
         dirs, files = prune(py / "Lib" / "site-packages")
         print(f"ayıklandı: {dirs} dizin, {files} dosya")
@@ -122,11 +122,13 @@ def build(out: Path, install: bool = True) -> Path:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(ROOT / "dist" / "TakipliOynat"))
+    ap.add_argument("--requirements", default="requirements.txt",
+                    help="bağımlılık dosyası (kayıt varyantı: requirements-recording.txt)")
     ap.add_argument("--no-install", action="store_true", help="yalnız Python'u aç (test)")
     a = ap.parse_args(argv)
     if sys.platform != "win32":
         print("Uyarı: gömülü Python yalnız Windows'ta çalışır; yine de dosyalar hazırlanır.")
-    build(Path(a.out), install=not a.no_install)
+    build(Path(a.out), install=not a.no_install, requirements=a.requirements)
     return 0
 
 
