@@ -116,7 +116,7 @@ fun ResultScreen(file: String, onBack: () -> Unit) {
 private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val cfg = remember { Config() }
+    val cfg = remember { Config(lostBridgeS = 6.0) } // app default: keep the zoom when something covers the subject for a few seconds
     var target by remember { mutableStateOf(base) }
     var tuning by remember { mutableStateOf(Tuning.of(cfg)) }
     var views by remember { mutableStateOf(doc.views) }
@@ -220,6 +220,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
         val segs = manual
         job = scope.launch { views = withContext(Dispatchers.Default) { mergeSegments(rebuildViews(doc, t, cfg, tu), segs) } }
     }
+    LaunchedEffect(Unit) { rebuild(target, tuning) } // the scan was built without the occlusion bridge: apply it once on open
     fun startRecording() {
         recView = if (follow && views.isNotEmpty()) viewAtSmooth(views, posMs / 1000.0) else CamView(0.0, 0.0, 0.0)
         recKeys = emptyList(); follow = true; recording = true
@@ -399,6 +400,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                         tune(R.string.tune_box, tuning.kpBox, 0.04f..0.4f) { tuning.copy(kpBox = it) }
                     }
                     tune(R.string.tune_hold, tuning.lostHoldS, 0f..3f) { tuning.copy(lostHoldS = it) }
+                    tune(R.string.tune_bridge, tuning.lostBridgeS, 0f..15f) { tuning.copy(lostBridgeS = it) }
                 }
                 1 -> {
                     Text(stringResource(R.string.cam_title), style = MaterialTheme.typography.titleSmall)

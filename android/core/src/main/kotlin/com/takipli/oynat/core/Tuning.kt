@@ -16,14 +16,16 @@ data class Tuning(
     val lostHoldS: Double = 1.0,
     /** Otomatik kameraman (mod, konum, zoom stratejisi, look-ahead); varsayılan = eski davranış. */
     val director: Director = Director(),
+    /** Keep the zoom through an occlusion of up to this many seconds (`Config.lostBridgeS`). */
+    val lostBridgeS: Double = 0.0,
 ) {
     companion object
 }
 
 fun Config.withTuning(t: Tuning): Config =
-    copy(targetFill = t.targetFill, kpBox = t.kpBox, maxZoom = t.maxZoom, offlineAlpha = t.followAlpha, lostHoldS = t.lostHoldS)
+    copy(targetFill = t.targetFill, kpBox = t.kpBox, maxZoom = t.maxZoom, offlineAlpha = t.followAlpha, lostHoldS = t.lostHoldS, lostBridgeS = t.lostBridgeS)
 
-fun Tuning.Companion.of(c: Config) = Tuning(c.targetFill, c.kpBox, c.maxZoom, c.offlineAlpha, c.lostHoldS)
+fun Tuning.Companion.of(c: Config) = Tuning(c.targetFill, c.kpBox, c.maxZoom, c.offlineAlpha, c.lostHoldS, lostBridgeS = c.lostBridgeS)
 
 /** Scan doc + (possibly changed) target + tuning -> new views; the doc is not modified. Same call the export will use. */
 fun rebuildViews(doc: TrackDoc, target: Target, cfg: Config, t: Tuning): List<ViewKey> = buildTargetViews(doc, target, cfg.withTuning(t), t.director)

@@ -70,6 +70,7 @@
     <string name="tune_box">Parça kutusu boyutu (x kişi boyu): %1$s</string>
     <string name="tune_maxzoom">En çok yakınlaştırma (log2): %1$s</string>
     <string name="tune_follow">Takip hızı (yüksek = sıkı): %1$s</string>
+    <string name="tune_bridge">Örtülünce zoom'u koru (sn): %1$s</string>
     <string name="tune_hold">Kayıpta bekleme (sn): %1$s</string>
     <string name="tune_reset">Kaydırıcıları sıfırla</string>
     <string name="export_title">Takipli videoyu dışa aktar (MP4, özgün ses)</string>

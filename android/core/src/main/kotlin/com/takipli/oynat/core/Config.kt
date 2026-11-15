@@ -25,6 +25,8 @@ data class Config(
     val deadZoneZoom: Double = 0.05,
     val lostHoldS: Double = 1.0,
     val lostZoomoutS: Double = 2.0,
+    /** Android-only: a gap (occluded subject) up to this long, with the subject back afterwards, keeps the zoom and glides to the new place; 0 = old hold + zoom-out (PC parity). */
+    val lostBridgeS: Double = 0.0,
     val kfAccel: Double = 0.5,
     val kfMeas: Double = 0.01,
     val gmc: Boolean = true,

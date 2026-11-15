@@ -204,6 +204,13 @@ fun viewsFromBoxes(ts: List<Double>, boxes: Map<Int, DoubleArray>, cfg: Config, 
         val prev = if (i > 0) views[i - 1] else null
         val nxt = if (j < n) views[j] else null
         val t0 = ts[i]
+        if (cfg.lostBridgeS > 0.0 && prev != null && nxt != null && !cutBetween(i, j) && ts[j] - t0 <= cfg.lostBridgeS) {
+            // occluded for a few seconds (someone walks in front): keep the zoom, then glide to where the subject reappears
+            val ease = min(1.0, max(ts[j] - t0, 1e-3) / 2.0)
+            for (k in i until j) views[k] = easeView(prev, nxt, (ts[k] - (ts[j] - ease)) / ease)
+            i = j
+            continue
+        }
         for (k in i until j) {
             val t = ts[k]
             val pv = if (!cutBetween(i, k)) prev else null
