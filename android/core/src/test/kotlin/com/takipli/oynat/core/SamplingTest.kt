@@ -80,4 +80,44 @@ class SamplingTest {
         val red = yuv709ToArgb(63, 102, 240)
         assertTrue(((red shr 16) and 255) >= 250 && ((red shr 8) and 255) <= 3 && (red and 255) <= 3, "red=${red.toString(16)}")
     }
+
+    @Test
+    fun frameTurnAddsMetadataOnlyWhenTheRetrieverDidNot() {
+        // portrait phone clip: coded 1920x1080, metadata 90 -> upright 1080x1920
+        assertEquals(0, frameTurn(1080, 1920, 1920, 1080, 90, 0)) // retriever already rotated it
+        assertEquals(90, frameTurn(1920, 1080, 1920, 1080, 90, 0)) // retriever returned the raw coded frame
+        // the user's turn is always on top
+        assertEquals(90, frameTurn(1080, 1920, 1920, 1080, 90, 90))
+        assertEquals(180, frameTurn(1920, 1080, 1920, 1080, 90, 90))
+        assertEquals(270, frameTurn(1080, 1920, 1920, 1080, 90, 270))
+        // landscape clip, no metadata
+        assertEquals(0, frameTurn(1920, 1080, 1920, 1080, 0, 0))
+        assertEquals(270, frameTurn(1920, 1080, 1920, 1080, 0, 270))
+        // wrap-around and odd inputs
+        assertEquals(0, frameTurn(1920, 1080, 1920, 1080, 0, 360))
+        assertEquals(90, frameTurn(1920, 1080, 1920, 1080, 0, -270))
+        // 180 metadata is taken as already applied
+        assertEquals(0, frameTurn(1920, 1080, 1920, 1080, 180, 0))
+        assertEquals(180, frameTurn(1920, 1080, 1920, 1080, 180, 180))
+        // square clip never double-turns
+        assertEquals(0, frameTurn(1000, 1000, 1000, 1000, 90, 0))
+    }
+
+    @Test
+    fun docRotationPrefersTheStoredValue() {
+        assertEquals(90, docRotation(90, 0)) // the scan's own turn wins over a later setting
+        assertEquals(0, docRotation(0, 270))
+        assertEquals(270, docRotation(-1, 270)) // older file: fall back to the per-video setting
+        assertEquals(0, docRotation(-1, 0))
+    }
+
+    @Test
+    fun scanFileStoresTheTurn() {
+        val rotated = buildScanDoc("clip.mp4", 1080, 1920, 30.0, 3.0, 10.0, listOf(Sample(0.0)), rot = 90)
+        assertEquals(90, Formats.parseTrack(Formats.encodeTrack(rotated)).video.rot)
+        val upright = buildScanDoc("clip.mp4", 1920, 1080, 30.0, 3.0, 10.0, listOf(Sample(0.0)), rot = 0)
+        assertEquals(0, Formats.parseTrack(Formats.encodeTrack(upright)).video.rot) // 0 is stored too: it is not "unknown"
+        val old = buildScanDoc("clip.mp4", 1920, 1080, 30.0, 3.0, 10.0, listOf(Sample(0.0)))
+        assertEquals(-1, Formats.parseTrack(Formats.encodeTrack(old)).video.rot) // older files stay "unknown"
+    }
 }

@@ -41,6 +41,26 @@ fun normalizeRotation(deg: Int): Int = (((Math.round(deg / 90.0).toInt() * 90) %
 fun displaySize(w: Int, h: Int, rotation: Int): Pair<Int, Int> =
     if (normalizeRotation(rotation) % 180 == 90) h to w else w to h
 
+/**
+ * The manual turn a scan was made with: the value stored in the scan file, or `fallback` (the per-video setting) for files that
+ * predate it (`stored` < 0). Every stage after the scan (second-pass trackers, stabilization, preview, export) must use this, never the
+ * live per-video setting alone, or a clip rotated after scanning would no longer match its tracking data.
+ */
+fun docRotation(stored: Int, fallback: Int): Int = normalizeRotation(if (stored < 0) fallback else stored)
+
+/**
+ * Clockwise degrees (0/90/180/270) to turn a frame that [android.media.MediaMetadataRetriever] returned so it is upright AND
+ * carries the user's manual turn. Devices differ on whether the retriever already applied the file's rotation metadata, so the
+ * metadata turn is added only when the frame's orientation (landscape/portrait) differs from the upright clip's. (A 180 degree
+ * clip cannot be told apart this way: it is taken as already upright.) The user's turn is always added.
+ */
+fun frameTurn(srcW: Int, srcH: Int, codedW: Int, codedH: Int, metaRot: Int, userRot: Int): Int {
+    val meta = normalizeRotation(metaRot)
+    val (mw, mh) = displaySize(codedW, codedH, meta)
+    val needMeta = meta % 180 != 0 && ((srcW >= srcH) != (mw >= mh))
+    return normalizeRotation((if (needMeta) meta else 0) + userRot)
+}
+
 /** Output size so that the longer side is at most `maxSide` (never upscales; both sides >= 2). */
 fun scaledSize(w: Int, h: Int, maxSide: Int): Pair<Int, Int> {
     val s = min(1.0, maxSide.toDouble() / max(w, h))

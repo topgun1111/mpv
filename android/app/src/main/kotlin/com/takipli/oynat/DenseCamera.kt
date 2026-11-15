@@ -127,7 +127,8 @@ object DenseCamera {
 
     suspend fun analyze(ctx: Context, uri: Uri, doc: TrackDoc, sig: String, onProgress: (Float) -> Unit): CamPath = withContext(Dispatchers.Default) {
         check(OpenCvFlow.available) { "OpenCV could not be loaded" }
-        val info = VideoDecoder.probe(ctx, uri)
+        val rot = UserRot.forDoc(ctx, doc) // the scan's own turn: the camera path must be in the same orientation as the tracking data
+        val info = VideoDecoder.probe(ctx, uri, rot)
         val cfg = Config()
         val analyzer = FrameAnalyzer(ANALYSIS_SIDE, cfg.cutHist, cfg.cutDiff, RobustFlow())
         var builder: CamPathBuilder? = null
@@ -159,7 +160,7 @@ object DenseCamera {
         }
         // Retriever path (the one scans use). The ImageReader path (`sampleImageReader`) kills the app natively on the vivo / Android 17 phone
         // (no Java exception, so Stabilize "closed the app instantly"), and it is also what 10-bit/HDR clips need the retriever for anyway.
-        VideoDecoder.sample(ctx, uri, info.frameRate ?: 30.0, maxSide = DECODE_SIDE, onFrame = onFrame)
+        VideoDecoder.sample(ctx, uri, info.frameRate ?: 30.0, maxSide = DECODE_SIDE, userRot = rot, onFrame = onFrame)
         val b = builder
         check(b != null && b.count > 1) { "no frames could be analysed" }
         b.build(sig)

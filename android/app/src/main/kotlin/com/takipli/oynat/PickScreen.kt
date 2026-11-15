@@ -3,6 +3,7 @@ package com.takipli.oynat
 import android.Manifest
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -50,6 +51,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.takipli.oynat.core.normalizeRotation
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import com.takipli.oynat.core.COCO_SKELETON
@@ -241,6 +243,20 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
         }
     }
 
+    // Turn the video by `delta` degrees clockwise (0/90/180/270). The frame on screen is turned in memory (a 90 degree turn is lossless and
+    // instant), the new angle is saved for the video, so the scan decodes every frame with the same turn and the result preview/export match.
+    fun turn(delta: Int) {
+        val u = uri ?: return
+        val b = frame ?: return
+        val d = normalizeRotation(delta)
+        if (d == 0) return
+        rot = normalizeRotation(rot + d)
+        UserRot.set(ctx, u.toString(), rot)
+        frame = Bitmap.createBitmap(b, 0, 0, b.width, b.height, Matrix().apply { postRotate(d.toFloat()) }, true)
+        tap = null; strokes.clear(); curStroke = emptyList(); found = null // those points belonged to the old orientation
+        if (loadJob?.isActive == true) loadAt(seekT.toDouble()) // a seek was still decoding with the old turn: decode again with the new one
+    }
+
     Column(
         Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -257,7 +273,13 @@ fun PickScreen(onBack: () -> Unit, onResult: (String) -> Unit = {}) {
 
         val bmp = frame
         if (uri != null && bmp != null && !running && ui !is ScanUi.Done) {
-            OutlinedButton(onClick = { rot = (rot + 90) % 360; UserRot.set(ctx, uri.toString(), rot); found = null; loadAt(frameT) }) { Text(stringResource(R.string.pick_rotate, rot)) }
+            // Rotate until the people stand upright (like at 0 degrees): the preview below is exactly what is tracked and exported.
+            Text(stringResource(R.string.pick_rotate, rot), style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { turn(270) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_left)) }
+                OutlinedButton(onClick = { turn(90) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_right)) }
+                OutlinedButton(onClick = { turn(360 - rot) }, enabled = rot != 0, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_reset)) }
+            }
             // 1. WHAT to follow: a person / body part (pose model) or any object (smart select)
             Text(stringResource(R.string.pick_what), style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

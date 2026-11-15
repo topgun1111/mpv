@@ -1,6 +1,8 @@
 package com.takipli.oynat
 
 import android.content.Context
+import com.takipli.oynat.core.TrackDoc
+import com.takipli.oynat.core.docRotation
 import com.takipli.oynat.core.normalizeRotation
 
 /**
@@ -11,4 +13,11 @@ object UserRot {
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences("userrot", Context.MODE_PRIVATE)
     fun get(ctx: Context, key: String): Int = normalizeRotation(prefs(ctx).getInt(key, 0))
     fun set(ctx: Context, key: String, deg: Int) { prefs(ctx).edit().putInt(key, normalizeRotation(deg)).apply() }
+
+    /**
+     * The turn a finished scan was made with (stored in the scan file; the per-video setting only for files that predate it).
+     * Everything that works on an existing scan (second-pass trackers, stabilization, preview, export) must use this, not [get]:
+     * the user may have rotated the clip again on the pick screen since, and the tracking data is in the old orientation.
+     */
+    fun forDoc(ctx: Context, doc: TrackDoc): Int = docRotation(doc.video.rot, get(ctx, doc.video.path))
 }

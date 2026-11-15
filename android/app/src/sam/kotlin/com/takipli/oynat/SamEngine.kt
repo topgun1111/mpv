@@ -301,7 +301,7 @@ object SamEngine {
             try {
                 val files = ArrayList<File>(); val ts = ArrayList<Double>()
                 val estFrames = ((doc.samples.lastOrNull()?.t ?: 0.0) * SAM_FPS).toInt() + 1 // decode phase shows "n / total" (total = 2 x frames, like the tracking phase) instead of "n / 0"
-                VideoDecoder.sample(ctx, uri, SAM_FPS, 0.0, maxSide = S) { f ->
+                VideoDecoder.sample(ctx, uri, SAM_FPS, 0.0, maxSide = S, userRot = UserRot.forDoc(ctx, doc)) { f ->
                     currentCoroutineContext().ensureActive()
                     val file = File(dir, "${files.size}.jpg")
                     file.outputStream().use { f.bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }

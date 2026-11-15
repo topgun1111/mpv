@@ -86,10 +86,10 @@ class ScanPipeline(private val cfg: Config = Config(), private val tracker: Byte
 /** `offline.py::make_doc` for a pose scan: version 2, cut times copied from the samples. */
 fun buildScanDoc(
     path: String, w: Int, h: Int, srcFps: Double, duration: Double, sampleFps: Double,
-    samples: List<Sample>, sig: String? = null, vsig: String? = null,
+    samples: List<Sample>, sig: String? = null, vsig: String? = null, rot: Int = -1,
 ): TrackDoc = TrackDoc(
     version = FormatVersion.V2,
-    video = VideoInfo(path, w, h, round(srcFps, 3), round(duration, 3)),
+    video = VideoInfo(path, w, h, round(srcFps, 3), round(duration, 3), rot),
     sampleFps = sampleFps,
     samples = samples,
     sig = sig, vsig = vsig,

@@ -47,7 +47,7 @@ object PointScanner {
             }
             try {
                 GrayStore(file, gw, gh, n).use { store ->
-                    VideoDecoder.sample(ctx, uri, fps, 0.0, maxSide = 960) { f ->
+                    VideoDecoder.sample(ctx, uri, fps, 0.0, maxSide = 960, userRot = UserRot.forDoc(ctx, doc)) { f ->
                         currentCoroutineContext().ensureActive()
                         val i = nearest(f.t)
                         if (abs(ts[i] - f.t) <= 0.6 / fps && !store.has(i)) {

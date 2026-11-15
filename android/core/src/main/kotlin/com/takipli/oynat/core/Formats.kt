@@ -16,6 +16,11 @@ data class VideoInfo(
     val h: Int = 0,
     val fps: Double = 0.0,
     val duration: Double = 0.0,
+    /**
+     * Manual clockwise turn (0/90/180/270) the scan was made with, on top of the file's rotation metadata; `w`/`h` already include it.
+     * -1 = a file written before this was stored (use [docRotation] with the per-video setting as the fallback).
+     */
+    val rot: Int = -1,
 )
 
 /**

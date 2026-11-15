@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -160,6 +161,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
         }
     }
 
+    val rot = remember(doc) { UserRot.forDoc(ctx, doc) } // the turn this scan was made with (preview and export must match the tracking data, not a later setting)
     val player = remember { ExoPlayer.Builder(ctx).build() }
     DisposableEffect(Unit) { onDispose { player.release() } }
     // The preview player keeps a 4K decoder and tens of MB of Java-heap buffers. The export (Media3 Transformer, 4K + stabilization)
@@ -175,7 +177,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                 playerMsg = Safety.friendly(ctx, error, error.errorCodeName)
             }
         })
-        Exporter.rotationEffect(UserRot.get(ctx, doc.video.path))?.let { player.setVideoEffects(listOf(it)) } // the manual rotation chosen on the pick screen
+        Exporter.rotationEffect(rot)?.let { player.setVideoEffects(listOf(it)) } // the manual rotation chosen on the pick screen: the preview shows the clip upright, like the scan saw it
         player.setMediaItem(MediaItem.fromUri(Uri.parse(doc.video.path)))
         player.repeatMode = Player.REPEAT_MODE_ALL
         player.prepare()
@@ -195,6 +197,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     }
 
     val vw = doc.video.w.coerceAtLeast(1); val vh = doc.video.h.coerceAtLeast(1)
+    if (rot != 0) Text(stringResource(R.string.result_rotated, rot), fontSize = 12.sp)
     Box(Modifier.fillMaxWidth().aspectRatio(vw / vh.toFloat()).clipToBounds()) {
         AndroidView(
             factory = { c -> TextureView(c).also { player.setVideoTextureView(it) } },
@@ -287,6 +290,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
             val started = try { Exporter.start(
                 ctx, Uri.parse(doc.video.path), views, tmp, vw, vh, doc.video.fps, hevc,
                 plan = if (stab) camPath?.let { StabPlan(it, views, vw, vh) } else null,
+                rot = rot,
                 onDone = {
                     scope.launch {
                         val name = "Takipli_" + java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(java.util.Date()) + ".mp4"

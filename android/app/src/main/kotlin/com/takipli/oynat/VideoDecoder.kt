@@ -18,6 +18,7 @@ import com.takipli.oynat.core.Sev
 import com.takipli.oynat.core.SampleSelector
 import com.takipli.oynat.core.decodeFindings
 import com.takipli.oynat.core.displaySize
+import com.takipli.oynat.core.frameTurn
 import com.takipli.oynat.core.normalizeRotation
 import com.takipli.oynat.core.scaledSize
 import com.takipli.oynat.core.yuv709ToArgb
@@ -63,7 +64,8 @@ object VideoDecoder {
 
     private fun MediaFormat.intOr(key: String, def: Int) = if (containsKey(key)) getInteger(key) else def
 
-    fun probe(ctx: Context, uri: Uri): VideoInfo {
+    /** `userRot` = the manual turn to use; null = the current per-video setting ([UserRot]). Stages that work on an existing scan pass the scan's own turn. */
+    fun probe(ctx: Context, uri: Uri, userRot: Int? = null): VideoInfo {
         val (ex, i) = openExtractor(ctx, uri)
         try {
             val f = ex.getTrackFormat(i)
@@ -74,7 +76,7 @@ object VideoDecoder {
                 durationS = if (f.containsKey(MediaFormat.KEY_DURATION)) f.getLong(MediaFormat.KEY_DURATION) / 1e6 else 0.0,
                 frameRate = if (f.containsKey(MediaFormat.KEY_FRAME_RATE)) f.getInteger(MediaFormat.KEY_FRAME_RATE).toDouble() else null,
                 mime = f.getString(MediaFormat.KEY_MIME).orEmpty(),
-                userRot = UserRot.get(ctx, uri.toString()),
+                userRot = userRot?.let { normalizeRotation(it) } ?: UserRot.get(ctx, uri.toString()),
             )
         } finally {
             ex.release()
@@ -96,10 +98,11 @@ object VideoDecoder {
         startS: Double = 0.0,
         endS: Double = Double.POSITIVE_INFINITY,
         maxSide: Int = 960,
+        userRot: Int? = null,
         onFrame: suspend (SampledFrame) -> Boolean,
     ): Int = withContext(Dispatchers.Default) {
         Trace.reset(ctx)
-        val info = probe(ctx, uri)
+        val info = probe(ctx, uri, userRot)
         val lastT = minOf(endS, if (info.durationS > 0) info.durationS - 0.001 else Double.POSITIVE_INFINITY)
         Trace.step(ctx, "retriever display=${info.width}x${info.height} coded=${info.codedW}x${info.codedH} rot=${info.rotation} fps=$fps startS=$startS dur=${info.durationS}")
         val r = MediaMetadataRetriever()
@@ -166,9 +169,7 @@ object VideoDecoder {
      * rotated it. (A 180 degree clip cannot be told apart this way: it is left as returned.)
      */
     private fun uprightScaled(src: Bitmap, info: VideoInfo, maxSide: Int): Bitmap {
-        val (mw, mh) = displaySize(info.codedW, info.codedH, info.rotation) // upright by the file metadata only
-        val needMeta = info.rotation % 180 != 0 && ((src.width >= src.height) != (mw >= mh))
-        val deg = ((if (needMeta) info.rotation else 0) + info.userRot) % 360 // metadata (when the retriever did not apply it) + the user's turn
+        val deg = frameTurn(src.width, src.height, info.codedW, info.codedH, info.rotation, info.userRot) // metadata (when the retriever did not apply it) + the user's turn
         val quarter = deg % 180 != 0
         val rotated = if (quarter) src.height to src.width else src.width to src.height
         val (ow, oh) = scaledSize(rotated.first, rotated.second, maxSide)

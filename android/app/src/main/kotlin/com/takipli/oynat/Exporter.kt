@@ -43,6 +43,7 @@ object Exporter {
         ctx: Context, source: Uri, views: List<ViewKey>, outFile: File,
         w: Int, h: Int, fps: Double, hevc: Boolean,
         plan: StabPlan? = null,
+        rot: Int = 0, // the scan's manual clockwise turn (UserRot.forDoc): applied first, the crop/stabilization matrices are in the turned frame
         onDone: (ExportResult) -> Unit, onError: (ExportException) -> Unit,
     ): Transformer {
         outFile.parentFile?.mkdirs()
@@ -56,7 +57,7 @@ object Exporter {
                 Matrix().apply { setTranslate(n[1].toFloat(), n[2].toFloat()); postScale(n[0].toFloat(), n[0].toFloat()) }
             }
         }
-        val item = EditedMediaItem.Builder(MediaItem.fromUri(source)).setEffects(Effects(emptyList(), listOfNotNull(rotationEffect(UserRot.get(ctx, source.toString())), crop))).build()
+        val item = EditedMediaItem.Builder(MediaItem.fromUri(source)).setEffects(Effects(emptyList(), listOfNotNull(rotationEffect(rot), crop))).build()
         val encoder = DefaultEncoderFactory.Builder(ctx)
             .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(exportBitrate(w, h, fps, hevc)).build())
             .build()

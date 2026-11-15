@@ -77,7 +77,10 @@ object Scanner {
         val sig = scanSig(videoId + if (info.userRot != 0) "|rot${info.userRot}" else "", fps, modelTag) // a manual rotation changes every frame: new cache key
         val partial = File(trackFile.path + ".partial")
 
-        readDoc(trackFile, sig)?.takeIf { it.version >= 2 }?.let { return@withContext ScanResult(it, true, 0.0, 0, 0.0) }
+        readDoc(trackFile, sig)?.takeIf { it.version >= 2 }?.let { // the signature includes the turn, so an older cached file without the stored value was made with the current one
+            val d = if (it.video.rot < 0) it.copy(video = it.video.copy(rot = info.userRot)) else it
+            return@withContext ScanResult(d, true, 0.0, 0, 0.0)
+        }
         val prior = readDoc(partial, sig)?.samples.orEmpty()
         val pipe = ScanPipeline(cfg)
         pipe.resume(prior)
@@ -97,11 +100,11 @@ object Scanner {
 
         fun snapshot() = buildScanDoc(
             uri.toString(), info.width, info.height, info.frameRate ?: fps, info.durationS, fps,
-            pipe.samples.toList(), sig, videoId,
+            pipe.samples.toList(), sig, videoId, info.userRot, // the turn is stored so later stages use the scan's own orientation
         )
 
         try {
-            VideoDecoder.sample(ctx, uri, fps, startS, maxSide = maxSide) { f ->
+            VideoDecoder.sample(ctx, uri, fps, startS, maxSide = maxSide, userRot = info.userRot) { f ->
                 currentCoroutineContext().ensureActive()
                 val cb0 = System.nanoTime()
                 val bmp = f.bitmap

@@ -47,7 +47,11 @@
     <string name="pick_background">Tarama ekran kapalıyken veya uygulama kapatılsa da sürer; bildirimde ilerleme ve İptal düğmesi var.</string>
     <string name="pick_done">Bitti. Hedef: %1$s (%2$d örnek). Görünümler kaydedildi; önizleme ve dışa aktarma sonraki parçalarda.</string>
     <string name="pick_nobody">Tarama bitti (%1$d örnek) ama dokunulan noktada kimse bulunamadı. Tarama saklandı: yeniden seç.</string>
-    <string name="pick_rotate">Videoyu 90° döndür (şu an %1$d°)</string>
+    <string name="pick_rotate">Video dönüşü: %1$d° (önizleme, takip edilen ve dışa aktarılan görüntüdür)</string>
+    <string name="pick_rot_left">↺ 90°</string>
+    <string name="pick_rot_right">↻ 90°</string>
+    <string name="pick_rot_reset">Sıfırla 0°</string>
+    <string name="result_rotated">Video %1$d° döndürüldü (taramadan önce seçildi)</string>
     <string name="pick_again">Yeni seçim / tarama</string>
     <string name="scan_channel">Video taraması</string>
     <string name="scan_notify_start">Tarama başlıyor …</string>
