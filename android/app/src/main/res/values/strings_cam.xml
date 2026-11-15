@@ -33,4 +33,17 @@
     <string name="rec_count">Recorded takes: %1$d</string>
     <string name="cam_hud_manual">Manual camera (you)</string>
     <string name="cam_hud_off">Camera off (original)</string>
+    <string name="scan_saving_partial">Cancelled: preparing the part that is already scanned …</string>
+    <string name="scan_cancelled_partial">Cancelled after %1$d samples (first %2$s s scanned). The processed part can be previewed and exported; the interrupted scan is kept for resuming.</string>
+    <string name="scan_cancelled_nobody">Cancelled after %1$d samples (first %2$s s scanned), but nobody was found at the picked point in that part, so there is nothing to export. The interrupted scan is kept for resuming.</string>
+    <string name="scan_export_partial">Preview / export processed part</string>
+    <string name="scan_resume_pick">Resume (new pick / scan)</string>
+    <string name="scan_clear_progress">Clear progress</string>
+    <string name="result_partial_note">Cancelled scan: only the first %2$s s were processed. Preview and export cover that part.</string>
+    <string name="range_set_a">Start A: %1$s</string>
+    <string name="range_set_b">End B: %1$s</string>
+    <string name="range_clear">Clear A–B</string>
+    <string name="range_hint">A–B: seek to a frame, tap A or B to set it. Only the part between them is scanned, tracked and exported (leave empty for the whole clip). Tap your target on a frame inside A–B.</string>
+    <string name="range_bad">The A–B range is invalid: B must be after A, and the frame you tap on must lie between them.</string>
+    <string name="result_range_note">A–B scan: only %1$s–%2$s s were processed. Preview and export cover that part.</string>
 </resources>

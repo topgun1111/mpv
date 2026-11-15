@@ -43,6 +43,7 @@ object Exporter {
         ctx: Context, source: Uri, views: List<ViewKey>, outFile: File,
         w: Int, h: Int, fps: Double, hevc: Boolean,
         plan: StabPlan? = null,
+        startMs: Long = 0L, // A-B result: the clip starts here (effect timestamps restart at 0, so the views are read at startMs + t)
         endMs: Long? = null, // partial export (cancel pressed): only the first endMs of the clip is encoded; audio is cut the same way
         rot: Int = 0, // the scan's manual clockwise turn (UserRot.forDoc): applied first, the crop/stabilization matrices are in the turned frame
         onDone: (ExportResult) -> Unit, onError: (ExportException) -> Unit,
@@ -54,12 +55,12 @@ object Exporter {
                 val m = plan.ndcMatrix(us) // row-major 3x3 = android.graphics.Matrix.setValues order
                 Matrix().apply { setValues(FloatArray(9) { m[it].toFloat() }) }
             } else {
-                val n = exportNdc(viewAtSmooth(views, us / 1e6))
+                val n = exportNdc(viewAtSmooth(views, us / 1e6 + startMs / 1000.0))
                 Matrix().apply { setTranslate(n[1].toFloat(), n[2].toFloat()); postScale(n[0].toFloat(), n[0].toFloat()) }
             }
         }
         val mediaItem = MediaItem.Builder().setUri(source).apply {
-            if (endMs != null) setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setEndPositionMs(endMs).build())
+            if (endMs != null || startMs > 0) setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionMs(startMs).apply { if (endMs != null) setEndPositionMs(endMs) }.build())
         }.build()
         val item = EditedMediaItem.Builder(mediaItem).setEffects(Effects(emptyList(), listOfNotNull(rotationEffect(rot), crop))).build()
         val encoder = DefaultEncoderFactory.Builder(ctx)

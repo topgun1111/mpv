@@ -101,6 +101,8 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
     var frameT by remember { mutableStateOf(0.0) }
     var rot by remember { mutableStateOf(0) } // manual clockwise rotation of the video (UserRot)
     var durationS by remember { mutableStateOf(0.0) } // 0 = unknown
+    var rangeA by remember { mutableStateOf<Float?>(null) } // A-B scan: only this part of the clip is scanned (null = from the start)
+    var rangeB by remember { mutableStateOf<Float?>(null) } // null = to the end
     var seekT by remember { mutableStateOf(0f) } // where the user wants the pick frame (seconds)
     var loadJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var tap by remember { mutableStateOf<Offset?>(null) } // normalized 0..1
@@ -127,7 +129,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
     var samCache by remember { mutableStateOf<SamFrameCache?>(null) }
     var samMask by remember { mutableStateOf<SamMask?>(null) }
     var segBusy by remember { mutableStateOf(false) }
-    val running = ui is ScanUi.Running
+    val running = ui is ScanUi.Running || ui is ScanUi.Saving
     val lost = ui as? ScanUi.Lost // the scan is paused: the target was gone for a few seconds
     // People the model finds on the first frame (null = still detecting). Only a guide: the tap is resolved after the scan.
     var found by remember { mutableStateOf<List<Pose>?>(null) }
@@ -215,7 +217,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
             try {
                 videoId = withContext(Dispatchers.IO) { videoIdOf(ctx, u) }
                 durationS = withContext(Dispatchers.IO) { runCatching { VideoDecoder.probe(ctx, u).durationS }.getOrDefault(0.0) }
-                seekT = 0f
+                seekT = 0f; rangeA = null; rangeB = null
                 rot = UserRot.get(ctx, u.toString())
                 VideoDecoder.sample(ctx, u, 1.0, 0.0) { f -> frame = f.bitmap; frameT = f.t; false }
                 uri = u
@@ -310,7 +312,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
         if (error.isNotEmpty()) Text(error)
 
         val bmp = frame
-        if (uri != null && bmp != null && !running && ui !is ScanUi.Done) {
+        if (uri != null && bmp != null && !running && ui !is ScanUi.Done && ui !is ScanUi.Cancelled) {
             // Rotate until the people stand upright (like at 0 degrees): the preview below is exactly what is tracked and exported.
             Text(stringResource(R.string.pick_rotate, rot), style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -450,6 +452,14 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 }
             }
             Text(stringResource(R.string.pick_frame_hint), fontSize = 12.sp)
+            // A-B scan: set A / B at the shown frame; only [A, B] is scanned, tracked and exported
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = rangeA != null, onClick = { rangeA = frameT.toFloat() }, label = { Text(stringResource(R.string.range_set_a, rangeA?.let { fmtClock(it.toDouble()) } ?: "—")) })
+                FilterChip(selected = rangeB != null, onClick = { rangeB = frameT.toFloat() }, label = { Text(stringResource(R.string.range_set_b, rangeB?.let { fmtClock(it.toDouble()) } ?: "—")) })
+                if (rangeA != null || rangeB != null) OutlinedButton(onClick = { rangeA = null; rangeB = null }) { Text(stringResource(R.string.range_clear)) }
+            }
+            val rangeErr = (rangeA != null && rangeB != null && rangeB!! <= rangeA!! + 0.5f) || (rangeA != null && frameT < rangeA!! - 0.05) || (rangeB != null && frameT > rangeB!! + 0.05)
+            Text(stringResource(if (rangeErr) R.string.range_bad else R.string.range_hint), fontSize = 12.sp, color = if (rangeErr) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             // 4. mode specific choices
             if (!objectMode) {
                 Text(stringResource(R.string.pick_part), style = MaterialTheme.typography.labelLarge)
@@ -505,7 +515,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
             }
             BatteryWarning()
             Button(
-                enabled = (if (draw) strokes.isNotEmpty() else tap != null) && model.isNotEmpty() && !segBusy,
+                enabled = (if (draw) strokes.isNotEmpty() else tap != null) && model.isNotEmpty() && !segBusy && !rangeErr,
                 onClick = {
                     val shapes = if (draw) strokes.map { st -> com.takipli.oynat.core.simplifyStroke(st.map { listOf(it.x.toDouble(), it.y.toDouble()) }, 0.004) }.filter { it.size >= 3 } else emptyList()
                     if (draw && shapes.isEmpty()) return@Button
@@ -517,7 +527,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     if (lost != null) ScanService.resolveLost(np) // paused scan: the new pick joins the target and the scan goes on
                     else {
                         notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), np, preview)
+                        ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), np, preview, rangeA?.toDouble(), rangeB?.toDouble())
                     }
                 },
             ) { Text(stringResource(if (lost != null) R.string.scan_lost_resume else R.string.pick_start)) }
@@ -547,6 +557,15 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 OutlinedButton(onClick = { ScanService.reset() }) { Text(stringResource(R.string.pick_again)) }
             }
             is ScanUi.Lost -> {}
+            ScanUi.Saving -> Text(stringResource(R.string.scan_saving_partial))
+            is ScanUi.Cancelled -> {
+                // Cancel keeps what was scanned: preview / export that part, resume with a new pick, or throw the progress away.
+                if (s.samples <= 0) Text(stringResource(R.string.scan_cancelled))
+                else Text(stringResource(if (s.targetText != null) R.string.scan_cancelled_partial else R.string.scan_cancelled_nobody, s.samples, String.format(Locale.ROOT, "%.1f", s.t)))
+                if (s.file != null) Button(onClick = { onResult(s.file) }) { Text(stringResource(R.string.scan_export_partial)) }
+                OutlinedButton(onClick = { ScanService.reset() }) { Text(stringResource(R.string.scan_resume_pick)) }
+                OutlinedButton(onClick = { ScanService.clearProgress(ctx, videoId, rangeA?.toDouble(), rangeB?.toDouble()) }) { Text(stringResource(R.string.scan_clear_progress)) }
+            }
             is ScanUi.Failed -> Text(s.message)
             ScanUi.Idle -> {}
         }

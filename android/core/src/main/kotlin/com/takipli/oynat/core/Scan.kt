@@ -106,3 +106,10 @@ fun scanSig(videoId: String, fps: Double, modelTag: String): String {
     val raw = listOf(videoId, g, modelTag).filter { it.isNotEmpty() }.joinToString("|")
     return MessageDigest.getInstance("SHA-1").digest(raw.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }.take(16)
 }
+
+/**
+ * A-B scan: part of the cache key of a scan limited to `[a, b]` seconds (either may be null = clip start / end), so a partial range
+ * never reuses or overwrites the scan of the whole clip. Empty when no range is set.
+ */
+fun rangeTag(a: Double?, b: Double?): String =
+    if (a == null && b == null) "" else "|clip" + (a?.let { "%.2f".format(java.util.Locale.ROOT, it) } ?: "") + "-" + (b?.let { "%.2f".format(java.util.Locale.ROOT, it) } ?: "")

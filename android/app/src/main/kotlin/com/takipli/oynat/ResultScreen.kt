@@ -117,6 +117,12 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val cfg = remember { Config(lostBridgeS = 6.0) } // app default: keep the zoom when something covers the subject for a few seconds
+    // Result of a cancelled scan (`*.cancelled.track.json`): only the processed part exists, so preview and export stop there.
+    // An A-B scan (`doc.range`) is cut the same way, and also starts at A.
+    val startMs: Long = remember(doc) { ((doc.range?.firstOrNull() ?: 0.0) * 1000).toLong().coerceAtLeast(0L) }
+    val partEndMs: Long? = remember(doc, file) {
+        if (file.name.endsWith(".cancelled.track.json") || doc.range != null) doc.samples.lastOrNull()?.let { com.takipli.oynat.core.partialEndMs(it.t, doc.sampleFps, doc.video.duration) } else null
+    }
     var target by remember { mutableStateOf(base) }
     var tuning by remember { mutableStateOf(Tuning.of(cfg).copy(lostBridgeS = 4.0)) } // keep the zoom through a few seconds of occlusion by default
     var views by remember { mutableStateOf(doc.views) }
@@ -128,7 +134,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     var manual by remember { mutableStateOf<List<RecSeg>>(emptyList()) } // biten kayıtlar; ayar değişince otomatik kadraj yeniden hesaplanır, kayıtlar üstüne yeniden işlenir
     var playing by remember { mutableStateOf(false) }
     var posMs by remember { mutableLongStateOf(0L) }
-    var durMs by remember { mutableLongStateOf((doc.video.duration * 1000).toLong().coerceAtLeast(1)) }
+    var durMs by remember { mutableLongStateOf(partEndMs ?: (doc.video.duration * 1000).toLong().coerceAtLeast(1)) }
     var saved by remember { mutableStateOf("") }
     var job by remember { mutableStateOf<Job?>(null) }
     var hevc by remember { mutableStateOf(false) }
@@ -209,7 +215,8 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     LaunchedEffect(player) { // ~display rate while visible; cheap (reads one Long)
         while (true) {
             posMs = player.currentPosition
-            if (player.duration > 0) durMs = player.duration
+            if (player.duration > 0) durMs = partEndMs?.coerceAtMost(player.duration) ?: player.duration
+            if (partEndMs != null && (posMs >= partEndMs || posMs < startMs)) player.seekTo(startMs) // loop inside the processed part / A-B range
             playing = player.isPlaying
             delay(33)
         }
@@ -301,9 +308,9 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = { if (player.isPlaying) player.pause() else player.play() }) { Text(stringResource(if (playing) R.string.result_pause else R.string.result_play)) }
         FilterChip(selected = follow, enabled = !recording, onClick = { follow = !follow }, label = { Text(stringResource(R.string.result_follow)) })
-        Text(clock(posMs) + " / " + clock(durMs), modifier = Modifier.align(androidx.compose.ui.Alignment.CenterVertically), style = MaterialTheme.typography.labelLarge)
+        Text(clock((posMs - startMs).coerceAtLeast(0L)) + " / " + clock(durMs - startMs), modifier = Modifier.align(androidx.compose.ui.Alignment.CenterVertically), style = MaterialTheme.typography.labelLarge)
     }
-    Slider(value = posMs.toFloat(), valueRange = 0f..durMs.toFloat(), onValueChange = { posMs = it.toLong(); player.seekTo(it.toLong()) })
+    Slider(value = posMs.toFloat(), valueRange = startMs.toFloat()..durMs.toFloat().coerceAtLeast(startMs + 1f), onValueChange = { posMs = it.toLong(); player.seekTo(it.toLong()) })
 
     // Oynatma hızı (yalnız önizleme/kayıt için; dışa aktarma hızı değişmez)
     var speed by remember { mutableStateOf(1f) }
@@ -329,8 +336,8 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     }
     // endMs != null: partial export of the first endMs (after Cancel); null: the whole clip
     fun startExport(endMs: Long?) {
-        val totalMs = endMs ?: durMs
-        exportMsg = if (endMs != null) ctx.getString(R.string.export_saving_partial) else ""; exportP = 0f
+        val totalMs = (endMs ?: durMs) - startMs
+        exportMsg = if (endMs != null && partEndMs == null) ctx.getString(R.string.export_saving_partial) else ""; exportP = 0f
         // preflight: enough storage for the cache file plus the copy in Movies (core `enoughSpaceForExport`)
         val need = exportBytesNeeded(exportBitrate(vw, vh, doc.video.fps, hevc), totalMs / 1000.0)
         val freeCache = Safety.freeBytes(ctx.cacheDir)
@@ -352,7 +359,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
         val started = try { Exporter.start(
             ctx, Uri.parse(doc.video.path), views, tmp, vw, vh, doc.video.fps, hevc,
             plan = if (stab) camPath?.let { StabPlan(it, views, vw, vh) } else null,
-            endMs = endMs,
+            startMs = startMs, endMs = endMs,
             rot = rot,
             onDone = {
                 scope.launch {
@@ -449,12 +456,13 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                     }
                     if (saved.isNotEmpty()) Text(saved)
                     if (saved.isNotEmpty()) Text(saved)
+                    if (partEndMs != null) Text(stringResource(if (doc.range != null) R.string.result_range_note else R.string.result_partial_note, String.format(Locale.ROOT, "%.1f", startMs / 1000.0), String.format(Locale.ROOT, "%.1f", partEndMs / 1000.0)), fontSize = 12.sp)
                     Text(stringResource(R.string.export_title), style = MaterialTheme.typography.labelLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = !hevc, enabled = !exporting, onClick = { hevc = false }, label = { Text("H.264") })
                         FilterChip(selected = hevc, enabled = !exporting, onClick = { hevc = true }, label = { Text("HEVC") })
                     }
-                    FilterChip(selected = stab, enabled = !exporting && !stabBusy, onClick = { stab = !stab }, label = { Text(stringResource(R.string.stab_chip)) })
+                    FilterChip(selected = stab, enabled = !exporting && !stabBusy && partEndMs == null, onClick = { stab = !stab }, label = { Text(stringResource(R.string.stab_chip)) })
                     if (stabBusy) {
                         LinearProgressIndicator(progress = { stabP.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                         Text(stringResource(R.string.stab_working))
@@ -462,14 +470,14 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                     if (stabMsg.isNotEmpty()) Text(stabMsg)
                     BatteryWarning()
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(enabled = !exporting && !stabBusy && !recording && views.isNotEmpty() && readable, onClick = { startExport(null) }) { Text(stringResource(R.string.export_start)) }
+                        Button(enabled = !exporting && !stabBusy && !recording && views.isNotEmpty() && readable, onClick = { startExport(partEndMs) }) { Text(stringResource(R.string.export_start)) }
                         OutlinedButton(enabled = exporting, onClick = {
                                 val p = exportP
                                 Diag.note(ctx, "export", "EXPORT_CANCEL", "cancelled by user at ${(p * 100).toInt()} %")
                                 exporter?.cancel(); exporter = null
                                 // Cancel keeps what is done: the first part (a little under the reported progress) is exported again as a short clip. Too little done: nothing to keep.
-                                val endMs = (p * durMs * 0.98).toLong()
-                                if (p >= 0.02f && endMs >= 1000L) startExport(endMs) else { exportMsg = ctx.getString(R.string.export_cancelled); resumePlayer() }
+                                val endMs = startMs + (p * (durMs - startMs) * 0.98).toLong()
+                                if (p >= 0.02f && endMs - startMs >= 1000L) startExport(endMs) else { exportMsg = ctx.getString(R.string.export_cancelled); resumePlayer() }
                         }) { Text(stringResource(R.string.scan_cancel)) }
                     }
                     if (exporting) {

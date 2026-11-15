@@ -50,6 +50,7 @@ object PointScanner {
                 GrayStore(file, gw, gh, n).use { store ->
                     VideoDecoder.sample(ctx, uri, fps, 0.0, maxSide = 960, userRot = UserRot.forDoc(ctx, doc)) { f ->
                         currentCoroutineContext().ensureActive()
+                        if (f.t > ts[n - 1] + 0.6 / fps) { f.bitmap.recycle(); return@sample false } // partial doc (cancelled scan): nothing to decode past the last sample
                         val i = nearest(f.t)
                         if (abs(ts[i] - f.t) <= 0.6 / fps && !store.has(i)) {
                             val small = Bitmap.createScaledBitmap(f.bitmap, gw, gh, true)

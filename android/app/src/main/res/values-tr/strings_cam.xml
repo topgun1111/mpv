@@ -33,4 +33,17 @@
     <string name="rec_count">Kayıtlı çekim sayısı: %1$d</string>
     <string name="cam_hud_manual">Elle kamera (sen)</string>
     <string name="cam_hud_off">Kamera kapalı (orijinal)</string>
+    <string name="scan_saving_partial">İptal edildi: taranmış kısım hazırlanıyor …</string>
+    <string name="scan_cancelled_partial">%1$d örnekten sonra iptal edildi (ilk %2$s sn tarandı). İşlenen kısım önizlenip dışa aktarılabilir; yarım kalan tarama devam etmek için saklanır.</string>
+    <string name="scan_cancelled_nobody">%1$d örnekten sonra iptal edildi (ilk %2$s sn tarandı) ama bu kısımda seçilen noktada kimse bulunamadı; dışa aktarılacak bir şey yok. Yarım kalan tarama devam etmek için saklanır.</string>
+    <string name="scan_export_partial">İşlenen kısmı önizle / dışa aktar</string>
+    <string name="scan_resume_pick">Devam et (yeni seçim / tarama)</string>
+    <string name="scan_clear_progress">İlerlemeyi temizle</string>
+    <string name="result_partial_note">İptal edilen tarama: yalnızca ilk %2$s sn işlendi. Önizleme ve dışa aktarma bu kısmı kapsar.</string>
+    <string name="range_set_a">Başlangıç A: %1$s</string>
+    <string name="range_set_b">Bitiş B: %1$s</string>
+    <string name="range_clear">A–B temizle</string>
+    <string name="range_hint">A–B: bir kareye git, A veya B’ye dokun. Yalnızca ikisi arasındaki kısım taranır, takip edilir ve dışa aktarılır (boş bırakırsan tüm video). Hedefe A–B içindeki bir karede dokun.</string>
+    <string name="range_bad">A–B aralığı geçersiz: B, A’dan sonra olmalı ve dokunduğun kare ikisinin arasında olmalı.</string>
+    <string name="result_range_note">A–B taraması: yalnızca %1$s–%2$s sn işlendi. Önizleme ve dışa aktarma bu kısmı kapsar.</string>
 </resources>

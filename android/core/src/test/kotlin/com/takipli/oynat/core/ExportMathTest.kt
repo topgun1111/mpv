@@ -55,4 +55,20 @@ class ExportMathTest {
         assertEquals(100_000_000, exportBitrate(7680, 4320, 60.0, false)) // upper clamp
         assertEquals(exportBitrate(1280, 720, 30.0, false), exportBitrate(1280, 720, 0.0, false)) // unknown fps -> 30
     }
+
+    @Test
+    fun partialEndCoversLastSampleAndStaysInClip() {
+        assertEquals(12100L, partialEndMs(12.0, 10.0, 60.0)) // last sample + one 0.1 s step
+        assertEquals(60000L, partialEndMs(59.95, 10.0, 60.0)) // never past the clip
+        assertEquals(1100L, partialEndMs(1.0, 10.0, 0.0)) // unknown duration: no cap
+        assertEquals(500L, partialEndMs(0.4, 0.0, 60.0)) // unknown fps: 0.1 s default step
+    }
+
+    @Test
+    fun rangeTagSeparatesClipsFromTheWholeVideo() {
+        assertEquals("", rangeTag(null, null))
+        assertEquals("|clip2.50-8.00", rangeTag(2.5, 8.0))
+        assertEquals("|clip-8.00", rangeTag(null, 8.0))
+        assertTrue(scanSig("v" + rangeTag(2.5, 8.0), 10.0, "m") != scanSig("v", 10.0, "m"))
+    }
 }

@@ -68,6 +68,8 @@ data class TrackDoc(
     val emb: JsonElement? = null,
     val team: JsonElement? = null,
     val pt: PointTrack? = null,
+    /** A-B scan: `[startS, endS]` of the video that was scanned (null = whole clip). Export / preview of the result are cut to it. */
+    val range: List<Double>? = null,
 )
 
 /** Small playback/export file `<video>.views.json` (always version 1, no samples). */

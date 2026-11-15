@@ -21,6 +21,7 @@ import com.takipli.oynat.core.Formats
 import com.takipli.oynat.core.TargetPick
 import com.takipli.oynat.core.applyPicks
 import com.takipli.oynat.core.buildTargetViews
+import com.takipli.oynat.core.rangeTag
 import com.takipli.oynat.core.scanSig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -29,6 +30,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.io.File
@@ -42,6 +45,14 @@ sealed interface ScanUi {
     /** The target has been gone for a few seconds: the scan is PAUSED at video time `t` until [ScanService.resolveLost] is called. */
     class Lost(val t: Double, val uri: String, val videoId: String, val p: ScanProgress?) : ScanUi
     class Failed(val message: String, val cancelled: Boolean) : ScanUi
+    /** Cancel was pressed: the partial scan is being turned into a previewable / exportable result. */
+    data object Saving : ScanUi
+    /**
+     * Cancelled. `file` = result built from the processed part (null = nothing usable: no samples, or the scan had already finished),
+     * `targetText` null = nobody was found at the pick in the processed part. The interrupted scan itself is kept for resuming
+     * until [ScanService.clearProgress].
+     */
+    class Cancelled(val samples: Int, val t: Double, val file: String?, val targetText: String?) : ScanUi
 }
 
 /**
@@ -68,13 +79,16 @@ class ScanService : Service() {
     }
 
     private suspend fun run(i: Intent) {
+        cancelCtx = null; seenRepicks.clear()
         try {
             val uri = Uri.parse(i.getStringExtra(X_URI))
             val videoId = i.getStringExtra(X_VIDEO_ID).orEmpty()
             val fps = i.getDoubleExtra(X_FPS, 10.0)
             val cfg = Config()
             val pick = Formats.json.decodeFromString<TargetPick>(i.getStringExtra(X_PICK).orEmpty())
-            val file = scanFile(this, videoId)
+            val ra = i.getDoubleExtra(X_A, Double.NaN).takeIf { !it.isNaN() }; val rb = i.getDoubleExtra(X_B, Double.NaN).takeIf { !it.isNaN() }
+            val file = scanFile(this, videoId, ra, rb)
+            cancelCtx = CancelCtx(file, pick, cfg, uri, seenRepicks)
             val withPreview = i.getBooleanExtra(X_PREVIEW, true)
             var lastNote = 0L
             var lastPv: ScanPreview? = null
@@ -86,10 +100,10 @@ class ScanService : Service() {
                 pendingLost = d
                 notify(note(getString(R.string.scan_notify_lost), null))
                 post(ScanUi.Lost(t, i.getStringExtra(X_URI).orEmpty(), videoId, lastP))
-                try { d.await() } finally { pendingLost = null; post(ScanUi.Running(lastP, lastPv)) }
+                try { d.await().also { np -> if (np != null) seenRepicks += np } } finally { pendingLost = null; post(ScanUi.Running(lastP, lastPv)) }
             }
             val res = PoseRunner(this, i.getStringExtra(X_MODEL).orEmpty(), threads = 4, wantNpu = i.getBooleanExtra(X_NPU, false)).use { runner ->
-                Scanner.scan(this, uri, videoId, runner, fps, file, cfg, pick = pick, onPreview = if (withPreview) ({ v: ScanPreview -> lastPv = v }) else null, onLost = onLost) { p ->
+                Scanner.scan(this, uri, videoId, runner, fps, file, cfg, pick = pick, rangeA = ra, rangeB = rb, onPreview = if (withPreview) ({ v: ScanPreview -> lastPv = v }) else null, onLost = onLost) { p ->
                     lastP = p
                     post(ScanUi.Running(p, lastPv))
                     val now = SystemClock.elapsedRealtime()
@@ -116,15 +130,51 @@ class ScanService : Service() {
             if (res.newSamples > 0) Diag.event(this, "scan", com.takipli.oynat.core.speedFinding("scan", res.xRealtime, 0.1))
             val tg = picked?.target
             val text = tg?.let { if (it.free != null) "#${it.id} free point" else "#${it.id} " + (it.preset ?: it.part?.let { j -> "joint $j" } ?: "person") }
+            cancelledFile(file).let { c -> listOf(c, File(c.path.replace(".track.json", ".views.json")), File(c.path.replace(".track.json", ".cam.json"))).forEach { it.delete() } } // the finished scan replaces an earlier partial result
             post(ScanUi.Done(out.samples.size, res.cached, text, file.path, res.xRealtime, withPreview))
         } catch (e: CancellationException) {
-            post(ScanUi.Failed(getString(R.string.scan_cancelled), true))
+            val c = cancelCtx
+            post(ScanUi.Saving)
+            post(withContext(NonCancellable) { c?.let { partialResult(it) } } ?: ScanUi.Cancelled(0, 0.0, null, null))
         } catch (e: Throwable) {
             ErrorLog.record(this, "scan", e)
             post(ScanUi.Failed(Safety.friendly(this, e), false))
         } finally {
             wake?.takeIf { it.isHeld }?.release()
         }
+    }
+
+    /** Everything [partialResult] needs from the scan that was running (set in [run]). */
+    private class CancelCtx(val file: File, val pick: TargetPick, val cfg: Config, val uri: Uri, val repicks: List<TargetPick>)
+    @Volatile private var cancelCtx: CancelCtx? = null
+    private val seenRepicks = java.util.Collections.synchronizedList(ArrayList<TargetPick>())
+
+    /**
+     * Cancel pressed: resolve the pick on the samples scanned so far (`<track>.partial`, written by [Scanner] on cancel) and store the
+     * result as `<id>.cancelled.track.json` (never as the real track file: that name is the "scan finished" cache). The partial scan
+     * stays for resuming. null = nothing to show.
+     */
+    private suspend fun partialResult(c: CancelCtx): ScanUi.Cancelled? = try {
+        val part = Scanner.loadPartial(c.file) ?: return null
+        val last = part.samples.last().t
+        var picked = applyPicks(if (c.pick.free) part.copy(pt = null) else part, c.pick, c.repicks.toList(), c.cfg, robust = true)
+        val fp = picked?.target?.free
+        if (picked != null && fp != null && OpenCvFlow.available) { // free point: tracker passes over the processed part only (PointScanner stops after the last sample)
+            try {
+                val pt = PointScanner.run(this, c.uri, picked, fp)
+                val d2 = picked.copy(pt = pt)
+                picked = d2.copy(views = buildTargetViews(d2, d2.target!!, c.cfg, robust = true))
+            } catch (e: CancellationException) { throw e } catch (e: Throwable) { ErrorLog.record(this, "point-partial", e) }
+        }
+        val out = cancelledFile(c.file)
+        if (picked != null) Scanner.writeAtomic(out, picked)
+        val tg = picked?.target
+        val text = tg?.let { if (it.free != null) "#${it.id} free point" else "#${it.id} " + (it.preset ?: it.part?.let { j -> "joint $j" } ?: "person") }
+        Diag.note(this, "scan", "SCAN_CANCELLED", "kept ${part.samples.size} samples up to t=${"%.1f".format(java.util.Locale.ROOT, last)} s, target=${text ?: "none"}")
+        ScanUi.Cancelled(part.samples.size, last, if (picked != null) out.path else null, text)
+    } catch (e: Throwable) {
+        ErrorLog.record(this, "scan-cancel", e)
+        null
     }
 
     private fun alertLost() {
@@ -163,6 +213,7 @@ class ScanService : Service() {
         private const val NOTE_ID = 11
         private const val WAKE_MAX_MS = 4 * 60 * 60 * 1000L
         private const val ACTION_CANCEL = "com.takipli.oynat.SCAN_CANCEL"
+        private const val X_A = "range_a"; private const val X_B = "range_b"
         private const val X_URI = "uri"; private const val X_VIDEO_ID = "video_id"; private const val X_FPS = "fps"
         private const val X_PREVIEW = "preview"; private const val X_PICK = "pick"; private const val X_MODEL = "model"; private const val X_NPU = "npu"
 
@@ -177,13 +228,28 @@ class ScanService : Service() {
         private fun post(u: ScanUi) { _state.value = u }
 
         /** `files/scans/<id>.track.json`: one file per video (id from `videoId`), shared with the Part 9 cache. */
-        fun scanFile(ctx: Context, videoId: String) = File(ctx.filesDir, "scans/${scanSig(videoId, 0.0, "")}.track.json")
+        fun scanFile(ctx: Context, videoId: String, a: Double? = null, b: Double? = null) = File(ctx.filesDir, "scans/${scanSig(videoId + rangeTag(a, b), 0.0, "")}.track.json")
 
-        fun start(ctx: Context, uri: Uri, videoId: String, model: String, npu: Boolean, fps: Double, pick: TargetPick, preview: Boolean = true) {
+        /** Result built from a cancelled scan (`<id>.cancelled.track.json`); ResultScreen exports only its processed part. */
+        fun cancelledFile(trackFile: File) = File(trackFile.path.removeSuffix(".track.json") + ".cancelled.track.json")
+
+        /**
+         * "Clear progress": forgets the interrupted scan of this video (the `.partial` resume point) and the partial result with its
+         * views / camera files, so the next scan starts from 0 s. A finished scan (the cache) is not touched.
+         */
+        fun clearProgress(ctx: Context, videoId: String, a: Double? = null, b: Double? = null) {
+            val track = scanFile(ctx, videoId, a, b)
+            val c = cancelledFile(track)
+            listOf(File(track.path + ".partial"), File(track.path + ".partial.tmp"), c, File(c.path + ".tmp"),
+                File(c.path.replace(".track.json", ".views.json")), File(c.path.replace(".track.json", ".cam.json"))).forEach { it.delete() }
+            _state.value = ScanUi.Idle
+        }
+
+        fun start(ctx: Context, uri: Uri, videoId: String, model: String, npu: Boolean, fps: Double, pick: TargetPick, preview: Boolean = true, rangeA: Double? = null, rangeB: Double? = null) {
             _state.value = ScanUi.Running(null)
             ctx.startForegroundService(
                 Intent(ctx, ScanService::class.java).putExtra(X_URI, uri.toString()).putExtra(X_VIDEO_ID, videoId)
-                    .putExtra(X_MODEL, model).putExtra(X_NPU, npu).putExtra(X_PREVIEW, preview).putExtra(X_FPS, fps)
+                    .putExtra(X_MODEL, model).putExtra(X_NPU, npu).putExtra(X_PREVIEW, preview).putExtra(X_FPS, fps).apply { if (rangeA != null) putExtra(X_A, rangeA); if (rangeB != null) putExtra(X_B, rangeB) }
                     .putExtra(X_PICK, Formats.json.encodeToString(pick)),
             )
         }

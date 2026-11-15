@@ -2,6 +2,7 @@ package com.takipli.oynat.core
 
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToLong
 
 // ---- Part 14: numbers the Media3 Transformer export needs (pure, so they are unit-tested on the JVM). ----
 
@@ -23,4 +24,15 @@ fun exportBitrate(w: Int, h: Int, fps: Double, hevc: Boolean): Int {
     val f = if (fps > 0) max(fps, 24.0) else 30.0
     val bps = w.toDouble() * h * f * (if (hevc) 0.07 else 0.11)
     return min(max(bps, 2_000_000.0), 100_000_000.0).toInt()
+}
+
+/**
+ * Length (ms) of the processed part of a cancelled scan: last sample time plus one sample step, never past the clip.
+ * Export / playback of a partial result is cut here (the views after it would only repeat the last one).
+ */
+fun partialEndMs(lastT: Double, sampleFps: Double, durationS: Double): Long {
+    val step = if (sampleFps > 0) 1.0 / sampleFps else 0.1
+    val end = lastT + step
+    val cap = if (durationS > 0) minOf(end, durationS) else end
+    return (cap * 1000.0).roundToLong().coerceAtLeast(0L)
 }
