@@ -105,13 +105,14 @@ object VideoDecoder {
         val info = probe(ctx, uri, userRot)
         val lastT = minOf(endS, if (info.durationS > 0) info.durationS - 0.001 else Double.POSITIVE_INFINITY)
         Trace.step(ctx, "retriever display=${info.width}x${info.height} coded=${info.codedW}x${info.codedH} rot=${info.rotation} fps=$fps startS=$startS dur=${info.durationS}")
-        val r = MediaMetadataRetriever()
+        var r = MediaMetadataRetriever()
         var delivered = 0
         val frameMs = ArrayList<Double>()
         var allMisses = 0
         try {
             r.setDataSource(ctx, uri)
             Trace.step(ctx, "source ok")
+            if (startS == 0.0) runCatching { Diag.note(ctx, "decode", "DECODE_GOP", gopInfo(ctx, uri)) } // keyframe spacing explains slow CLOSEST seeks
             var misses = 0
             var k = 0
             while (true) {
@@ -119,6 +120,8 @@ object VideoDecoder {
                 val t = startS + k / fps
                 k++
                 if (t > lastT) break
+                // The native retriever keeps decoder/frame buffers alive: renew it regularly so device RAM and seek time do not creep up (MEM_LEAK / x30 slowdown in report #7).
+                if (k > 1 && (k - 1) % 100 == 0) { runCatching { r.release() }; r = MediaMetadataRetriever().also { it.setDataSource(ctx, uri) } }
                 val d0 = System.nanoTime()
                 val raw = fullFrame(r, (t * 1e6).toLong())
                 if (raw == null) {
@@ -150,6 +153,21 @@ object VideoDecoder {
             }
         }
         delivered
+    }
+
+    /** Keyframe spacing of the first ~900 samples: with OPTION_CLOSEST every grid frame is decoded from the previous keyframe, so cost ~ GOP length. */
+    private fun gopInfo(ctx: Context, uri: Uri): String {
+        val (ex, i) = openExtractor(ctx, uri)
+        try {
+            ex.selectTrack(i)
+            var n = 0; var syncs = 0; var lastSync = -1; var maxGap = 0
+            while (n < 900) {
+                if (ex.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) { syncs++; if (lastSync >= 0) maxGap = maxOf(maxGap, n - lastSync); lastSync = n }
+                if (!ex.advance()) break
+                n++
+            }
+            return "$syncs keyframes in $n samples, longest gap $maxGap frames"
+        } finally { ex.release() }
     }
 
     private fun fullFrame(r: MediaMetadataRetriever, us: Long): Bitmap? {

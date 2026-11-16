@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.PowerManager
+import com.takipli.oynat.core.Sev
 import com.takipli.oynat.core.BenchStats
 import com.takipli.oynat.core.FreePick
 import com.takipli.oynat.core.MemoryBank
@@ -355,16 +356,20 @@ object SamEngine {
             val dir = File(ctx.cacheDir, "sam-${System.nanoTime()}").also { it.mkdirs() }
             try {
                 val files = ArrayList<File>(); val ts = ArrayList<Double>()
+                val tStart = System.nanoTime(); fun ms() = (System.nanoTime() - tStart) / 1_000_000
+                Diag.note(ctx, "sam", "SAM_START", "decode to ${doc.samples.lastOrNull()?.t} s at $SAM_FPS fps | ${Diag.vitals(ctx)}")
                 val estFrames = ((doc.samples.lastOrNull()?.t ?: 0.0) * SAM_FPS).toInt() + 1 // decode phase shows "n / total" (total = 2 x frames, like the tracking phase) instead of "n / 0"
-                VideoDecoder.sample(ctx, uri, SAM_FPS, 0.0, maxSide = S, userRot = UserRot.forDoc(ctx, doc)) { f ->
+                // endS: a partial (cancelled) scan covers only the start of the video; decoding the rest at ~1.5 s/frame looked like a freeze (progress passed its total) and filled cache/RAM.
+                VideoDecoder.sample(ctx, uri, SAM_FPS, 0.0, endS = (doc.samples.lastOrNull()?.t ?: 0.0) + 1.0 / SAM_FPS, maxSide = S, userRot = UserRot.forDoc(ctx, doc)) { f ->
                     currentCoroutineContext().ensureActive()
                     val file = File(dir, "${files.size}.jpg")
                     file.outputStream().use { f.bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                     files += file; ts += f.t
                     f.bitmap.recycle()
-                    onProgress(files.size, estFrames * 2, f.t)
+                    onProgress(files.size.coerceAtMost(estFrames), estFrames * 2, f.t)
                     true
                 }
+                Diag.note(ctx, "sam", "SAM_DECODED", "${files.size} frames in ${ms()} ms | ${Diag.vitals(ctx)}")
                 if (files.size < 2) return@withContext null
                 val total = files.size * 2
                 var p = 0
@@ -373,8 +378,14 @@ object SamEngine {
                 suspend fun run(memory: Boolean): Map<Int, Step> {
                     var done = files.size
                     val ms = HashMap<String, Double>()
+                    val t0 = ms()
+                    // Hang breaker: the flag is set while the NPU models load and the first frame runs. If a scan was cancelled/killed in that window (stuck at "n / 2n"), the next run goes straight to CPU.
+                    val sp = ctx.getSharedPreferences("sam", Context.MODE_PRIVATE)
+                    if (sp.getBoolean("npu_inflight", false)) { setNpuEnabled(ctx, false); sp.edit().putBoolean("npu_inflight", false).commit(); Diag.note(ctx, "sam", "SAM_NPU_DISABLED", "last run never finished its first frame on the NPU: using CPU now (re-enable in the SAM settings)", Sev.WARN) }
+                    if (npuEnabled(ctx)) sp.edit().putBoolean("npu_inflight", true).commit()
                     open(ctx, memory).use { s ->
-                        val tick = { done++; onProgress(done, total, ts[(done - files.size - 1).coerceIn(0, ts.size - 1)]) }
+                        Diag.note(ctx, "sam", "SAM_MODELS_OPEN", "memory=$memory in ${ms() - t0} ms (progress stays at ${files.size} until the first frame finishes) | ${Diag.vitals(ctx)}")
+                        val tick = { done++; if (done == files.size + 1) { ctx.getSharedPreferences("sam", Context.MODE_PRIVATE).edit().putBoolean("npu_inflight", false).apply(); Diag.note(ctx, "sam", "SAM_FIRST_FRAME", "at ${ms()} ms") }; onProgress(done, total, ts[(done - files.size - 1).coerceIn(0, ts.size - 1)]) }
                         val gate = TrackGate()
                         val walk: suspend (List<Int>) -> Map<Int, Step> = { order -> if (memory) walkMemory(s, files, order, pick, ms, tick, gate) else walkPrompt(s, files, order, pick, ms, tick) }
                         val steps = HashMap<Int, Step>(walk((p until files.size).toList()))
@@ -388,7 +399,7 @@ object SamEngine {
 
                 var steps: Map<Int, Step> = emptyMap()
                 if (hasMemory(ctx)) {
-                    steps = try { run(true) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { ErrorLog.record(ctx, "sam-memory", e); emptyMap() }
+                    steps = try { run(true).also { Diag.note(ctx, "sam", "SAM_WALK_END", "${it.size} tracked of ${files.size} at ${ms()} ms | $lastRun") } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { ErrorLog.record(ctx, "sam-memory", e); emptyMap() }
                 }
                 if (steps.isEmpty()) steps = run(false) // memory graphs missing/failed/nothing segmented: previous design
                 if (steps.isEmpty()) return@withContext null
