@@ -6,6 +6,7 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.math.sqrt
 
 // ---- Part 16a: free-point target (any spot the user taps, not only a joint), multi-pass fusion, smooth sampling. ----
 
@@ -18,6 +19,11 @@ data class FreePick(val t: Double, val x: Double, val y: Double, val id: Int? = 
     val fill: Double? = null,
     /** Multi-dot pick (2..3 taps on one limb/object): normalized `[x, y]`; x/y above = their centroid. Framed like a region: the group's extent sets the zoom. */
     val dots: List<List<Double>> = emptyList(),
+    /**
+     * "Keep distance" (fixed-zoom picks): `zoom` is the zoom at the pick frame, and from there the zoom follows the object's apparent
+     * size (it grows = it came closer = zoom out), so the object keeps the size it had when picked, like a cameraman who steps back.
+     */
+    val keepDist: Boolean = false,
 ) {
     /** Region or multi-dot pick: the target has an extent (zoom follows its size) instead of being a bare point. */
     val framed: Boolean get() = shapes.isNotEmpty() || dots.size >= 2
@@ -170,7 +176,47 @@ fun freePointBoxes(doc: TrackDoc, pick: FreePick, cfg: Config, alt: Set<Int> = e
         return fuseFreePoint(doc, pick, cfg, alt).mapValues { (_, p) -> doubleArrayOf(p[0], p[1], max(p.getOrElse(3) { 0.1 } * 1.15, 0.02), max(p.getOrElse(4) { 0.1 } * 1.15, 0.02)) }
     val z = (pick.zoom ?: 1.5).coerceIn(cfg.minZoom, cfg.maxZoom)
     val s = cfg.targetFill / 2.0.pow(z)
-    return fuseFreePoint(doc, pick, cfg, alt).mapValues { (_, p) -> doubleArrayOf(p[0], p[1], s, s) }
+    // keep distance: a box k times bigger than at the pick makes computeView zoom out by log2(k), so the object stays the same size on screen
+    val sc = if (pick.keepDist) freePointScale(doc, pick, cfg, alt) else emptyMap()
+    return fuseFreePoint(doc, pick, cfg, alt).mapValues { (i, p) -> val k = sc[i] ?: 1.0; doubleArrayOf(p[0], p[1], s * k, s * k) }
+}
+
+/**
+ * Apparent size of the followed object in each sample relative to the pick frame: 1 = as big as when picked, 2 = twice as big
+ * (it came closer). Size source: the tracker's own box (rows `[x, y, conf, w, h]`, the SAM mask box) when it has one, else the anchor
+ * person's height. Median of 5 against spikes, held through lost spans (last known value), clamped to 0.2..5. Empty = no size known
+ * (the zoom then simply stays fixed).
+ */
+fun freePointScale(doc: TrackDoc, pick: FreePick, cfg: Config, alt: Set<Int> = emptySet()): Map<Int, Double> {
+    val n = doc.samples.size
+    if (n == 0) return emptyMap()
+    val anchor = makeAnchor(doc, pick, cfg)
+    fun trk(i: Int): Double? {
+        for (l in listOf(doc.pt?.a, doc.pt?.b)) {
+            val r = l?.getOrNull(i)?.takeIf { it.size >= 5 && it[2] > 0.0 && it[3] > 1e-4 && it[4] > 1e-4 } ?: continue
+            return sqrt(r[3] * r[4]) // geometric mean: independent of the frame's aspect ratio
+        }
+        return null
+    }
+    // reference = median tracker size within 0.5 s of the pick (the first mask is the one the user confirmed)
+    val ref = (0 until n).filter { abs(doc.samples[it].t - pick.t) <= 0.5 }.mapNotNull { trk(it) }.sorted().let { if (it.isEmpty()) null else it[it.size / 2] }
+    val raw = HashMap<Int, Double>()
+    for (i in 0 until n) {
+        val tr = if (ref != null) trk(i)?.let { it / ref } else null
+        val an = if (tr == null && anchor != null && anchor.hPx0 > 0) anchorAt(doc, anchor, i, cfg, alt)?.let { it.hPx / anchor.hPx0 } else null
+        (tr ?: an)?.let { raw[i] = it.coerceIn(0.2, 5.0) }
+    }
+    if (raw.isEmpty()) return emptyMap()
+    val idx = raw.keys.sorted()
+    val med = HashMap<Int, Double>()
+    for ((q, i) in idx.withIndex()) {
+        val w = (maxOf(0, q - 2)..minOf(idx.size - 1, q + 2)).map { raw.getValue(idx[it]) }.sorted()
+        med[i] = w[w.size / 2]
+    }
+    val out = HashMap<Int, Double>()
+    var last = med.getValue(idx.first())
+    for (i in 0 until n) { last = med[i] ?: last; out[i] = last }
+    return out
 }
 
 /** Part 16a: like `viewAt` but C1 cubic Hermite with monotone (Fritsch-Butland) tangents: no velocity jumps, no overshoot. */

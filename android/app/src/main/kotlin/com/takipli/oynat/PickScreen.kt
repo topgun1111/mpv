@@ -54,6 +54,17 @@ import androidx.compose.ui.unit.sp
 import com.takipli.oynat.core.normalizeRotation
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.layout.onSizeChanged
 import com.takipli.oynat.core.COCO_SKELETON
 import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.PART_GROUPS
@@ -112,9 +123,19 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
     var rectMode by remember { mutableStateOf(false) } // Rectangle tab: a dragged box becomes a 4-corner region (same pipeline as Freehand)
     val strokes = remember { androidx.compose.runtime.mutableStateListOf<List<Offset>>() }
     var curStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    // Preview zoom for precise dotting. View only: every point/stroke stays in normalized frame coordinates (0..1), so the scan is unaffected.
+    var vz by remember { mutableStateOf(1f) } // 1 = whole frame, up to 8x
+    var vo by remember { mutableStateOf(Offset.Zero) } // layer translation in px (<= 0), top-left origin
+    var boxPx by remember { mutableStateOf(IntSize.Zero) }
+    fun setView(z: Float, o: Offset) {
+        val zz = z.coerceIn(1f, 8f); val w = boxPx.width.toFloat(); val h = boxPx.height.toFloat()
+        vz = zz; vo = Offset(o.x.coerceIn(w * (1f - zz), 0f), o.y.coerceIn(h * (1f - zz), 0f))
+    }
+    fun zoomAbout(c: Offset, nz: Float) { val z = nz.coerceIn(1f, 8f); setView(z, c - (c - vo) * (z / vz)) }
     var multi by remember { mutableStateOf(false) } // Point mode: several dots on one limb (the first tap = `tap`, any number more in `extra`)
     val extra = remember { androidx.compose.runtime.mutableStateListOf<Offset>() }
     var zoomLog2 by remember { mutableStateOf(1.5f) }
+    var keepDist by remember { mutableStateOf(true) } // fixed-zoom free picks: keep the object's apparent size (zoom follows its distance)
     var regionFixed by remember { mutableStateOf(true) } // freehand: false = keep the area's size (zoom follows it), true = fixed zoom
     var regionFill by remember { mutableStateOf(0.9f) }
     var fps by remember { mutableStateOf(PICK_FPS[0]) } // 10 fps default
@@ -214,7 +235,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
         if (u == null) return@rememberLauncherForActivityResult
         runCatching { ctx.contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         scope.launch {
-            error = ""; tap = null; extra.clear(); frame = null; ScanService.reset()
+            error = ""; tap = null; extra.clear(); frame = null; vz = 1f; vo = Offset.Zero; ScanService.reset()
             try {
                 videoId = withContext(Dispatchers.IO) { videoIdOf(ctx, u) }
                 durationS = withContext(Dispatchers.IO) { runCatching { VideoDecoder.probe(ctx, u).durationS }.getOrDefault(0.0) }
@@ -261,7 +282,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
         rot = normalizeRotation(rot + d)
         UserRot.set(ctx, u.toString(), rot)
         frame = Bitmap.createBitmap(b, 0, 0, b.width, b.height, Matrix().apply { postRotate(d.toFloat()) }, true)
-        tap = null; extra.clear(); strokes.clear(); curStroke = emptyList(); found = null // those points belonged to the old orientation
+        tap = null; extra.clear(); strokes.clear(); curStroke = emptyList(); found = null; vz = 1f; vo = Offset.Zero // those points belonged to the old orientation
         if (loadJob?.isActive == true) loadAt(seekT.toDouble()) // a seek was still decoding with the old turn: decode again with the new one
     }
 
@@ -353,7 +374,39 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     b.asImageBitmap()
                 }
             }
-            Box(previewModifier(bmp.width / bmp.height.toFloat())) {
+            Box(
+                previewModifier(bmp.width / bmp.height.toFloat()).clipToBounds().onSizeChanged { boxPx = it }.pointerInput(Unit) {
+                    // Two fingers = pinch zoom + pan (taken before the dot/draw gestures below see them); one finger pans only while zoomed in
+                    // and not drawing. A plain tap or a one-finger draw still reaches the Canvas untouched.
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        var multiTouch = false; var panning = false; var moved = Offset.Zero
+                        do {
+                            val ev = awaitPointerEvent(PointerEventPass.Initial)
+                            val down = ev.changes.count { it.pressed }
+                            if (down >= 2) {
+                                multiTouch = true
+                                val c = ev.calculateCentroid(); val z = ev.calculateZoom(); val pn = ev.calculatePan()
+                                val nz = (vz * z).coerceIn(1f, 8f)
+                                setView(nz, c - (c - vo) * (nz / vz) + pn)
+                                ev.changes.forEach { if (it.positionChanged()) it.consume() }
+                            } else if (multiTouch) {
+                                ev.changes.forEach { it.consume() } // the finger that stays after a pinch must not become a tap
+                            } else if (vz > 1.01f && !draw) {
+                                moved += ev.calculatePan()
+                                if (panning || moved.getDistance() > viewConfiguration.touchSlop) {
+                                    panning = true
+                                    setView(vz, vo + ev.calculatePan())
+                                    ev.changes.forEach { if (it.positionChanged()) it.consume() }
+                                }
+                            }
+                        } while (ev.changes.any { it.pressed })
+                    }
+                },
+            ) {
+              Box(Modifier.matchParentSize().graphicsLayer {
+                transformOrigin = TransformOrigin(0f, 0f); scaleX = vz; scaleY = vz; translationX = vo.x; translationY = vo.y
+              }) {
                 Image(bmp.asImageBitmap(), null, Modifier.matchParentSize())
                 Canvas(
                     Modifier.matchParentSize().pointerInput(draw, rectMode) {
@@ -371,7 +424,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                                 onDragStart = { o ->
                                     val p = nrm(o); val r = rectOf(); mode = 0
                                     if (r != null) {
-                                        val tx = 44f / size.width; val ty = 44f / size.height
+                                        val tx = 44f / vz / size.width; val ty = 44f / vz / size.height
                                         val corner = listOf(r[0] to r[1], r[2] to r[1], r[2] to r[3], r[0] to r[3]).firstOrNull { (cx, cy) -> kotlin.math.abs(p.x - cx) < tx && kotlin.math.abs(p.y - cy) < ty }
                                         if (corner != null) { mode = 2; fixed = Offset(if (corner.first == r[0]) r[2] else r[0], if (corner.second == r[1]) r[3] else r[1]) }
                                         else if (p.x in r[0]..r[2] && p.y in r[1]..r[3]) { mode = 1; grab = p }
@@ -403,13 +456,14 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                         ) else detectTapGestures { o -> if (multi && tap != null) { extra.add(nrm(o)) } else tap = nrm(o) }
                     },
                 ) {
+                    val k = 1f / vz // the layer is scaled by vz: divide px sizes so dots and lines keep their on-screen size
                     if (!objectMode) found?.forEach { p ->
                         val b = p.bbox
                         fun fx(x: Double) = (x / bmp.width * size.width).toFloat()
                         fun fy(y: Double) = (y / bmp.height * size.height).toFloat()
-                        drawRect(Color.White, Offset(fx(b.x1), fy(b.y1)), Size(fx(b.x2) - fx(b.x1), fy(b.y2) - fy(b.y1)), style = Stroke(2f))
+                        drawRect(Color.White, Offset(fx(b.x1), fy(b.y1)), Size(fx(b.x2) - fx(b.x1), fy(b.y2) - fy(b.y1)), style = Stroke(2f * k))
                         for ((a, c) in COCO_SKELETON) {
-                            if (p.conf(a) >= 0.35 && p.conf(c) >= 0.35) drawLine(Color.Yellow, Offset(fx(p.x(a)), fy(p.y(a))), Offset(fx(p.x(c)), fy(p.y(c))), 3f)
+                            if (p.conf(a) >= 0.35 && p.conf(c) >= 0.35) drawLine(Color.Yellow, Offset(fx(p.x(a)), fy(p.y(a))), Offset(fx(p.x(c)), fy(p.y(c))), 3f * k)
                         }
                     }
                     if (!objectMode && people.isNotEmpty()) {
@@ -418,7 +472,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                         fun region(b: DoubleArray, c: Color, fillA: Float, w: Float) {
                             val tl = Offset(rx(b[0]), ry(b[1])); val sz = Size(rx(b[2]) - rx(b[0]), ry(b[3]) - ry(b[1]))
                             if (fillA > 0f) drawRect(c.copy(alpha = fillA), tl, sz)
-                            drawRect(c, tl, sz, style = Stroke(w))
+                            drawRect(c, tl, sz, style = Stroke(w * k))
                         }
                         val sel = hl
                         val nat = drawContext.canvas.nativeCanvas
@@ -445,11 +499,11 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                             }
                             // joint dots, coloured like the part they belong to
                             val groupJoints = if (mine) sel?.target?.preset?.let { PRESETS[it] } else null
-                            p.joints.forEach { (k, jx, jy) ->
-                                val big = groupJoints != null && k in groupJoints
+                            p.joints.forEach { (kk, jx, jy) ->
+                                val big = groupJoints != null && kk in groupJoints
                                 val c = Offset(rx(jx), ry(jy))
-                                drawCircle(Color.Black, if (big) 11f else 8f, c)
-                                drawCircle(partColor(presetForJoint(k)), if (big) 8f else 5f, c)
+                                drawCircle(Color.Black, (if (big) 11f else 8f) * k, c)
+                                drawCircle(partColor(presetForJoint(kk)), (if (big) 8f else 5f) * k, c)
                             }
                             if (people.size > 1) nat.drawText(p.id.toString(), rx(p.box[0]) + 8f, ry(p.box[1]) + 40f, labelPaint)
                         }
@@ -457,30 +511,40 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     maskImg?.let { drawImage(it, dstSize = IntSize(size.width.toInt(), size.height.toInt())) }
                     samMask?.let { m ->
                         drawRect(Color.Cyan, Offset((m.x1 * size.width).toFloat(), (m.y1 * size.height).toFloat()),
-                            Size(((m.x2 - m.x1) * size.width).toFloat(), ((m.y2 - m.y1) * size.height).toFloat()), style = Stroke(3f))
+                            Size(((m.x2 - m.x1) * size.width).toFloat(), ((m.y2 - m.y1) * size.height).toFloat()), style = Stroke(3f * k))
                     }
                     for (st in strokes + listOf(curStroke)) if (st.size >= 2) {
                         val path = androidx.compose.ui.graphics.Path()
                         st.forEachIndexed { i, o -> if (i == 0) path.moveTo(o.x * size.width, o.y * size.height) else path.lineTo(o.x * size.width, o.y * size.height) }
                         path.close()
-                        drawPath(path, Color(0x4400E5FF)); drawPath(path, Color.Cyan, style = Stroke(3f))
+                        drawPath(path, Color(0x4400E5FF)); drawPath(path, Color.Cyan, style = Stroke(3f * k))
                     }
                     if (rectMode) strokes.firstOrNull()?.takeIf { it.size == 4 }?.forEach { o -> // corner handles
-                        drawCircle(Color.White, 14f, Offset(o.x * size.width, o.y * size.height)); drawCircle(Color.Cyan, 14f, Offset(o.x * size.width, o.y * size.height), style = Stroke(4f))
+                        drawCircle(Color.White, 14f * k, Offset(o.x * size.width, o.y * size.height)); drawCircle(Color.Cyan, 14f * k, Offset(o.x * size.width, o.y * size.height), style = Stroke(4f * k))
                     }
                     if (!draw) tap?.let { c ->
                         val p = Offset(c.x * size.width, c.y * size.height)
-                        drawCircle(Color.Red, 14f, p, style = Stroke(width = 4f)); drawCircle(Color.White, 4f, p)
+                        drawCircle(Color.Red, 14f * k, p, style = Stroke(width = 4f * k)); drawCircle(Color.White, 4f * k, p)
                         var prev = p
                         extra.forEach { e ->
                             val q = Offset(e.x * size.width, e.y * size.height)
-                            drawLine(Color.Red, prev, q, strokeWidth = 3f)
-                            drawCircle(Color.Red, 14f, q, style = Stroke(width = 4f)); drawCircle(Color.White, 4f, q)
+                            drawLine(Color.Red, prev, q, strokeWidth = 3f * k)
+                            drawCircle(Color.Red, 14f * k, q, style = Stroke(width = 4f * k)); drawCircle(Color.White, 4f * k, q)
                             prev = q
                         }
                     }
                 }
+              }
             }
+            // zoom controls (pinch also works)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                val mid = Offset(boxPx.width / 2f, boxPx.height / 2f)
+                OutlinedButton(enabled = vz > 1.01f, onClick = { zoomAbout(mid, vz / 1.5f) }) { Text("\u2212") }
+                OutlinedButton(enabled = vz < 7.99f, onClick = { zoomAbout(mid, vz * 1.5f) }) { Text("+") }
+                OutlinedButton(enabled = vz > 1.01f, onClick = { vz = 1f; vo = Offset.Zero }) { Text(stringResource(R.string.pick_view_reset)) }
+                Text(String.format(Locale.ROOT, "%.1f\u00d7", vz), style = MaterialTheme.typography.labelLarge)
+            }
+            Text(stringResource(R.string.pick_view_hint), fontSize = 12.sp)
             // 3. which part of the video
             Text(stringResource(R.string.pick_frame_time, fmtClock(seekT.toDouble()), if (durationS > 0) fmtClock(durationS) else "?"), style = MaterialTheme.typography.labelLarge)
             if (durationS > 0.5) {
@@ -525,6 +589,13 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     }
                     if (multi) OutlinedButton(enabled = tap != null, onClick = { if (extra.isNotEmpty()) extra.removeAt(extra.size - 1) else tap = null }) { Text(stringResource(R.string.pick_dot_undo)) }
                 }
+                if ((!draw || regionFixed) && extra.isEmpty()) { // same cases as the zoom slider: a fixed zoom can follow the object's distance
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        androidx.compose.material3.Switch(checked = keepDist, enabled = !running, onCheckedChange = { keepDist = it })
+                        Text(stringResource(R.string.pick_keep_dist), Modifier.padding(start = 8.dp))
+                    }
+                    Text(stringResource(R.string.pick_keep_dist_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 if (draw) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(enabled = strokes.isNotEmpty(), onClick = { strokes.removeLastOrNull() }) { Text(stringResource(R.string.pick_undo)) }
                     OutlinedButton(enabled = strokes.isNotEmpty(), onClick = { strokes.clear() }) { Text(stringResource(R.string.pick_clear)) }
@@ -568,7 +639,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     val t = if (draw) com.takipli.oynat.core.shapeBounds(shapes)!!.let { Offset(it[0].toFloat(), it[1].toFloat()) }
                     else if (dots.size >= 2) Offset(dots.map { it[0] }.average().toFloat(), dots.map { it[1] }.average().toFloat())
                     else tap ?: return@Button
-                    val np = TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = if (objectMode) null else preset, exact = exact && preset == null && !objectMode, free = free, zoom = if (free && (!draw || regionFixed) && dots.isEmpty()) zoomLog2.toDouble() else null, shapes = shapes, fill = if (draw && !regionFixed) regionFill.toDouble() else null, dots = dots)
+                    val np = TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = if (objectMode) null else preset, exact = exact && preset == null && !objectMode, free = free, zoom = if (free && (!draw || regionFixed) && dots.isEmpty()) zoomLog2.toDouble() else null, shapes = shapes, fill = if (draw && !regionFixed) regionFill.toDouble() else null, dots = dots, keepDist = keepDist && free)
                     if (lost != null) ScanService.resolveLost(np) // paused scan: the new pick joins the target and the scan goes on
                     else {
                         notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -602,7 +673,16 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 OutlinedButton(onClick = { ScanService.reset() }) { Text(stringResource(R.string.pick_again)) }
             }
             is ScanUi.Lost -> {}
-            ScanUi.Saving -> Text(stringResource(R.string.scan_saving_partial))
+            is ScanUi.Saving -> {
+                Text(stringResource(R.string.scan_saving_partial))
+                if (s.samples > 0) Text(stringResource(R.string.scan_saving_kept, s.samples, fmtClock(s.t)), fontSize = 12.sp)
+                if (s.total > 0) {
+                    // determinate: tracker pass over the processed part (smoothed so it moves even between steps)
+                    val f by androidx.compose.animation.core.animateFloatAsState((s.done.toFloat() / s.total).coerceIn(0f, 1f), androidx.compose.animation.core.tween(400), label = "saving")
+                    LinearProgressIndicator(progress = { f }, modifier = Modifier.fillMaxWidth())
+                    Text(stringResource(R.string.scan_saving_track, (f * 100).toInt()), fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+                } else LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) // still stopping / writing: moving bar instead of a frozen screen
+            }
             is ScanUi.Cancelled -> {
                 // Cancel keeps what was scanned: preview / export that part, resume with a new pick, or throw the progress away.
                 if (s.samples <= 0) Text(stringResource(R.string.scan_cancelled))

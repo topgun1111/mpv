@@ -566,3 +566,28 @@ When the subject is covered for a few seconds, the EdgeTAM memory tracker (`SamE
 ## Cancel keeps the processed part (scan)
 
 Cancel on the pick screen / notification no longer just ends in "cancelled". `ScanService` (on `CancellationException`, under `NonCancellable`) loads `<track>.partial` (`Scanner.loadPartial`), runs `applyPicks` (+ `PointScanner` for free-point picks, which now stops decoding after the last sample) and writes `<id>.cancelled.track.json` (never the real track file: that name is the "scan finished" cache). UI state `ScanUi.Saving` → `ScanUi.Cancelled(samples, t, file, targetText)`; PickScreen shows **Preview / export processed part** (→ ResultScreen), **Resume (new pick / scan)** (the `.partial` is kept, so the next scan continues) and **Clear progress** (`ScanService.clearProgress`: deletes `.partial`, the cancelled result and its views/cam files; a finished scan cache is untouched). ResultScreen recognises `*.cancelled.track.json`: `core.partialEndMs` (last sample + one step, capped at the clip) limits the slider, the preview loop and `Exporter.start(endMs=…)`; stabilization is disabled there (its dense camera pass analyses the whole clip). A finished scan deletes the old cancelled result. Test: `ExportMathTest.partialEndCoversLastSampleAndStaysInClip`. Not compiled here (no Gradle in this session): first CI run decides.
+
+## Preview zoom for precise dotting (2026-11-17, never compiled/run: no Kotlin toolchain in that session)
+
+`PickScreen.kt` (shared by the pose and sam flavors): the pick-frame preview can be zoomed 1x-8x and panned. Two-finger pinch/drag, one-finger drag when zoomed in and not drawing (Point mode), `+` / `-` / `Fit` buttons under the preview.
+- View only: the preview content sits in a `graphicsLayer` (`vz` scale, `vo` translation, origin top-left). Pointer positions inside the layer are already in unscaled local coordinates, so `nrm()` and every stored point/stroke stay normalized 0..1 and the scan/SAM calls are unchanged.
+- The two-finger handler runs on the parent Box in `PointerEventPass.Initial` and consumes those events, so the Canvas tap/draw gestures never see a pinch; the finger left after a pinch is swallowed (no stray dot).
+- Overlay marks (dots, strokes, handles, mask box, joints) are drawn with `* k` (`k = 1/vz`) so they keep their on-screen size; rect corner grab tolerance also divides by `vz`.
+- Zoom resets on a new video and on rotate; it is kept while stepping frames (to re-dot the same spot).
+- Strings: `pick_view_reset`, `pick_view_hint` (en, tr). Check on device: pinch vs page scroll, tap accuracy at 8x, Freehand/Rectangle with a pinch mid-draw.
+
+## Cancel progress (2026-11-17, never compiled/run: no Kotlin toolchain in that session)
+
+After Cancel the screen used to sit on one text line while the scan stopped and the free-point/SAM pass re-ran over the processed part (up to `PARTIAL_TRACK_MAX_MS` = 60 s). Now:
+- `ScanUi.Saving` is a class: `samples`, `t` (scanned so far), `done`, `total` (tracker steps, `total` 0 = unknown). `ScanService.cancel()` posts it immediately (flag `cancelling` drops late Running/Lost posts from the still-stopping scan; reset in `start()` and `onStartCommand`); the service re-posts it in the cancel catch and the notification text switches to the saving text.
+- `partialResult` passes `PointScanner.run`'s `onProgress` to `Saving(done, total)`.
+- PickScreen: "Kept N samples, up to m:ss" + a smoothed determinate bar with a percentage during the tracker pass, a moving (indeterminate) bar before step counts exist. Strings `scan_saving_kept`, `scan_saving_track` (en, tr) in `strings_cam.xml`.
+- Check on device: Cancel while Running, while Lost (paused), and from the notification button; 4K clip in the sam build; Cancel with no samples yet (goes to the plain "Cancelled" state).
+
+## Keep distance: same apparent size like a cameraman (2026-11-17, never compiled/run: no Kotlin toolchain in that session)
+
+Free-point picks (Point mode, Freehand/Rectangle with fixed zoom) used a constant square box, so the zoom never reacted to the object coming closer or going away. New `keepDist` (`TargetPick` -> `FreePick`, default false = old behaviour; PickScreen switch "Keep the same distance", default ON):
+- `freePointScale` (FreePoint.kt): per-sample apparent size relative to the pick frame. Source: tracker row size `[x, y, conf, w, h]` (SAM mask box, `sqrt(w*h)`, reference = median within 0.5 s of the pick), else the anchor person's height ratio (`hPx / hPx0`). Median of 5, held through lost spans, clamped 0.2..5. Empty = no size known: zoom stays fixed.
+- `freePointBoxes`: box side `s * k`, so `computeView` gives `zoom = chosen - log2(k)`; the chosen zoom (slider) is the zoom at the pick frame. The usual smoothing (size alpha x 0.4), lost-bridge and Director modes (CINEMATIC calms it further) apply after that.
+- Limits: zoom cannot go below `minZoom` (1x): an object that gets bigger than the frame allows keeps growing. Mask box size also changes with pose/articulation; a person's whole-body mask is steadier than a hand. Pose targets (person / body part) already hold apparent size through `targetFill`.
+- Tests: `FreePointTest.keepDistanceZoomsOutAsTheObjectGrows`, `keepDistanceWithoutAnySizeKeepsTheZoomFixed`. Not offered yet in the result screen tuning (needs a rescan to change; a toggle there would only rebuild views).

@@ -45,6 +45,29 @@ class FreePointTest {
     }
 
     @Test
+    fun keepDistanceZoomsOutAsTheObjectGrows() {
+        // tracker box (SAM mask): constant for the first 0.5 s (the pick reference), then it doubles by sample 19: the object comes closer
+        val n = 20
+        val samples = (0 until n).map { Sample(it / 10.0) }
+        val rows = (0 until n).map { i -> val k = 1.0 + maxOf(0, i - 5) / 14.0; listOf(0.5, 0.5, 0.9, 0.1 * k, 0.1 * k) }
+        val d = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples, pt = PointTrack(a = rows))
+        val cfg = Config(kpWorld = false)
+        val fixed = buildTargetViews(d, Target(-1, free = FreePick(0.0, 0.5, 0.5, null, 1.5)), cfg)
+        val keep = buildTargetViews(d, Target(-1, free = FreePick(0.0, 0.5, 0.5, null, 1.5, keepDist = true)), cfg)
+        assertTrue(fixed.all { abs(it[1] - 1.5) < 1e-3 }, "without keepDist the zoom stays at the chosen value")
+        assertEquals(1.5, keep.first()[1], 0.05)           // starts at the chosen zoom
+        assertEquals(0.5, keep.last()[1], 0.25)            // object ~2x bigger: about one stop (log2) less zoom
+        var prev = 9.0
+        for (v in keep) { assertTrue(v[1] <= prev + 1e-6, "zoom never rises while the object only grows"); prev = v[1] }
+    }
+
+    @Test
+    fun keepDistanceWithoutAnySizeKeepsTheZoomFixed() {
+        val d = doc(pass()).copy(samples = (0 until 20).map { Sample(it / 10.0) }) // no person rows, tracker rows have no size
+        assertTrue(freePointScale(d, pick, Config()).isEmpty())
+    }
+
+    @Test
     fun smoothSamplingHitsKeysAndDoesNotOvershoot() {
         val keys: List<ViewKey> = listOf(listOf(0.0, 1.0, 0.0, 0.0), listOf(1.0, 1.0, 0.2, 0.0), listOf(2.0, 1.0, 0.2, 0.0), listOf(3.0, 1.0, 0.4, 0.0))
         assertEquals(0.2, viewAtSmooth(keys, 1.0).panX, 1e-9)

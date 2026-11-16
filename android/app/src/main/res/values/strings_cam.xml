@@ -34,6 +34,8 @@
     <string name="cam_hud_manual">Manual camera (you)</string>
     <string name="cam_hud_off">Camera off (original)</string>
     <string name="scan_saving_partial">Cancelled: preparing the part that is already scanned …</string>
+    <string name="scan_saving_kept">Kept %1$d samples, up to %2$s</string>
+    <string name="scan_saving_track">Tracking the processed part … %1$d%%</string>
     <string name="scan_cancelled_partial">Cancelled after %1$d samples (first %2$s s scanned). The processed part can be previewed and exported; the interrupted scan is kept for resuming.</string>
     <string name="scan_cancelled_nobody">Cancelled after %1$d samples (first %2$s s scanned), but nobody was found at the picked point in that part, so there is nothing to export. The interrupted scan is kept for resuming.</string>
     <string name="scan_export_partial">Preview / export processed part</string>

@@ -34,6 +34,8 @@
     <string name="cam_hud_manual">Elle kamera (sen)</string>
     <string name="cam_hud_off">Kamera kapalı (orijinal)</string>
     <string name="scan_saving_partial">İptal edildi: taranmış kısım hazırlanıyor …</string>
+    <string name="scan_saving_kept">%1$d örnek korundu, %2$s anına kadar</string>
+    <string name="scan_saving_track">İşlenen kısım izleniyor … %1$d%%</string>
     <string name="scan_cancelled_partial">%1$d örnekten sonra iptal edildi (ilk %2$s sn tarandı). İşlenen kısım önizlenip dışa aktarılabilir; yarım kalan tarama devam etmek için saklanır.</string>
     <string name="scan_cancelled_nobody">%1$d örnekten sonra iptal edildi (ilk %2$s sn tarandı) ama bu kısımda seçilen noktada kimse bulunamadı; dışa aktarılacak bir şey yok. Yarım kalan tarama devam etmek için saklanır.</string>
     <string name="scan_export_partial">İşlenen kısmı önizle / dışa aktar</string>

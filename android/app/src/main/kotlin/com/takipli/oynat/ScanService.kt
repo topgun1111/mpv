@@ -46,8 +46,11 @@ sealed interface ScanUi {
     /** The target has been gone for a few seconds: the scan is PAUSED at video time `t` until [ScanService.resolveLost] is called. */
     class Lost(val t: Double, val uri: String, val videoId: String, val p: ScanProgress?) : ScanUi
     class Failed(val message: String, val cancelled: Boolean) : ScanUi
-    /** Cancel was pressed: the partial scan is being turned into a previewable / exportable result. */
-    data object Saving : ScanUi
+    /**
+     * Cancel was pressed: the partial scan is being turned into a previewable / exportable result.
+     * `samples` / `t` = what was scanned so far; `done` / `total` = steps of the tracker pass over that part (total 0 = no step count yet).
+     */
+    class Saving(val samples: Int = 0, val t: Double = 0.0, val done: Int = 0, val total: Int = 0) : ScanUi
     /**
      * Cancelled. `file` = result built from the processed part (null = nothing usable: no samples, or the scan had already finished),
      * `targetText` null = nobody was found at the pick in the processed part. The interrupted scan itself is kept for resuming
@@ -69,18 +72,23 @@ class ScanService : Service() {
     override fun onBind(i: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_CANCEL) { job?.cancel() ?: stopSelf(); return START_NOT_STICKY }
+        if (intent?.action == ACTION_CANCEL) {
+            val j = job
+            if (j != null) j.cancel() else { cancelling = false; post(ScanUi.Cancelled(0, 0.0, null, null)); stopSelf() }
+            return START_NOT_STICKY
+        }
         if (intent == null || job?.isActive == true) return START_NOT_STICKY
         startForeground(NOTE_ID, note(getString(R.string.scan_notify_start), null), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         wake = (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "takipli:scan")
             .apply { acquire(WAKE_MAX_MS) }
+        cancelling = false
         post(ScanUi.Running(null))
         job = scope.launch { run(intent); stopSelf(startId) }
         return START_REDELIVER_INTENT
     }
 
     private suspend fun run(i: Intent) {
-        cancelCtx = null; seenRepicks.clear()
+        cancelCtx = null; seenRepicks.clear(); lastProgress = null
         try {
             val uri = Uri.parse(i.getStringExtra(X_URI))
             val videoId = i.getStringExtra(X_VIDEO_ID).orEmpty()
@@ -105,7 +113,7 @@ class ScanService : Service() {
             }
             val res = PoseRunner(this, i.getStringExtra(X_MODEL).orEmpty(), threads = 4, wantNpu = i.getBooleanExtra(X_NPU, false)).use { runner ->
                 Scanner.scan(this, uri, videoId, runner, fps, file, cfg, pick = pick, rangeA = ra, rangeB = rb, onPreview = if (withPreview) ({ v: ScanPreview -> lastPv = v }) else null, onLost = onLost) { p ->
-                    lastP = p
+                    lastP = p; lastProgress = p
                     post(ScanUi.Running(p, lastPv))
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastNote >= 1000) { lastNote = now; notify(note(getString(R.string.scan_notify_run, p.samples, p.total), p)) }
@@ -135,7 +143,9 @@ class ScanService : Service() {
             post(ScanUi.Done(out.samples.size, res.cached, text, file.path, res.xRealtime, withPreview))
         } catch (e: CancellationException) {
             val c = cancelCtx
-            post(ScanUi.Saving)
+            val sp = lastProgress
+            post(ScanUi.Saving(sp?.samples ?: 0, sp?.t ?: 0.0)) // no-op look if cancel() already showed it; also covers the notification's Cancel button
+            runCatching { notify(note(getString(R.string.scan_saving_partial), null)) }
             post(withContext(NonCancellable) { c?.let { partialResult(it) } } ?: ScanUi.Cancelled(0, 0.0, null, null))
         } catch (e: Throwable) {
             ErrorLog.record(this, "scan", e)
@@ -148,6 +158,7 @@ class ScanService : Service() {
     /** Everything [partialResult] needs from the scan that was running (set in [run]). */
     private class CancelCtx(val file: File, val pick: TargetPick, val cfg: Config, val uri: Uri, val repicks: List<TargetPick>)
     @Volatile private var cancelCtx: CancelCtx? = null
+    @Volatile private var lastProgress: ScanProgress? = null
     private val seenRepicks = java.util.Collections.synchronizedList(ArrayList<TargetPick>())
 
     /**
@@ -165,7 +176,7 @@ class ScanService : Service() {
                 // Bounded: this runs NonCancellable after the user pressed Cancel, and the tracker decodes the whole scanned part again
                 // (4K HEVC ~0.4 s per frame): unbounded it left the screen on "preparing..." for minutes. On timeout the anchor-only views are kept.
                 val svc: Context = this; val base: TrackDoc = picked
-                val pt = kotlinx.coroutines.withTimeoutOrNull(PARTIAL_TRACK_MAX_MS) { PointScanner.run(svc, c.uri, base, fp) }
+                val pt = kotlinx.coroutines.withTimeoutOrNull(PARTIAL_TRACK_MAX_MS) { PointScanner.run(svc, c.uri, base, fp) { d, tot, _ -> post(ScanUi.Saving(part.samples.size, last, d, tot)) } }
                 if (pt == null) Diag.note(this, "scan", "PARTIAL_TRACK_TIMEOUT", "free-point pass over the partial scan exceeded ${PARTIAL_TRACK_MAX_MS / 1000} s: kept the anchor-only result", com.takipli.oynat.core.Sev.WARN)
                 else {
                     val d2 = base.copy(pt = pt)
@@ -234,7 +245,9 @@ class ScanService : Service() {
         private val _state = MutableStateFlow<ScanUi>(ScanUi.Idle)
         /** Written by the service, read by the UI. */
         val state: StateFlow<ScanUi> = _state
-        private fun post(u: ScanUi) { _state.value = u }
+        /** Cancel was pressed and the scan has not finished stopping: late Running/Lost updates from it must not replace the Saving screen. */
+        @Volatile private var cancelling = false
+        private fun post(u: ScanUi) { if (cancelling && (u is ScanUi.Running || u is ScanUi.Lost)) return; _state.value = u }
 
         /** `files/scans/<id>.track.json`: one file per video (id from `videoId`), shared with the Part 9 cache. */
         fun scanFile(ctx: Context, videoId: String, a: Double? = null, b: Double? = null) = File(ctx.filesDir, "scans/${scanSig(videoId + rangeTag(a, b), 0.0, "")}.track.json")
@@ -255,6 +268,7 @@ class ScanService : Service() {
         }
 
         fun start(ctx: Context, uri: Uri, videoId: String, model: String, npu: Boolean, fps: Double, pick: TargetPick, preview: Boolean = true, rangeA: Double? = null, rangeB: Double? = null) {
+            cancelling = false
             _state.value = ScanUi.Running(null)
             ctx.startForegroundService(
                 Intent(ctx, ScanService::class.java).putExtra(X_URI, uri.toString()).putExtra(X_VIDEO_ID, videoId)
@@ -264,6 +278,12 @@ class ScanService : Service() {
         }
 
         fun cancel(ctx: Context) {
+            // Show the saving screen at once (the scan needs a moment to stop and write its partial result): no frozen-looking screen
+            when (val s = _state.value) {
+                is ScanUi.Running -> { cancelling = true; _state.value = ScanUi.Saving(s.p?.samples ?: 0, s.p?.t ?: 0.0) }
+                is ScanUi.Lost -> { cancelling = true; _state.value = ScanUi.Saving(s.p?.samples ?: 0, s.p?.t ?: 0.0) }
+                else -> {}
+            }
             ctx.startService(Intent(ctx, ScanService::class.java).setAction(ACTION_CANCEL))
         }
 

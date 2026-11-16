@@ -117,6 +117,10 @@
     <string name="pick_clear">Clear drawing</string>
     <string name="pick_multi">Several dots on one limb: tap each one</string>
     <string name="pick_dot_undo">Remove last dot</string>
+    <string name="pick_view_reset">Fit</string>
+    <string name="pick_view_hint">Zoom the preview for precise dots: pinch with two fingers, drag with two fingers (or one finger in Point mode) to move, or use + / −. The dots stay exact at any zoom.</string>
+    <string name="pick_keep_dist">Keep the same distance</string>
+    <string name="pick_keep_dist_hint">Like a cameraman who steps back when the object comes closer: the object keeps the size it has on this frame. Choose the size you want with Advanced → Zoom (it applies at this frame). Needs the object to be tracked with a size (SAM) or to be on a person.</string>
     <string name="pick_frame_time">Frame at %1$s of %2$s</string>
     <string name="pick_frame_hint">The first frame black or unrelated to the rest of the video? Move to a frame where the target is visible, then pick it. Tracking runs both ways in time from that frame.</string>
     <string name="open_update">Updates</string>

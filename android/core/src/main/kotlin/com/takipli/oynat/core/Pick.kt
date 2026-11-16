@@ -27,6 +27,8 @@ data class TargetPick(
     val fill: Double? = null,
     /** Several taps on one limb/object (2..3, free = true): normalized `[x, y]`; x/y = their centroid. Tracked dot by dot, framed as a group. */
     val dots: List<List<Double>> = emptyList(),
+    /** Fixed-zoom free pick: keep the object's apparent size from the pick frame on (zoom follows distance, see [FreePick.keepDist]). */
+    val keepDist: Boolean = false,
 )
 
 /**
@@ -53,12 +55,12 @@ fun presetForJoint(j: Int): String? = when (j) {
 fun resolvePick(doc: TrackDoc, pick: TargetPick, cfg: Config): Target? {
     if (pick.free) { // Part 16: any spot; the person under it (if any) is only the anchor
         val id = resolveTap(doc, pick.t, pick.x, pick.y, cfg)?.first
-        if (pick.shapes.isNotEmpty()) return Target(id ?: -1, free = regionPick(pick.t, pick.shapes, id).copy(zoom = pick.zoom, fill = pick.fill))
+        if (pick.shapes.isNotEmpty()) return Target(id ?: -1, free = regionPick(pick.t, pick.shapes, id).copy(zoom = pick.zoom, fill = pick.fill, keepDist = pick.keepDist))
         if (pick.dots.size >= 2) { // the person under any of the dots is the anchor
             val did = pick.dots.firstNotNullOfOrNull { resolveTap(doc, pick.t, it[0], it[1], cfg)?.first } ?: id
             return Target(did ?: -1, free = FreePick(pick.t, pick.x, pick.y, did, pick.zoom, fill = pick.fill, dots = pick.dots))
         }
-        return Target(id ?: -1, free = FreePick(pick.t, pick.x, pick.y, id, pick.zoom))
+        return Target(id ?: -1, free = FreePick(pick.t, pick.x, pick.y, id, pick.zoom, keepDist = pick.keepDist))
     }
     val hit = if (pick.x2 != null && pick.y2 != null) resolveRect(doc, pick.t, pick.x, pick.y, pick.x2, pick.y2, cfg)
     else resolveTap(doc, pick.t, pick.x, pick.y, cfg)

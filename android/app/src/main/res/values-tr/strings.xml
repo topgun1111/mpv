@@ -117,6 +117,10 @@
     <string name="pick_clear">Çizimi temizle</string>
     <string name="pick_multi">Bir uzuv üzerinde birkaç nokta: her birine dokunun</string>
     <string name="pick_dot_undo">Son noktayı kaldır</string>
+    <string name="pick_view_reset">Sığdır</string>
+    <string name="pick_view_hint">Hassas nokta için önizlemeyi yakınlaştırın: iki parmakla sıkıştırın, iki parmakla (Nokta modunda tek parmakla) sürükleyip kaydırın ya da + / − kullanın. Noktalar her yakınlaştırmada tam yerinde kalır.</string>
+    <string name="pick_keep_dist">Aynı mesafeyi koru</string>
+    <string name="pick_keep_dist_hint">Nesne yaklaşınca geri çekilen bir kameraman gibi: nesne bu karedeki boyutunda kalır. İstediğiniz boyutu Gelişmiş → Zoom ile seçin (bu kare için geçerlidir). Nesnenin boyutla izlenmesi (SAM) veya bir kişinin üzerinde olması gerekir.</string>
     <string name="pick_frame_time">Kare: %1$s / %2$s</string>
     <string name="pick_frame_hint">İlk kare siyah veya videonun geri kalanıyla ilgisiz mi? Hedefin göründüğü bir kareye gidip onu seçin. Takip o kareden hem ileri hem geri yönde çalışır.</string>
     <string name="open_update">Güncellemeler</string>
