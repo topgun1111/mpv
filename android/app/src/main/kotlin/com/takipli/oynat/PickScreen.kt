@@ -353,7 +353,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     b.asImageBitmap()
                 }
             }
-            Box(Modifier.fillMaxWidth().aspectRatio(bmp.width / bmp.height.toFloat())) {
+            Box(previewModifier(bmp.width / bmp.height.toFloat())) {
                 Image(bmp.asImageBitmap(), null, Modifier.matchParentSize())
                 Canvas(
                     Modifier.matchParentSize().pointerInput(draw, rectMode) {

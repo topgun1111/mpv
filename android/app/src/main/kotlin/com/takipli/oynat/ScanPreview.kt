@@ -44,7 +44,7 @@ private const val KP_MIN = 0.35 // = Config.kpMinConf (joints below it are not d
 /** Frame + skeletons + target person (yellow) + part box (red) + camera crop (green) + status text (zoom, target state, camera motion / cut). */
 @Composable
 fun ScanPreviewView(p: ScanPreview) {
-    Box(Modifier.fillMaxWidth().aspectRatio(p.bitmap.width / p.bitmap.height.toFloat())) {
+    Box(previewModifier(p.bitmap.width / p.bitmap.height.toFloat())) {
         Image(p.bitmap.asImageBitmap(), null, Modifier.matchParentSize())
         Canvas(Modifier.matchParentSize()) {
             fun at(x: Double, y: Double) = Offset((x * size.width).toFloat(), (y * size.height).toFloat())
