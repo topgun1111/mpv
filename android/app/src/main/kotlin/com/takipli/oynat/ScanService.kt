@@ -161,9 +161,14 @@ class ScanService : Service() {
         val fp = picked?.target?.free
         if (picked != null && fp != null && OpenCvFlow.available) { // free point: tracker passes over the processed part only (PointScanner stops after the last sample)
             try {
-                val pt = PointScanner.run(this, c.uri, picked, fp)
-                val d2 = picked.copy(pt = pt)
-                picked = d2.copy(views = buildTargetViews(d2, d2.target!!, c.cfg, robust = true))
+                // Bounded: this runs NonCancellable after the user pressed Cancel, and the tracker decodes the whole scanned part again
+                // (4K HEVC ~0.4 s per frame): unbounded it left the screen on "preparing..." for minutes. On timeout the anchor-only views are kept.
+                val pt = kotlinx.coroutines.withTimeoutOrNull(PARTIAL_TRACK_MAX_MS) { PointScanner.run(this, c.uri, picked, fp) }
+                if (pt == null) Diag.note(this, "scan", "PARTIAL_TRACK_TIMEOUT", "free-point pass over the partial scan exceeded ${PARTIAL_TRACK_MAX_MS / 1000} s: kept the anchor-only result", com.takipli.oynat.core.Sev.WARN)
+                else {
+                    val d2 = picked.copy(pt = pt)
+                    picked = d2.copy(views = buildTargetViews(d2, d2.target!!, c.cfg, robust = true))
+                }
             } catch (e: CancellationException) { throw e } catch (e: Throwable) { ErrorLog.record(this, "point-partial", e) }
         }
         val out = cancelledFile(c.file)
@@ -176,6 +181,8 @@ class ScanService : Service() {
         ErrorLog.record(this, "scan-cancel", e)
         null
     }
+
+    private val PARTIAL_TRACK_MAX_MS = 60_000L
 
     private fun alertLost() {
         runCatching {
