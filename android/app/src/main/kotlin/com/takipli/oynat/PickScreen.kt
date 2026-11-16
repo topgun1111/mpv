@@ -117,8 +117,8 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
     var zoomLog2 by remember { mutableStateOf(1.5f) }
     var regionFixed by remember { mutableStateOf(true) } // freehand: false = keep the area's size (zoom follows it), true = fixed zoom
     var regionFill by remember { mutableStateOf(0.9f) }
-    var fps by remember { mutableStateOf(PICK_FPS[3]) }
-    var npu by remember { mutableStateOf(false) }
+    var fps by remember { mutableStateOf(PICK_FPS[0]) } // 10 fps default
+    var npu by remember { mutableStateOf(true) } // NPU on by default
     var preview by remember { mutableStateOf(true) }
     var model by remember { mutableStateOf(models.firstOrNull { it.contains("v8s") } ?: models.firstOrNull().orEmpty()) }
     var error by remember { mutableStateOf("") }
@@ -359,13 +359,41 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     Modifier.matchParentSize().pointerInput(draw, rectMode) {
                         fun nrm(o: Offset) = Offset((o.x / size.width).coerceIn(0f, 1f), (o.y / size.height).coerceIn(0f, 1f))
                         if (draw && rectMode) {
-                            var a = Offset.Zero
+                            // One box. Drag a corner = resize (opposite corner stays), drag inside = move, drag elsewhere = draw a new box.
+                            var a = Offset.Zero; var mode = 0; var fixed = Offset.Zero; var grab = Offset.Zero
                             fun box(b: Offset) = listOf(Offset(a.x, a.y), Offset(b.x, a.y), Offset(b.x, b.y), Offset(a.x, b.y))
+                            fun rectOf(): FloatArray? = strokes.firstOrNull()?.takeIf { it.size == 4 }?.let { p -> floatArrayOf(p.minOf { it.x }, p.minOf { it.y }, p.maxOf { it.x }, p.maxOf { it.y }) }
+                            fun setRect(x1: Float, y1: Float, x2: Float, y2: Float) {
+                                strokes.clear()
+                                strokes.add(listOf(Offset(minOf(x1, x2), minOf(y1, y2)), Offset(maxOf(x1, x2), minOf(y1, y2)), Offset(maxOf(x1, x2), maxOf(y1, y2)), Offset(minOf(x1, x2), maxOf(y1, y2))))
+                            }
                             detectDragGestures(
-                                onDragStart = { o -> a = nrm(o); curStroke = emptyList() },
-                                onDrag = { c, _ -> curStroke = box(nrm(c.position)) },
-                                onDragEnd = { val w = curStroke.getOrNull(2); if (w != null && kotlin.math.abs(w.x - a.x) > 0.01f && kotlin.math.abs(w.y - a.y) > 0.01f) { strokes.clear(); strokes.add(curStroke) }; curStroke = emptyList() },
-                                onDragCancel = { curStroke = emptyList() },
+                                onDragStart = { o ->
+                                    val p = nrm(o); val r = rectOf(); mode = 0
+                                    if (r != null) {
+                                        val tx = 44f / size.width; val ty = 44f / size.height
+                                        val corner = listOf(r[0] to r[1], r[2] to r[1], r[2] to r[3], r[0] to r[3]).firstOrNull { (cx, cy) -> kotlin.math.abs(p.x - cx) < tx && kotlin.math.abs(p.y - cy) < ty }
+                                        if (corner != null) { mode = 2; fixed = Offset(if (corner.first == r[0]) r[2] else r[0], if (corner.second == r[1]) r[3] else r[1]) }
+                                        else if (p.x in r[0]..r[2] && p.y in r[1]..r[3]) { mode = 1; grab = p }
+                                    }
+                                    if (mode == 0) { a = p; curStroke = emptyList() }
+                                },
+                                onDrag = { c, _ ->
+                                    val p = nrm(c.position)
+                                    when (mode) {
+                                        2 -> setRect(fixed.x, fixed.y, p.x, p.y)
+                                        1 -> rectOf()?.let { r ->
+                                            val dx = (p.x - grab.x).coerceIn(-r[0], 1f - r[2]); val dy = (p.y - grab.y).coerceIn(-r[1], 1f - r[3])
+                                            setRect(r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy); grab = Offset(grab.x + dx, grab.y + dy)
+                                        }
+                                        else -> curStroke = box(p)
+                                    }
+                                },
+                                onDragEnd = {
+                                    if (mode == 0) { val w = curStroke.getOrNull(2); if (w != null && kotlin.math.abs(w.x - a.x) > 0.01f && kotlin.math.abs(w.y - a.y) > 0.01f) setRect(a.x, a.y, w.x, w.y); curStroke = emptyList() }
+                                    mode = 0
+                                },
+                                onDragCancel = { curStroke = emptyList(); mode = 0 },
                             )
                         } else if (draw) detectDragGestures(
                             onDragStart = { o -> curStroke = listOf(nrm(o)) },
@@ -436,6 +464,9 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                         st.forEachIndexed { i, o -> if (i == 0) path.moveTo(o.x * size.width, o.y * size.height) else path.lineTo(o.x * size.width, o.y * size.height) }
                         path.close()
                         drawPath(path, Color(0x4400E5FF)); drawPath(path, Color.Cyan, style = Stroke(3f))
+                    }
+                    if (rectMode) strokes.firstOrNull()?.takeIf { it.size == 4 }?.forEach { o -> // corner handles
+                        drawCircle(Color.White, 14f, Offset(o.x * size.width, o.y * size.height)); drawCircle(Color.Cyan, 14f, Offset(o.x * size.width, o.y * size.height), style = Stroke(4f))
                     }
                     if (!draw) tap?.let { c ->
                         val p = Offset(c.x * size.width, c.y * size.height)
