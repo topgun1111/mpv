@@ -109,6 +109,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
     var preset by remember { mutableStateOf<String?>(null) } // null = automatic (tapped joint decides)
     var exact by remember { mutableStateOf(false) }
     var draw by remember { mutableStateOf(initialMode == "freehand") } // Part 18: freehand region instead of a tap
+    var rectMode by remember { mutableStateOf(false) } // Rectangle tab: a dragged box becomes a 4-corner region (same pipeline as Freehand)
     val strokes = remember { androidx.compose.runtime.mutableStateListOf<List<Offset>>() }
     var curStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var multi by remember { mutableStateOf(false) } // Point mode: several dots on one limb (the first tap = `tap`, up to 2 more in `extra`)
@@ -294,14 +295,17 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
         Text(stringResource(R.string.home_modes_title), style = MaterialTheme.typography.titleSmall)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !objectMode, enabled = !running, onClick = {
-                objectMode = false; draw = false; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
+                objectMode = false; draw = false; rectMode = false; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
             }, label = { Text(stringResource(R.string.mode_tab_body)) })
             FilterChip(selected = objectMode && !draw, enabled = !running, onClick = {
-                objectMode = true; draw = false; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
+                objectMode = true; draw = false; rectMode = false; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
             }, label = { Text(stringResource(R.string.mode_tab_point)) })
-            FilterChip(selected = objectMode && draw, enabled = !running, onClick = {
-                objectMode = true; draw = true; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
+            FilterChip(selected = objectMode && draw && !rectMode, enabled = !running, onClick = {
+                objectMode = true; draw = true; rectMode = false; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
             }, label = { Text(stringResource(R.string.mode_tab_freehand)) })
+            FilterChip(selected = objectMode && draw && rectMode, enabled = !running, onClick = {
+                objectMode = true; draw = true; rectMode = true; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
+            }, label = { Text(stringResource(R.string.mode_tab_rect)) })
         }
         // What really works in this install, in plain words
         Text(stringResource(R.string.status_version, BuildConfig.VERSION_NAME), fontSize = 12.sp)
@@ -332,6 +336,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                         tap != null -> stringResource(R.string.pick_sel_nobody)
                         else -> stringResource(R.string.pick_found, fl.size)
                     }
+                    draw && rectMode -> stringResource(R.string.pick_rect_hint)
                     draw -> stringResource(R.string.pick_draw_hint)
                     !samOk -> stringResource(R.string.pick_obj_spot)
                     samCache == null && segBusy -> stringResource(R.string.pick_obj_prep)
@@ -351,9 +356,18 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
             Box(Modifier.fillMaxWidth().aspectRatio(bmp.width / bmp.height.toFloat())) {
                 Image(bmp.asImageBitmap(), null, Modifier.matchParentSize())
                 Canvas(
-                    Modifier.matchParentSize().pointerInput(draw) {
+                    Modifier.matchParentSize().pointerInput(draw, rectMode) {
                         fun nrm(o: Offset) = Offset((o.x / size.width).coerceIn(0f, 1f), (o.y / size.height).coerceIn(0f, 1f))
-                        if (draw) detectDragGestures(
+                        if (draw && rectMode) {
+                            var a = Offset.Zero
+                            fun box(b: Offset) = listOf(Offset(a.x, a.y), Offset(b.x, a.y), Offset(b.x, b.y), Offset(a.x, b.y))
+                            detectDragGestures(
+                                onDragStart = { o -> a = nrm(o); curStroke = emptyList() },
+                                onDrag = { c, _ -> curStroke = box(nrm(c.position)) },
+                                onDragEnd = { val w = curStroke.getOrNull(2); if (w != null && kotlin.math.abs(w.x - a.x) > 0.01f && kotlin.math.abs(w.y - a.y) > 0.01f) { strokes.clear(); strokes.add(curStroke) }; curStroke = emptyList() },
+                                onDragCancel = { curStroke = emptyList() },
+                            )
+                        } else if (draw) detectDragGestures(
                             onDragStart = { o -> curStroke = listOf(nrm(o)) },
                             onDrag = { c, _ -> curStroke = curStroke + nrm(c.position) },
                             onDragEnd = { if (curStroke.size >= 3) strokes.add(curStroke); curStroke = emptyList() },
