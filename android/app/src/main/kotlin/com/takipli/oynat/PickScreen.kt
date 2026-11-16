@@ -112,7 +112,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
     var rectMode by remember { mutableStateOf(false) } // Rectangle tab: a dragged box becomes a 4-corner region (same pipeline as Freehand)
     val strokes = remember { androidx.compose.runtime.mutableStateListOf<List<Offset>>() }
     var curStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
-    var multi by remember { mutableStateOf(false) } // Point mode: several dots on one limb (the first tap = `tap`, up to 2 more in `extra`)
+    var multi by remember { mutableStateOf(false) } // Point mode: several dots on one limb (the first tap = `tap`, any number more in `extra`)
     val extra = remember { androidx.compose.runtime.mutableStateListOf<Offset>() }
     var zoomLog2 by remember { mutableStateOf(1.5f) }
     var regionFixed by remember { mutableStateOf(true) } // freehand: false = keep the area's size (zoom follows it), true = fixed zoom
@@ -400,7 +400,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                             onDrag = { c, _ -> curStroke = curStroke + nrm(c.position) },
                             onDragEnd = { if (curStroke.size >= 3) strokes.add(curStroke); curStroke = emptyList() },
                             onDragCancel = { curStroke = emptyList() },
-                        ) else detectTapGestures { o -> if (multi && tap != null) { if (extra.size < 2) extra.add(nrm(o)) } else tap = nrm(o) }
+                        ) else detectTapGestures { o -> if (multi && tap != null) { extra.add(nrm(o)) } else tap = nrm(o) }
                     },
                 ) {
                     if (!objectMode) found?.forEach { p ->

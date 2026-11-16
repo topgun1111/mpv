@@ -164,10 +164,10 @@ object SamEngine {
         return c to l
     }
 
-    /** First-frame prompt: a multi-dot pick sends its dots (up to the decoder's 3 slots) as positive points; otherwise box/tap as before. */
+    /** First-frame prompt: a multi-dot pick sends its dots (the decoder has 3 slots: with more dots the first, middle and last are sent) as positive points; otherwise box/tap as before. */
     private fun firstPrompt(pick: FreePick): Pair<FloatArray, FloatArray> {
         if (pick.dots.size >= 2) {
-            val d = pick.dots.take(3)
+            val all = pick.dots; val d = if (all.size <= 3) all else listOf(all.first(), all[all.size / 2], all.last()) // fixed 3-slot decoder: first, middle, last dot
             val c = FloatArray(6); val l = floatArrayOf(-1f, -1f, -1f)
             for ((k, p) in d.withIndex()) { c[2 * k] = (p[0] * S).toFloat(); c[2 * k + 1] = (p[1] * S).toFloat(); l[k] = 1f }
             return c to l

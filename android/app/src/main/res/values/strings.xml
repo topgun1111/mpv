@@ -115,7 +115,7 @@
     <string name="pick_draw_hint">Draw around the object (e.g. both legs) with your finger; several strokes are allowed. The camera follows the whole drawn area.</string>
     <string name="pick_undo">Undo stroke</string>
     <string name="pick_clear">Clear drawing</string>
-    <string name="pick_multi">Several dots on one limb (up to 3): tap each one</string>
+    <string name="pick_multi">Several dots on one limb: tap each one</string>
     <string name="pick_dot_undo">Remove last dot</string>
     <string name="pick_frame_time">Frame at %1$s of %2$s</string>
     <string name="pick_frame_hint">The first frame black or unrelated to the rest of the video? Move to a frame where the target is visible, then pick it. Tracking runs both ways in time from that frame.</string>
