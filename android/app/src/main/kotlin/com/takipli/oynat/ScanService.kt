@@ -19,6 +19,7 @@ import android.os.VibratorManager
 import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.Formats
 import com.takipli.oynat.core.TargetPick
+import com.takipli.oynat.core.TrackDoc
 import com.takipli.oynat.core.applyPicks
 import com.takipli.oynat.core.buildTargetViews
 import com.takipli.oynat.core.rangeTag
@@ -163,10 +164,11 @@ class ScanService : Service() {
             try {
                 // Bounded: this runs NonCancellable after the user pressed Cancel, and the tracker decodes the whole scanned part again
                 // (4K HEVC ~0.4 s per frame): unbounded it left the screen on "preparing..." for minutes. On timeout the anchor-only views are kept.
-                val pt = kotlinx.coroutines.withTimeoutOrNull(PARTIAL_TRACK_MAX_MS) { PointScanner.run(this, c.uri, picked, fp) }
+                val svc: Context = this; val base: TrackDoc = picked
+                val pt = kotlinx.coroutines.withTimeoutOrNull(PARTIAL_TRACK_MAX_MS) { PointScanner.run(svc, c.uri, base, fp) }
                 if (pt == null) Diag.note(this, "scan", "PARTIAL_TRACK_TIMEOUT", "free-point pass over the partial scan exceeded ${PARTIAL_TRACK_MAX_MS / 1000} s: kept the anchor-only result", com.takipli.oynat.core.Sev.WARN)
                 else {
-                    val d2 = picked.copy(pt = pt)
+                    val d2 = base.copy(pt = pt)
                     picked = d2.copy(views = buildTargetViews(d2, d2.target!!, c.cfg, robust = true))
                 }
             } catch (e: CancellationException) { throw e } catch (e: Throwable) { ErrorLog.record(this, "point-partial", e) }
