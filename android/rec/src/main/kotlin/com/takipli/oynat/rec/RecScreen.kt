@@ -144,6 +144,7 @@ fun RecScreen() {
     var exportMessage by remember { mutableStateOf("") }
     var speed by remember { mutableStateOf(1.0) }
     var fullscreen by remember { mutableStateOf(false) }
+    var showAdvanced by remember { mutableStateOf(false) }
     val player = remember { ExoPlayer.Builder(ctx).build() }
     val hostView = LocalView.current
     SideEffect { hostView.keepScreenOn = recording || exporter != null || fullscreen }
@@ -348,62 +349,77 @@ fun RecScreen() {
             }
         }
     } else {
-        // ---- Normal page ----
+        // ---- Compact workspace: video first, essential controls second, advanced controls collapsed ----
         Column(
-            Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(stringResource(R.string.title), style = MaterialTheme.typography.headlineSmall)
-            Text(stringResource(R.string.subtitle), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedButton(onClick = { picker.launch(arrayOf("video/*")) }, enabled = !exporting && !recording, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(if (uri == null) R.string.choose_video else R.string.change_video))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(stringResource(R.string.title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(if (loaded) "${clock(posMs)} / ${clock(durationMs)}" else stringResource(R.string.subtitle), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                OutlinedButton(onClick = { picker.launch(arrayOf("video/*")) }, enabled = !exporting && !recording) {
+                    Text(stringResource(if (uri == null) R.string.choose_video else R.string.change_video))
+                }
             }
             if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
             if (loaded && vi != null) {
-                Box(Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(16.dp))) {
+                Box(Modifier.fillMaxWidth().height(340.dp).clip(RoundedCornerShape(22.dp)).background(Color.Black)) {
                     PreviewSurface(player, view, aspect, recording, onGesture, Modifier.fillMaxSize())
                     if (recording) Text(stringResource(R.string.rec_badge), color = REC_RED, fontWeight = FontWeight.Bold, modifier = Modifier.padding(12.dp))
                     OverlayButton(stringResource(R.string.full_screen), { fullscreen = true }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp))
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = { rotate(-90) }, enabled = !recording && !exporting) { Text(stringResource(R.string.rotate_left)) }
-                    OutlinedButton(onClick = { rotate(90) }, enabled = !recording && !exporting) { Text(stringResource(R.string.rotate_right)) }
-                    Text(String.format(Locale.ROOT, "%.1f×", 2.0.pow(view.zoom)), modifier = Modifier.padding(start = 4.dp))
-                }
-                Text(stringResource(R.string.rotate_note), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { togglePlay() }, enabled = !exporting) { Text(stringResource(if (playing) R.string.pause else R.string.play)) }
-                    OutlinedButton(onClick = { view = ZERO_VIEW }, enabled = !recording && !exporting) { Text(stringResource(R.string.reset_view)) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("${clock(posMs)} / ${clock(durationMs)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    Text("${keys.size} keyframes  ·  ${String.format(Locale.ROOT, "%.1f", 2.0.pow(view.zoom))}×", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 }
                 Slider(
                     value = posMs.toFloat().coerceIn(0f, durationMs.toFloat()),
                     onValueChange = { if (!recording) { posMs = it.toLong(); player.seekTo(posMs) } },
                     valueRange = 0f..durationMs.toFloat(), enabled = !recording && !exporting,
                 )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = { muted = !muted }) { Text(if (muted || volume == 0f) "\uD83D\uDD07" else "\uD83D\uDD0A") }
-                    Slider(value = if (muted) 0f else volume, onValueChange = { volume = it; muted = it == 0f }, modifier = Modifier.weight(1f))
-                }
-                Text(stringResource(R.string.keyframes_info, clock(posMs), clock(durationMs), keys.size), style = MaterialTheme.typography.labelSmall)
-                Text(stringResource(R.string.speed_title), style = MaterialTheme.typography.titleSmall)
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    REC_SPEED_PRESETS.forEach { p ->
-                        FilterChip(selected = speed == p, enabled = !exporting, onClick = { applySpeed(p) }, label = { Text(speedLabel(p)) })
-                    }
-                }
-                Text(stringResource(R.string.speed_note), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { if (recording) stopRecording() else startRecording() }, enabled = !exporting, modifier = Modifier.weight(1f)) {
-                        Text(stringResource(if (recording) R.string.rec_stop else R.string.rec_start))
+                    OutlinedButton(onClick = { togglePlay() }, enabled = !exporting, modifier = Modifier.weight(1f)) { Text(stringResource(if (playing) R.string.pause else R.string.play)) }
+                    OutlinedButton(onClick = { view = ZERO_VIEW }, enabled = !recording && !exporting, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.reset_view)) }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OverlayButton(stringResource(if (recording) R.string.stop_short else R.string.rec_short), { if (recording) stopRecording() else startRecording() }, modifier = Modifier.weight(1f), enabled = !exporting, accent = true)
+                    if (!recording && keys.isNotEmpty()) OverlayButton(stringResource(R.string.export_mp4), { startExport() }, modifier = Modifier.weight(1f), enabled = !exporting)
+                }
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp, vertical = 4.dp)) {
+                    androidx.compose.material3.TextButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (showAdvanced) "⌃  Advanced controls" else "⌄  Advanced controls")
                     }
-                    OutlinedButton(onClick = { startExport() }, enabled = !recording && !exporting && keys.isNotEmpty(), modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.export_mp4))
+                    if (showAdvanced) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OverlayButton(stringResource(R.string.rotate_left), { rotate(-90) }, enabled = !recording && !exporting)
+                            OverlayButton(stringResource(R.string.rotate_right), { rotate(90) }, enabled = !recording && !exporting)
+                            OverlayButton(if (muted || volume == 0f) "🔇" else "🔊", { muted = !muted })
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Volume", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                            Slider(value = if (muted) 0f else volume, onValueChange = { volume = it; muted = it == 0f }, modifier = Modifier.weight(1f))
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${speedLabel(speed)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Slider(value = speed.toFloat(), onValueChange = { applySpeed(it.toDouble()) }, valueRange = 0.25f..3f, steps = 10, enabled = !exporting, modifier = Modifier.weight(1f))
+                        }
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            REC_SPEED_PRESETS.forEach { p -> FilterChip(selected = speed == p, enabled = !exporting, onClick = { applySpeed(p) }, label = { Text(speedLabel(p)) }) }
+                        }
                     }
                 }
+                if (exportLine.isNotEmpty()) Text(exportLine, color = Color.White, fontSize = 13.sp)
                 if (exporting) LinearProgressIndicator(progress = { exportProgress }, modifier = Modifier.fillMaxWidth())
-                if (exportLine.isNotEmpty()) Text(exportLine, style = MaterialTheme.typography.bodySmall)
+            } else {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("▣", fontSize = 36.sp, color = MaterialTheme.colorScheme.primary)
+                    Text(stringResource(R.string.title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.subtitle), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(onClick = { picker.launch(arrayOf("video/*")) }, enabled = !exporting && !recording, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.choose_video)) }
+                }
             }
-            Text(stringResource(R.string.version_label, BuildConfig.VERSION_NAME), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

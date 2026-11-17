@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -304,7 +305,10 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
         Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        TextButton(onClick = onBack, enabled = !running) { Text(stringResource(R.string.back)) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            TextButton(onClick = onBack, enabled = !running) { Text("‹  " + stringResource(R.string.back)) }
+            Text(stringResource(R.string.pick_title), style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        }
         if (lost != null) {
             Text(stringResource(R.string.scan_lost_hint), color = MaterialTheme.colorScheme.error)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -312,8 +316,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 OutlinedButton(onClick = { ScanService.cancel(ctx) }) { Text(stringResource(R.string.scan_cancel)) }
             }
         }
-        Text(stringResource(R.string.pick_title), style = MaterialTheme.typography.headlineSmall)
-        Text(stringResource(R.string.home_modes_title), style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.home_modes_title), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !objectMode, enabled = !running, onClick = {
                 objectMode = false; draw = false; rectMode = false; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
@@ -328,12 +331,16 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 objectMode = true; draw = true; rectMode = true; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
             }, label = { Text(stringResource(R.string.mode_tab_rect)) })
         }
-        // What really works in this install, in plain words
-        Text(stringResource(R.string.status_version, BuildConfig.VERSION_NAME), fontSize = 12.sp)
-        Text(stringResource(if (samMem) R.string.status_sam_full else if (samOk) R.string.status_sam_basic else R.string.status_sam_none), fontSize = 12.sp)
-        Text(stringResource(if (models.isNotEmpty()) R.string.status_pose_ok else R.string.status_pose_none), fontSize = 12.sp)
-        if (models.isEmpty()) Text(stringResource(R.string.bench_no_models))
-        OutlinedButton(enabled = !running, onClick = { picker.launch(arrayOf("video/*")) }) { Text(stringResource(R.string.decode_pick)) }
+        // Compact capability summary, separated from the actual picking workflow.
+        androidx.compose.material3.Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stringResource(R.string.status_version, BuildConfig.VERSION_NAME), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(if (samMem) R.string.status_sam_full else if (samOk) R.string.status_sam_basic else R.string.status_sam_none), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(if (models.isNotEmpty()) R.string.status_pose_ok else R.string.status_pose_none), style = MaterialTheme.typography.bodySmall)
+                if (models.isEmpty()) Text(stringResource(R.string.bench_no_models), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+        }
+        OutlinedButton(enabled = !running, onClick = { picker.launch(arrayOf("video/*")) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.decode_pick)) }
         if (error.isNotEmpty()) Text(error)
 
         val bmp = frame

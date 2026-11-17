@@ -97,6 +97,7 @@ fun RecordScreen(onBack: () -> Unit) {
     var exportMessage by remember { mutableStateOf("") }
     var hevc by remember { mutableStateOf(false) }
     var speed by remember { mutableStateOf(1.0) }
+    var showAdvanced by remember { mutableStateOf(false) }
     val player = remember { ExoPlayer.Builder(ctx).build() }
     val hostView = LocalView.current
     SideEffect { hostView.keepScreenOn = recording || exporter != null }
@@ -186,16 +187,17 @@ fun RecordScreen(onBack: () -> Unit) {
         Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        TextButton(onClick = onBack, enabled = exporter == null && !recording) { Text("← Back") }
-        Text("Manual camera", style = MaterialTheme.typography.headlineSmall)
-        Text("Play a video, then pinch to zoom and drag to reframe. Record captures your camera movement and exports a new video.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        OutlinedButton(onClick = { picker.launch(arrayOf("video/*")) }, enabled = exporter == null && !recording, modifier = Modifier.fillMaxWidth()) { Text(if (uri == null) "Choose video" else "Change video") }
+        TextButton(onClick = onBack, enabled = exporter == null && !recording) { Text("‹ Back") }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("MANUAL CAMERA", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, letterSpacing = 1.2.sp)
+            OutlinedButton(onClick = { picker.launch(arrayOf("video/*")) }, enabled = exporter == null && !recording) { Text(if (uri == null) "+ Video" else "Change") }
+        }
         if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
         val vi = info
         if (uri != null && vi != null) {
             // Bounded viewport: portrait videos no longer expand the page beyond the screen.
             androidx.compose.foundation.layout.BoxWithConstraints(
-                Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(16.dp))
+                Modifier.fillMaxWidth().height(340.dp).clip(RoundedCornerShape(22.dp))
                     .clipToBounds().background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
@@ -230,35 +232,39 @@ fun RecordScreen(onBack: () -> Unit) {
                 Text("${String.format(Locale.ROOT, "%.1f", view.zoom.let { 2.0.pow(it) })}×", modifier = Modifier.padding(top = 12.dp))
             }
             Slider(value = posMs.toFloat().coerceIn(0f, durationMs.toFloat()), onValueChange = { if (!recording) { posMs = it.toLong(); player.seekTo(posMs) } }, valueRange = 0f..durationMs.toFloat(), enabled = !recording && exporter == null)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { muted = !muted }) { Text(if (muted || volume == 0f) "\uD83D\uDD07" else "\uD83D\uDD0A") }
-                Slider(value = if (muted) 0f else volume, onValueChange = { volume = it; muted = it == 0f }, modifier = Modifier.weight(1f))
-            }
-            Text("${posMs / 1000}s / ${durationMs / 1000}s · ${keys.size} camera keyframes", style = MaterialTheme.typography.labelSmall)
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Playback speed", style = MaterialTheme.typography.titleSmall)
-                    Text(String.format(Locale.ROOT, "%.2f×", speed), style = MaterialTheme.typography.headlineMedium)
-                    Slider(
-                        value = speed.toFloat(), onValueChange = { applySpeed(it.toDouble()) },
-                        valueRange = REC_SPEED_MIN.toFloat()..REC_SPEED_MAX.toFloat(), steps = 6, // 0.25 steps
-                        enabled = exporter == null
-                    )
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        REC_SPEED_PRESETS.forEach { p ->
-                            FilterChip(selected = speed == p, enabled = exporter == null, onClick = { applySpeed(p) }, label = { Text(if (p == 1.0) "1×" else "${p}×".replace(".0×", "×")) })
-                        }
-                    }
-                    Text("Slows or speeds up the preview only. Your camera moves are saved against the video's own time, and the exported video keeps its original speed.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("${posMs / 1000}s / ${durationMs / 1000}s", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${keys.size} camera keyframes", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
                     if (!recording) {
                         keys = emptyList(); view = CamView(0.0, 0.0, 0.0); player.seekTo(0); player.play(); recording = true
                     } else { recording = false; player.pause(); keys = appendKey(keys, player.currentPosition / 1000.0, view) }
-                }, enabled = exporter == null, modifier = Modifier.weight(1f)) { Text(if (recording) "Stop recording" else "● Start recording") }
+                }, enabled = exporter == null, modifier = Modifier.weight(1f)) { Text(if (recording) "Stop recording" else "● Record") }
                 OutlinedButton(onClick = { startExport() }, enabled = !recording && exporter == null && keys.isNotEmpty(), modifier = Modifier.weight(1f)) { Text("Export MP4") }
+            }
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (showAdvanced) "⌃  Playback & audio" else "⌄  Playback & audio")
+                    }
+                    if (showAdvanced) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedButton(onClick = { muted = !muted }) { Text(if (muted || volume == 0f) "🔇" else "🔊") }
+                            Slider(value = if (muted) 0f else volume, onValueChange = { volume = it; muted = it == 0f }, modifier = Modifier.weight(1f))
+                        }
+                        Text("Playback speed", style = MaterialTheme.typography.titleSmall)
+                        Text(String.format(Locale.ROOT, "%.2f×", speed), style = MaterialTheme.typography.titleLarge)
+                        Slider(value = speed.toFloat(), onValueChange = { applySpeed(it.toDouble()) }, valueRange = REC_SPEED_MIN.toFloat()..REC_SPEED_MAX.toFloat(), steps = 6, enabled = exporter == null)
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            REC_SPEED_PRESETS.forEach { p ->
+                                FilterChip(selected = speed == p, enabled = exporter == null, onClick = { applySpeed(p) }, label = { Text(if (p == 1.0) "1×" else "${p}×".replace(".0×", "×")) })
+                            }
+                        }
+                        Text("Preview speed only. Exported video keeps its original speed.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
             if (exporter != null) LinearProgressIndicator(progress = { exportProgress }, modifier = Modifier.fillMaxWidth())
             if (exportMessage.isNotEmpty()) Text(exportMessage, style = MaterialTheme.typography.bodySmall)

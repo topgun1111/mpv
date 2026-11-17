@@ -66,45 +66,57 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit, onScan: () -> Unit, onPick: (String) -> Unit, onRecord: () -> Unit, onUpdate: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("TAKİPLİ OYNAT", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("TAKİPLİ OYNAT", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
                 Text(stringResource(R.string.home_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             }
-            Text("◉", color = MaterialTheme.colorScheme.primary, fontSize = 34.sp)
+            Text("◉", color = MaterialTheme.colorScheme.primary, fontSize = 30.sp)
         }
-        Text(stringResource(R.string.home_subtitle), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.home_subtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(26.dp),
+            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         ) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.home_start_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                Text(stringResource(R.string.home_start_desc), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                Button(onClick = { onPick("body") }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.open_pick)) }
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(stringResource(R.string.home_start_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(stringResource(R.string.home_start_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+                Button(onClick = { onPick("body") }) { Text(stringResource(R.string.open_pick)) }
             }
         }
 
-        Text(stringResource(R.string.home_modes_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ModePreviewCard("🧍", stringResource(R.string.mode_body), stringResource(R.string.mode_body_desc), Modifier.weight(1f)) { onPick("body") }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(stringResource(R.string.home_modes_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("4 MODES", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ModePreviewCard("♙", stringResource(R.string.mode_body), stringResource(R.string.mode_body_desc), Modifier.weight(1f)) { onPick("body") }
             ModePreviewCard("✦", stringResource(R.string.mode_point), stringResource(R.string.mode_point_desc), Modifier.weight(1f)) { onPick("point") }
         }
-        ModePreviewCard("〰", stringResource(R.string.mode_freehand), stringResource(R.string.mode_freehand_desc), Modifier.fillMaxWidth()) { onPick("freehand") }
-        ModePreviewCard("🎥", stringResource(R.string.mode_record), stringResource(R.string.mode_record_desc), Modifier.fillMaxWidth()) { onRecord() }
-
-        Text(stringResource(R.string.home_tools_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = onBench, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.open_bench)) }
-            OutlinedButton(onClick = onDecode, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.open_decode)) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ModePreviewCard("〰", stringResource(R.string.mode_freehand), stringResource(R.string.mode_freehand_desc), Modifier.weight(1f)) { onPick("freehand") }
+            ModePreviewCard("▣", stringResource(R.string.mode_record), stringResource(R.string.mode_record_desc), Modifier.weight(1f)) { onRecord() }
         }
-        OutlinedButton(onClick = onScan, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.open_scan)) }
-        OutlinedButton(onClick = onUpdate, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.open_update)) }
+
+        Text(stringResource(R.string.home_tools_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = onBench, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.open_bench), style = MaterialTheme.typography.labelMedium) }
+                    OutlinedButton(onClick = onDecode, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.open_decode), style = MaterialTheme.typography.labelMedium) }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onScan, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.open_scan), style = MaterialTheme.typography.labelMedium) }
+                    OutlinedButton(onClick = onUpdate, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.open_update), style = MaterialTheme.typography.labelMedium) }
+                }
+            }
+        }
         Text(stringResource(R.string.version_label, BuildConfig.VERSION_NAME) + "  ·  " + stringResource(R.string.core_check, CoreInfo.label()), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         AboutSection()
     }
@@ -113,10 +125,10 @@ fun HomeScreen(onBench: () -> Unit, onDecode: () -> Unit, onScan: () -> Unit, on
 @Composable
 private fun ModePreviewCard(icon: String, title: String, description: String, modifier: Modifier, onClick: () -> Unit) {
     Card(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(icon, fontSize = 25.sp)
+        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(icon, fontSize = 22.sp)
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
