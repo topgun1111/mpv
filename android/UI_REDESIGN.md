@@ -47,3 +47,11 @@ Same change as RecordScreen: speed slider + presets always visible in their own 
 
 - Scan / Resume-after-loss is now a bottom bar outside the scrolling area, always visible once a video frame is loaded. Its click body was moved unchanged into a local `startScan()` (only `return@Button` → `return`); enable conditions are identical.
 - Cancel / partial export / resume still live in the status area (`ScanUi.*`) that scrolls with the page, unchanged.
+
+## Part 7 — PickScreen landscape + sticky progress (not compiled)
+
+- `PickScreen.kt`: the scrolling content is now four local blocks (`headerBlock`, `videoBlock`, `controlsBlock`, `statusBlock`) with the same code as before. Portrait / no video: one scrolling column, same order as before. Landscape or width >= 600 dp with a frame showing: left pane 60 % (video, zoom, rotate), right pane 40 % (header, modes, clip range, selection, advanced, status), each with its own scroll.
+- `previewModifier(aspect, heightFrac = 0.55f)` (`PreviewSize.kt`): the two-pane layout passes 0.8.
+- Zoom hint and frame hint are one string, `pick_hint_line` (en + tr, `strings_cam.xml`); the old two strings are unused now.
+- During a scan the progress bar, the counters and Cancel are in a bottom bar (same place as the Scan button); the scrolling area keeps the live preview and the background note. The Saving progress (after Cancel) stays in the scrolling area.
+- No mode icons: no icon library in the project.

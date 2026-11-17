@@ -50,4 +50,5 @@
     <string name="result_range_note">A–B taraması: yalnızca %1$s–%2$s sn işlendi. Önizleme ve dışa aktarma bu kısmı kapsar.</string>
     <string name="pick_sec_clip">Klip aralığı</string>
     <string name="pick_sec_select">Seçim</string>
+    <string name="pick_hint_line">Yakınlaştırmak için sıkıştırın veya sürükleyin. Kare uygun değilse hedefin göründüğü bir kareye gidin.</string>
 </resources>

@@ -15,8 +15,8 @@ import androidx.compose.ui.unit.dp
  * full-width preview is taller than the screen and leaves no room to scroll to the settings and the start button.
  */
 @Composable
-fun previewModifier(aspect: Float): Modifier {
+fun previewModifier(aspect: Float, heightFrac: Float = 0.55f): Modifier {
     val h = LocalConfiguration.current.screenHeightDp
-    val maxW = (h * 0.55f * aspect).dp
+    val maxW = (h * heightFrac * aspect).dp
     return Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = maxW).fillMaxWidth().aspectRatio(aspect)
 }

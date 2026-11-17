@@ -588,3 +588,4 @@ Sıra: (U5 ✅) U6 → U7 → U8 → U9. Kapsam dışı: küçük resim önizlem
 - Android UI part 4: rec/RecScreen speed card + adaptive viewport; uncompiled.
 - Android UI part 5: ResultScreen adaptive viewport + dup-line fix; uncompiled.
 - Android UI part 6: PickScreen sticky Scan bar (startScan hoisted); uncompiled. Next: landscape, Home/secondary screens.
+- Android UI part 7: PickScreen two-pane landscape (>= 600 dp / landscape), one-line hint, progress + Cancel in the sticky bar; uncompiled. Next (REMAINING.md item 2): ResultScreen transport bar, sticky Save/Export, shorter tabs.

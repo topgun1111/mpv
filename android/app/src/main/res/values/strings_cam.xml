@@ -50,4 +50,5 @@
     <string name="result_range_note">A–B scan: only %1$s–%2$s s were processed. Preview and export cover that part.</string>
     <string name="pick_sec_clip">Clip range</string>
     <string name="pick_sec_select">Selection</string>
+    <string name="pick_hint_line">Pinch or drag to zoom. Wrong frame? Seek to one where the target is visible.</string>
 </resources>

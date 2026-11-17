@@ -2,6 +2,7 @@ package com.takipli.oynat
 
 import android.Manifest
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.net.Uri
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -46,6 +48,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -320,11 +323,12 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     }
     }
 
-    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-    Column(
-        Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
+    val bmp = frame
+    val showPick = uri != null && bmp != null && !running && ui !is ScanUi.Done && ui !is ScanUi.Cancelled
+    // Landscape or a wide window (foldable, tablet): video on the left (~60 %), controls on the right, each scrolling on its own.
+    val cfgW = LocalConfiguration.current
+    val twoPane = showPick && (cfgW.orientation == Configuration.ORIENTATION_LANDSCAPE || cfgW.screenWidthDp >= 600)
+    val headerBlock: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             TextButton(onClick = onBack, enabled = !running) { Text("‹  " + stringResource(R.string.back)) }
             Text(stringResource(R.string.pick_title), style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
@@ -353,9 +357,9 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
         }
         OutlinedButton(enabled = !running, onClick = { picker.launch(arrayOf("video/*")) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.decode_pick)) }
         if (error.isNotEmpty()) Text(error)
-
-        val bmp = frame
-        if (uri != null && bmp != null && !running && ui !is ScanUi.Done && ui !is ScanUi.Cancelled) {
+    }
+    val videoBlock: @Composable () -> Unit = {
+        if (showPick && bmp != null) {
             // The selected mode is controlled by the three tabs above.
             // 2. say what to do next, in plain words
             val fl = found
@@ -386,7 +390,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 }
             }
             Box(
-                previewModifier(bmp.width / bmp.height.toFloat()).clipToBounds().onSizeChanged { boxPx = it }.pointerInput(Unit) {
+                previewModifier(bmp.width / bmp.height.toFloat(), if (twoPane) 0.8f else 0.55f).clipToBounds().onSizeChanged { boxPx = it }.pointerInput(Unit) {
                     // Two fingers = pinch zoom + pan (taken before the dot/draw gestures below see them); one finger pans only while zoomed in
                     // and not drawing. A plain tap or a one-finger draw still reaches the Canvas untouched.
                     awaitEachGesture {
@@ -555,7 +559,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 OutlinedButton(enabled = vz > 1.01f, onClick = { vz = 1f; vo = Offset.Zero }) { Text(stringResource(R.string.pick_view_reset)) }
                 Text(String.format(Locale.ROOT, "%.1f\u00d7", vz), style = MaterialTheme.typography.labelLarge)
             }
-            Text(stringResource(R.string.pick_view_hint), fontSize = 12.sp)
+            Text(stringResource(R.string.pick_hint_line), fontSize = 12.sp)
             // Rotate until the people stand upright (like at 0 degrees): the preview below is exactly what is tracked and exported.
             Text(stringResource(R.string.pick_rotate, rot), style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -563,6 +567,10 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 OutlinedButton(onClick = { turn(90) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_right)) }
                 OutlinedButton(onClick = { turn(360 - rot) }, enabled = rot != 0, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_reset)) }
             }
+        }
+    }
+    val controlsBlock: @Composable () -> Unit = {
+        if (showPick) {
             val rangeErr = (rangeA != null && rangeB != null && rangeB!! <= rangeA!! + 0.5f) || (rangeA != null && frameT < rangeA!! - 0.05) || (rangeB != null && frameT > rangeB!! + 0.05)
             PickSection(stringResource(R.string.pick_sec_clip)) {
             Text(stringResource(R.string.pick_frame_time, fmtClock(seekT.toDouble()), if (durationS > 0) fmtClock(durationS) else "?"), style = MaterialTheme.typography.labelLarge)
@@ -579,7 +587,6 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     OutlinedButton(onClick = { val t = clampT(seekT + d); seekT = t.toFloat(); loadAt(t) }) { Text(label) }
                 }
             }
-            Text(stringResource(R.string.pick_frame_hint), fontSize = 12.sp)
             // A-B scan: set A / B at the shown frame; only [A, B] is scanned, tracked and exported
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = rangeA != null, onClick = { rangeA = frameT.toFloat() }, label = { Text(stringResource(R.string.range_set_a, rangeA?.let { fmtClock(it.toDouble()) } ?: "—")) })
@@ -659,19 +666,12 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
             }
             BatteryWarning()
         }
-
+    }
+    val statusBlock: @Composable () -> Unit = {
         when (val s = ui) {
             is ScanUi.Running -> {
-                val p = s.p
                 s.pv?.let { ScanPreviewView(it) }
-                if (p != null && p.total > 0) LinearProgressIndicator(progress = { (p.samples.toFloat() / p.total).coerceIn(0f, 1f) })
-                Text(
-                    p?.let { String.format(Locale.ROOT, "%d / %d samples | t %.1f s | cuts %d", it.samples, it.total, it.t, it.cuts) }
-                        ?: stringResource(R.string.pick_preparing),
-                    fontFamily = FontFamily.Monospace, fontSize = 13.sp,
-                )
                 Text(stringResource(R.string.pick_background))
-                OutlinedButton(onClick = { ScanService.cancel(ctx) }) { Text(stringResource(R.string.scan_cancel)) }
             }
             is ScanUi.Done -> {
                 Text(
@@ -706,12 +706,41 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
             ScanUi.Idle -> {}
         }
     }
-    if (showScanBar) androidx.compose.material3.Surface(Modifier.fillMaxWidth(), tonalElevation = 3.dp, shadowElevation = 6.dp) {
-        Button(
-            enabled = scanReady, onClick = { startScan() },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        ) { Text(stringResource(if (lost != null) R.string.scan_lost_resume else R.string.pick_start)) }
-    }
+
+    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+        if (twoPane) Row(Modifier.weight(1f).fillMaxWidth()) {
+            Column(Modifier.weight(0.6f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                videoBlock()
+            }
+            Column(Modifier.weight(0.4f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                headerBlock(); controlsBlock(); statusBlock()
+            }
+        } else Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            headerBlock(); videoBlock(); controlsBlock(); statusBlock()
+        }
+        if (showScanBar) androidx.compose.material3.Surface(Modifier.fillMaxWidth(), tonalElevation = 3.dp, shadowElevation = 6.dp) {
+            Button(
+                enabled = scanReady, onClick = { startScan() },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            ) { Text(stringResource(if (lost != null) R.string.scan_lost_resume else R.string.pick_start)) }
+        }
+        // during a scan the progress and Cancel live here, not in the scrolling area
+        val runUi = ui as? ScanUi.Running
+        if (runUi != null) androidx.compose.material3.Surface(Modifier.fillMaxWidth(), tonalElevation = 3.dp, shadowElevation = 6.dp) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val p = runUi.p
+                if (p != null && p.total > 0) LinearProgressIndicator(progress = { (p.samples.toFloat() / p.total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text(
+                        p?.let { String.format(Locale.ROOT, "%d / %d samples | t %.1f s | cuts %d", it.samples, it.total, it.t, it.cuts) }
+                            ?: stringResource(R.string.pick_preparing),
+                        Modifier.weight(1f), fontFamily = FontFamily.Monospace, fontSize = 13.sp,
+                    )
+                    OutlinedButton(onClick = { ScanService.cancel(ctx) }) { Text(stringResource(R.string.scan_cancel)) }
+                }
+            }
+        }
     }
 }
 
