@@ -212,11 +212,11 @@ Installer (`TakipliOynat-Setup-x.y.z.exe`, Windows 10 1903+) gömülü Python, m
 Paket derleme (CI): `python scripts/make_package.py` → `python scripts/build_embedded.py` → `scripts/fetch_deps.ps1` → `iscc installer.iss`.
 
 ### Release (Parça 15)
-0. `VERSION` ile `tracker/__init__.py::__version__` aynı olmalı (`tests/test_license.py` ikisini de 1.2.0'a sabitler; sürümü yükseltirken testi de güncelle).
-1. `main`'e push → `build-all.yml` (CI + `build.yml` + Android + kayıt varyantı tek çalıştırmada; ayrı artifact: **TakipliOynat-Setup** = `TakipliOynat-Setup-x.y.z.exe`, **TakipliOynat-Portable** = `TakipliOynat-Portable-x.y.z.zip`).
+0. **Tek sürüm:** tüm uygulamalar (PC ana, PC kayıt, Android pose/sam, Android kayıt) `VERSION` dosyasını paylaşır. Yükseltmek için `python scripts/bump_version.py patch|minor|major|X.Y.Z` (VERSION, `tracker/`, `recorder/` ve `tests/test_license.py` birlikte güncellenir); `python scripts/version.py check` tutarlılığı denetler (CI de çalıştırır).
+1. `main`'e push → `build-all.yml` (CI + PC ana + PC kayıt + Android pose/sam + Android kayıt tek çalıştırmada) ve sonunda **tek bir önsürüm** `vX.Y.Z-b<çalıştırma no>`: tüm kurulum/APK dosyaları `<Uygulama>-X.Y.Z-b<no>.<uzantı>` adıyla + `SHA256SUMS.txt` aynı Release'e eklenir (son 8 önsürüm tutulur). AGPL pose modeli içeren dosyalar (PC ana, Android pose/sam) yalnız özel depoda eklenir; PC ana `v*` etiketinde her depoda eklenir. Ayrı artifact'lar da durur.
 2. Derleme günlüğündeki `SHA256 python-...` ve `SHA256 mpv-...` satırlarını doğrulayıp `scripts/build_embedded.py` (`PY_SHA256`) içine yaz; mpv için `fetch_deps.ps1 -Tag <sürüm>` ile sürümü sabitle.
 3. Temiz Windows'ta kur (model pakette gelir) → `Baslat.bat` ile dene. Üzerine yeni sürüm kurup ayarların/kısayolların korunduğunu da dene.
-4. `git tag v1.0.0 && git push origin v1.0.0` → GitHub Release otomatik oluşur (`generate_release_notes`).
+4. `python scripts/bump_version.py minor && git commit -am "Version X.Y.Z" && git tag vX.Y.Z && git push --follow-tags` → aynı çalıştırma tam Release `vX.Y.Z` açar (etiket VERSION ile aynı olmalı, değilse çalıştırma hemen durur).
 
 İlk gerçek denemede kontrol: `python -m tracker detect kare.jpg --model models\yolox_s.onnx --out sonuc.jpg` (kutular doğru yerde mi, `provider=DmlExecutionProvider`); `live --stats 2` (fps/gecikme); `o` ile offline oynatma; Ctrl+S ayar kaydı.
 
@@ -236,4 +236,4 @@ Ana uygulamadan ayrı, **model içermeyen** küçük paket (`dist/TakipliOynatKa
 | **◄ 90° / 90° ►** düğmeleri (üstte, HIZ'ın solu) | Videoyu saat yönü tersi / saat yönünde 90° döndür. **Kayıttan önce** (boşta ya da hazırken) yapılır; kayıt başlayınca gizlenir. Dönüş kayda yazılır, dışa aktarılan `.kamera.mp4` döndürülmüş çıkar |
 | `K` | Videoyu 90° döndür (düğmeyle aynı; kayıt başlayınca yok) |
 
-Akış: `Kayit.bat` ya da kısayol → video aç → **KAYDET** (hazır) → gerekirse **◄ 90° / 90° ►** ile döndür → hızı ayarla → `Space` (kayıt hemen başlar) → zoom + sol tuşla sürükle → **KAYDET** (durdur) → `S`. Çıktı özgün hızda, özgün sesle (`-shortest`) ve kaynakla aynı boyutta yazılır; önizleme hızı çıktıyı etkilemez. Komut satırından: `python -m recorder export video.mp4 [--rec F] [--out F] [--crf 14] [--preset medium] [--no-audio]`; sürükle-bırak için `Disa-Aktar.bat`. Derleme: `build-recording.yml` (etiket `kayit-v*` Release'i açar; ana `v*` etiketinden bağımsız). Lisanslar: `THIRD_PARTY_NOTICES.md` Madde 3c.
+Akış: `Kayit.bat` ya da kısayol → video aç → **KAYDET** (hazır) → gerekirse **◄ 90° / 90° ►** ile döndür → hızı ayarla → `Space` (kayıt hemen başlar) → zoom + sol tuşla sürükle → **KAYDET** (durdur) → `S`. Çıktı özgün hızda, özgün sesle (`-shortest`) ve kaynakla aynı boyutta yazılır; önizleme hızı çıktıyı etkilemez. Komut satırından: `python -m recorder export video.mp4 [--rec F] [--out F] [--crf 14] [--preset medium] [--no-audio]`; sürükle-bırak için `Disa-Aktar.bat`. Derleme: `build-recording.yml` (sürüm ve Release ana uygulamayla ortak: `VERSION`, tek `v*` etiketi, `build-all.yml` `release` işi). Lisanslar: `THIRD_PARTY_NOTICES.md` Madde 3c.

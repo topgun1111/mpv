@@ -1,8 +1,9 @@
 name: Android
 
-# Reusable workflow, started by build-all.yml next to the PC builds (same triggers). Part 15: on a v* tag it also builds a SIGNED release APK
-# (keystore from the ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
-# secrets) and, in a PRIVATE repository only, attaches it to the same GitHub Release as the Windows files.
+# Reusable workflow, started by build-all.yml next to the PC builds (same triggers). It builds only the SIGNED release APK (no debug build, no debug artifact)
+# (the committed app/stable.jks key, or the optional ANDROID_KEYSTORE_* secrets) and uploads it as the artifact
+# TakipliOynat-Android-<flavor>-Release. Publishing is NOT done here: the single `release` job in build-all.yml attaches it to the
+# shared GitHub Release (vX.Y.Z-b<run> on main, vX.Y.Z on a v* tag), in a PRIVATE repository only.
 # Why private only: the APK contains the Ultralytics pose models (AGPL-3.0, personal use; handover-android.md, decisions log).
 # Two builds from one job (matrix): `pose` (pose models + optical-flow trackers) and `sam` (adds EdgeTAM for free-point / region targets;
 # own applicationId com.takipli.oynat.sam, so both install side by side). One failing flavor does not cancel the other.
@@ -11,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # only the release step writes (tags in a private repo); pull requests from forks stay read-only
+  contents: read  # the release job in build-all.yml publishes the APKs
 
 jobs:
   android:
@@ -105,57 +106,24 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.14.3"
-      - name: Unit tests + debug APK
+      - name: Unit tests + signed release APK (same committed key every build, so it installs over the previous one)
         working-directory: android
-        run: gradle --no-daemon --stacktrace :core:test :app:assemble${{ matrix.gradle_task }}Debug
+        run: gradle --no-daemon --stacktrace :core:test :app:assemble${{ matrix.gradle_task }}Release
       - name: Models are inside the APK
         run: |
-          unzip -l android/app/build/outputs/apk/${{ matrix.flavor }}/debug/app-${{ matrix.flavor }}-debug.apk | grep -E "assets/models/.*\.onnx"
+          apk=android/app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk
+          test -s "$apk" || { echo "release APK was not produced (unsigned?)"; ls -l android/app/build/outputs/apk/${{ matrix.flavor }}/release; exit 1; }
+          unzip -l "$apk" | grep -E "assets/models/.*\.onnx"
       - name: Name the APK
         run: |
           v=$(tr -d "[:space:]" < VERSION)
           mkdir -p dist-android/release
-          cp android/app/build/outputs/apk/${{ matrix.flavor }}/debug/app-${{ matrix.flavor }}-debug.apk "dist-android/TakipliOynat-Android-${{ matrix.flavor }}-$v-debug.apk"
-      - name: Signed release APK (every push to main and v* tags; same committed key as the debug APK, so both install over each other)
-        if: github.event_name == 'push'
-        run: |
-          (cd android && gradle --no-daemon --stacktrace :app:assemble${{ matrix.gradle_task }}Release)
-          apk=android/app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk
-          test -s "$apk" || { echo "release APK was not produced (unsigned?)"; ls -l android/app/build/outputs/apk/${{ matrix.flavor }}/release; exit 1; }
-          v=$(tr -d "[:space:]" < VERSION)
-          cp "$apk" "dist-android/release/TakipliOynat-Android-${{ matrix.flavor }}-$v-b${{ github.run_number }}.apk"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: TakipliOynat-Android-${{ matrix.flavor }}
-          path: dist-android/*.apk
-          if-no-files-found: error
+          cp android/app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk "dist-android/release/TakipliOynat-Android-${{ matrix.flavor }}-$v-b${{ github.run_number }}.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: TakipliOynat-Android-${{ matrix.flavor }}-Release
           path: dist-android/release/*.apk
-          if-no-files-found: ignore
-      - name: Publish to GitHub Releases (private repositories only; AGPL models inside). main = prerelease, v* tag = release. The app updates from these.
-        if: github.event_name == 'push' && github.event.repository.private == true && hashFiles('dist-android/release/*.apk') != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          v=$(tr -d "[:space:]" < VERSION)
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            tag="${GITHUB_REF#refs/tags/}"
-            gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes "Android release $tag" || true
-          else
-            tag="v$v-b${{ github.run_number }}"
-            gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --target "$GITHUB_SHA" --prerelease --title "$tag" --notes "Android build ${{ github.run_number }} ($GITHUB_SHA)" || true
-          fi
-          gh release upload "$tag" dist-android/release/*.apk --clobber
-          # keep the newest 8 prereleases (their tags go too)
-          gh release list --limit 100 --json tagName,isPrerelease,createdAt \
-            -q '[.[] | select(.isPrerelease)] | sort_by(.createdAt) | reverse | .[8:] | .[].tagName' \
-            | while read -r old; do gh release delete "$old" --cleanup-tag --yes || true; done
-      - name: Public repository - APK stays an artifact (no Release, so no in-app updates)
-        if: github.event_name == 'push' && github.event.repository.private != true
-        run: |
-          echo "::notice::Public repository: the APK contains AGPL-3.0 models (personal use), so it is not published to Releases. Download it from the workflow artifacts."
+          if-no-files-found: error
       - name: Test reports on failure
         if: failure()
         uses: actions/upload-artifact@v4

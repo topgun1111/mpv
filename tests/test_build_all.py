@@ -28,3 +28,22 @@ def test_build_all_collects_one_error_log():
     t = (WF / "build-all.yml").read_text(encoding="utf-8")
     assert "error-log:" in t and "name: error-log" in t and "actions: read" in t
     assert "if: ${{ !cancelled() }}" in t  # başarısız iş olsa da çalışır
+
+
+def test_build_all_has_one_version_job_and_one_release_job():
+    t = (WF / "build-all.yml").read_text(encoding="utf-8")
+    assert "scripts/version.py check" in t and "release-info" in t  # sürüm tutarlılığı + etiket
+    assert t.count("gh release create") == 2 and "--prerelease" in t and "--verify-tag" in t  # main = önsürüm, v* = Release
+    assert "scripts/release_assets.py" in t and "SHA256SUMS" in t
+    assert 'tags: ["v*"]' in t and "github.event_name == 'push'" in t  # PR / elle çalıştırma Release açmaz
+    assert "release]" in t  # error-log Release işini de bekler
+    for name in CALLED:  # her yapı önce sürüm denetimini bekler
+        job = t.split(f"uses: ./.github/workflows/{name}")[0].rsplit("\n\n", 1)[-1]
+        assert "needs: version" in job, name
+
+
+def test_only_build_all_publishes_releases():
+    for name in CALLED:
+        t = (WF / name).read_text(encoding="utf-8")
+        assert "gh release" not in t and "softprops" not in t, name
+        assert "contents: write" not in t, name

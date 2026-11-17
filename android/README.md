@@ -56,7 +56,7 @@ crashes); **Clear error log** empties it. The file is `files/logs/error.log` (ca
 
 ## Versioning and in-app updates
 
-- **Version:** `VERSION` (X.Y.Z, shared with the PC app) is the public number. `python scripts/bump_version.py patch|minor|major|X.Y.Z` changes it everywhere it is pinned.
+- **Version:** `VERSION` (X.Y.Z, shared with the PC app) is the public number. `python scripts/bump_version.py patch|minor|major|X.Y.Z` changes it everywhere it is pinned (`python scripts/version.py check` verifies). Every CI file is named `<App>-X.Y.Z-b<run>` and one GitHub Release per run carries all apps.
   CI adds a build number (GitHub run number): `versionCode = (X*10000 + Y*100 + Z) * 1000 + build` (build capped at 999, 0 locally), so every CI build is newer than the last.
 - **Releases (private repository only, signed):** every push to `main` publishes a prerelease `vX.Y.Z-b<run>` (newest 8 kept); a `v*` tag publishes a normal Release.
   Files: `TakipliOynat-Android-<pose|sam>-X.Y.Z-b<run>.apk`. Needs the four keystore secrets (see Release build); without them nothing is published.

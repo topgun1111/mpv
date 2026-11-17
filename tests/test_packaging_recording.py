@@ -58,8 +58,8 @@ def test_workflow_orders_steps_and_forbids_models():
         assert banned not in wf, banned
     assert "find_spec('onnxruntime')" in wf and "*.onnx" in wf  # onnxruntime/model yok denetlenir
     all_wf = (ROOT / ".github" / "workflows" / "build-all.yml").read_text(encoding="utf-8")
-    # ana `v*` etiketinden ayrı; tetikleyici build-all.yml'de
-    assert 'tags: ["v*", "kayit-v*"]' in all_wf and "refs/tags/kayit-v" in wf
+    # ortak sürüm: tek `v*` etiketi her uygulamayı derler ve tek Release açar (kayit-v* kaldırıldı)
+    assert 'tags: ["v*"]' in all_wf and "kayit-v" not in all_wf and "kayit-v" not in wf
     assert "workflow_dispatch" in wf and "windows-latest" in wf
     assert "TakipliOynatKayit-Setup" in wf and "TakipliOynatKayit-Portable" in wf
 
@@ -143,7 +143,7 @@ def test_docs_cover_recording_variant():
     assert "ffmpeg" in sec and "mpv" in sec
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "Kayıt varyantı (R1–R3)" in readme and "<video>.kamera.mp4" in readme
-    assert "Disa-Aktar.bat" in readme and "kayit-v*" in readme
+    assert "Disa-Aktar.bat" in readme and "kayit-v" not in readme
     assert "`S`" in (ROOT / "README.md").read_text(encoding="utf-8")
     inp = (CONF / "input.conf").read_text(encoding="utf-8")
     assert re.search(r"^s script-binding kayit/export$", inp, re.M)

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read  # releases are published by the release job in build-all.yml
 
 jobs:
   windows-package:
@@ -120,10 +120,11 @@ jobs:
         shell: pwsh
         run: |
           $v = (Get-Content VERSION).Trim()
+          $full = "$v-b${{ github.run_number }}"  # ortak sürüm: X.Y.Z-b<derleme> (scripts/version.py)
           $exe = Get-ChildItem dist/installer/*.exe | Select-Object -First 1
           if (-not $exe) { throw "installer .exe üretilmedi" }
-          Move-Item $exe.FullName "dist/TakipliOynat-Setup-$v.exe" -Force
-          Move-Item dist/TakipliOynat-portable.zip "dist/TakipliOynat-Portable-$v.zip" -Force
+          Move-Item $exe.FullName "dist/TakipliOynat-Setup-$full.exe" -Force
+          Move-Item dist/TakipliOynat-portable.zip "dist/TakipliOynat-Portable-$full.zip" -Force
       - uses: actions/upload-artifact@v4
         with:
           name: TakipliOynat-Setup
@@ -134,11 +135,3 @@ jobs:
           name: TakipliOynat-Portable
           path: dist/TakipliOynat-Portable-*.zip
           if-no-files-found: error
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: |
-            dist/TakipliOynat-Setup-*.exe
-            dist/TakipliOynat-Portable-*.zip

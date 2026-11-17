@@ -1,18 +1,25 @@
 name: Build All
 
-# One run, one page: every build of the project starts here and shows up together.
+# One run, one page, one version: every build of the project starts here and shows up together.
+#   version       VERSION consistency + tag/build number for this run       scripts/version.py
 #   tests         Python tests (ruff + pytest, Linux + Windows)            ci.yml
-#   pc-full       Windows installer + portable zip (v* tag -> Release)     build.yml
-#   pc-recording  Windows recording variant (kayit-v* tag -> Release)      build-recording.yml
-#   android       full app, flavors pose + sam (matrix)                    android.yml
-#   android-rec   record-only app                                          android-rec.yml
-# The five files above are reusable workflows (workflow_call) and have no triggers of their own, so nothing runs twice.
-# Tags: v* builds the full PC + phone apps, kayit-v* builds only the recording variant. Pull requests run the tests and the phone apps
-# (no Windows packaging). To run one build alone: Actions -> pick that workflow -> Run workflow (workflow_dispatch still works).
+#   pc-full       Windows installer + portable zip                          build.yml
+#   pc-recording  Windows recording variant                                 build-recording.yml
+#   android       full app, flavors pose + sam (matrix)                     android.yml
+#   android-rec   record-only app                                           android-rec.yml
+#   release       ONE GitHub Release with every app of this run              (below)
+# The five build files are reusable workflows (workflow_call) and have no triggers of their own, so nothing runs twice.
+#
+# Versioning (all apps share it; the number lives in VERSION and nowhere else you edit by hand):
+#   push to main  -> prerelease  vX.Y.Z-b<run number>   (installed apps see it as an update)
+#   tag vX.Y.Z    -> full Release vX.Y.Z                (the tag must equal VERSION; `python scripts/bump_version.py patch`, commit, tag)
+#   every file in the release is named <App>-<X.Y.Z>-b<run number>.<ext>; SHA256SUMS.txt is attached.
+# Pull requests run the tests and the phone apps (no Windows packaging, no release). To run one build alone:
+# Actions -> pick that workflow -> Run workflow (workflow_dispatch still works; it never publishes a release).
 on:
   push:
     branches: [main]
-    tags: ["v*", "kayit-v*"]
+    tags: ["v*"]
     paths-ignore: ["**.md"]
   pull_request:
   workflow_dispatch:
@@ -22,33 +29,115 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write  # release steps (tags); pull requests from forks stay read-only
+  contents: write  # release job (tags + release assets); pull requests from forks stay read-only
 
 jobs:
+  # Fails in seconds (not after an hour of builds) when a pinned version disagrees with VERSION or a v* tag does not match it.
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      full: ${{ steps.v.outputs.full }}
+      tag: ${{ steps.v.outputs.tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: VERSION, tracker, recorder and Gradle agree
+        run: python3 scripts/version.py check
+      - name: Release tag for this run
+        id: v
+        run: python3 scripts/version.py release-info --ref "$GITHUB_REF" --build "$GITHUB_RUN_NUMBER" --github-output
+      - name: Summary
+        run: |
+          echo "### Version \`${{ steps.v.outputs.full }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release tag: \`${{ steps.v.outputs.tag }}\` (prerelease: ${{ steps.v.outputs.prerelease }})" >> "$GITHUB_STEP_SUMMARY"
+
   tests:
+    needs: version
     uses: ./.github/workflows/ci.yml
 
   pc-full:
-    if: ${{ github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/kayit-v') }}
+    needs: version
+    if: ${{ github.event_name != 'pull_request' }}
     uses: ./.github/workflows/build.yml
 
   pc-recording:
-    if: ${{ github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/v') }}
+    needs: version
+    if: ${{ github.event_name != 'pull_request' }}
     uses: ./.github/workflows/build-recording.yml
 
   android:
-    if: ${{ !startsWith(github.ref, 'refs/tags/kayit-v') }}
+    needs: version
     uses: ./.github/workflows/android.yml
 
   android-rec:
-    if: ${{ !startsWith(github.ref, 'refs/tags/kayit-v') }}
+    needs: version
     uses: ./.github/workflows/android-rec.yml
+
+  # One release for the whole run, after all builds. main: every build that succeeded goes on the prerelease (a flaky flavor does not
+  # block the others; tests must pass). v* tag: every build must succeed. Licence rule for the AGPL pose models: scripts/release_assets.py.
+  release:
+    needs: [version, tests, pc-full, pc-recording, android, android-rec]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.tests.result == 'success' && (needs.version.outputs.prerelease == 'true' || !contains(needs.*.result, 'failure')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      # Only the finished, named files: installers, portable zips and the signed release APKs (no debug builds exist any more).
+      - uses: actions/download-artifact@v4
+        continue-on-error: true  # a skipped or failed build has no artifact
+        with:
+          pattern: "*-Setup"
+          path: release-files
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: "*-Portable"
+          path: release-files
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: "*-Release"
+          path: release-files
+          merge-multiple: true
+      - name: Choose the files (licence rules) + SHA256SUMS.txt
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+          IS_TAG: ${{ needs.version.outputs.prerelease == 'false' }}
+        run: python3 scripts/release_assets.py release-files --private "$PRIVATE" --tag-release "$IS_TAG" --list assets.txt --notes notes.md
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          FULL: ${{ needs.version.outputs.full }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          mapfile -t files < assets.txt
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            if [ "$PRERELEASE" = "true" ]; then
+              gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "$TAG" --notes-file notes.md --generate-notes
+            else
+              gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md --generate-notes
+            fi
+          fi
+          gh release upload "$TAG" "${files[@]}" --clobber
+          echo "### Release [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG)" >> "$GITHUB_STEP_SUMMARY"
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+          # keep the newest 8 prereleases (their tags go too); full releases are never deleted
+          gh release list --limit 100 --json tagName,isPrerelease,createdAt \
+            -q '[.[] | select(.isPrerelease)] | sort_by(.createdAt) | reverse | .[8:] | .[].tagName' \
+            | while read -r old; do gh release delete "$old" --cleanup-tag --yes || true; done
 
   # One combined error log for the whole run: only the failed jobs, only the error lines with a little context.
   # Download the artifact "error-log" (or open the run summary) instead of the per-job logs zip.
   error-log:
     if: ${{ !cancelled() }}
-    needs: [tests, pc-full, pc-recording, android, android-rec]
+    needs: [version, tests, pc-full, pc-recording, android, android-rec, release]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
