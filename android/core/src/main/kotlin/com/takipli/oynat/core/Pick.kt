@@ -72,21 +72,21 @@ fun resolvePick(doc: TrackDoc, pick: TargetPick, cfg: Config): Target? {
 }
 
 /** Scan doc + pick -> the same doc with `target` and `views` filled in (no rescan), or null when nobody is at the pick. */
-fun applyPick(doc: TrackDoc, pick: TargetPick, cfg: Config, robust: Boolean = false): TrackDoc? {
+fun applyPick(doc: TrackDoc, pick: TargetPick, cfg: Config, robust: Boolean = false, lowerBodyMode: Boolean = false): TrackDoc? {
     val target = resolvePick(doc, pick, cfg) ?: return null
-    return doc.copy(target = target, views = buildTargetViews(doc, target, cfg, robust = robust))
+    return doc.copy(target = target, views = buildTargetViews(doc, target, cfg, robust = robust, lowerBodyMode = lowerBodyMode))
 }
 
 /**
  * [applyPick] plus the picks the user made again after the target was lost during the scan: each one that resolves to a person other
  * than the first pick's joins `linked` (same physical target under another tracker ID), so the views follow whichever ID is visible.
  */
-fun applyPicks(doc: TrackDoc, pick: TargetPick, repicks: List<TargetPick>, cfg: Config, robust: Boolean = false): TrackDoc? {
+fun applyPicks(doc: TrackDoc, pick: TargetPick, repicks: List<TargetPick>, cfg: Config, robust: Boolean = false, lowerBodyMode: Boolean = false): TrackDoc? {
     var target = resolvePick(doc, pick, cfg) ?: return null
     for (rp in repicks) {
         val t2 = resolvePick(doc, rp, cfg) ?: continue
         val extra = (listOf(t2.id) + t2.linked).filter { it >= 0 && it != target.id && it !in target.linked }.distinct()
         if (extra.isNotEmpty()) target = target.copy(linked = target.linked + extra)
     }
-    return doc.copy(target = target, views = buildTargetViews(doc, target, cfg, robust = robust))
+    return doc.copy(target = target, views = buildTargetViews(doc, target, cfg, robust = robust, lowerBodyMode = lowerBodyMode))
 }

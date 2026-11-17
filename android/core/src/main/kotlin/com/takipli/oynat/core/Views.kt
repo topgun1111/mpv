@@ -315,8 +315,49 @@ fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config, kps: 
     return boxes
 }
 
+/** Apply the persistent anatomical model to the combined legs preset. Missing observations hold the last reliable region. */
+internal fun lowerBodyBoxes(doc: TrackDoc, ids: Set<Int>, visible: Map<Int, DoubleArray>, cfg: Config): Map<Int, DoubleArray> {
+    val model = LowerBodyModel()
+    val out = LinkedHashMap<Int, DoubleArray>()
+    val (fw, fh) = videoSize(doc)
+    for ((i, sample) in doc.samples.withIndex()) {
+        if ((sample.cut ?: 0) != 0) model.reset() // never carry anatomy or zoom anchors across a shot cut
+        // Re-linked tracker IDs represent the same selected person. Use the strongest available lower-body pose row.
+        val candidate = ids.mapNotNull { id -> sample.kp?.get(id.toString())?.takeIf { it.size >= 51 }?.let { id to it } }
+            .maxByOrNull { (_, r) -> listOf(11, 12, 13, 14, 15, 16).map { r[3 * it + 2].coerceIn(0.0, 1.0) }.average() }
+        val row = candidate?.second
+        var box = visible[i]?.copyOf(4)
+        if (box != null && row != null) {
+            // If one leg is largely hidden, preserve a conservative hip-anchored anatomical estimate as well as
+            // the currently visible mask/keypoint union. This is deliberately conditional to avoid enlarging a
+            // fully observed walking subject.
+            fun sideEvidence(knee: Int, ankle: Int) =
+                (if (row[3 * knee + 2] >= cfg.kpMinConf) 1 else 0) + (if (row[3 * ankle + 2] >= cfg.kpMinConf) 1 else 0)
+            val incompleteSide = sideEvidence(13, 15) < 2 || sideEvidence(14, 16) < 2
+            if (incompleteSide) {
+                val detection = candidate.first.let { id -> sample.d.firstOrNull { it[0].toInt() == id } }
+                val personHeight = detection?.let { (it[4] - it[2]) * fh } ?: 0.0
+                val anchor = anchoredLegBox("legs", row, fw, fh, cfg.kpMinConf, personHeight)
+                if (anchor != null) {
+                    val x1 = min(box[0] - box[2] / 2, anchor[0] - anchor[2] / 2)
+                    val y1 = min(box[1] - box[3] / 2, anchor[1] - anchor[3] / 2)
+                    val x2 = max(box[0] + box[2] / 2, anchor[0] + anchor[2] / 2)
+                    val y2 = max(box[1] + box[3] / 2, anchor[1] + anchor[3] / 2)
+                    box = doubleArrayOf((x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1)
+                }
+            }
+        }
+        val confidence = if (box == null) 0.0 else if (row == null) 0.65 else {
+            max(0.55, listOf(11, 12, 13, 14, 15, 16).map { row[3 * it + 2].coerceIn(0.0, 1.0) }.average())
+        }
+        val estimate = model.update(sample.t, box, row, confidence)
+        estimate.anatomical?.let { out[i] = it.copyOf(4) }
+    }
+    return out
+}
+
 /** Views for a target: preset group, single joint (`part`) or the whole person; linked IDs count as the same target. */
-fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Director = Director(), robust: Boolean = false): List<ViewKey> {
+fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Director = Director(), robust: Boolean = false, lowerBodyMode: Boolean = false): List<ViewKey> {
     val ts = doc0.samples.map { it.t }
     val base = setOf(target.id) + target.linked
     // robust (Android app): re-link the target to the ID it got after an occlusion, and ignore samples where its ID teleported
@@ -336,10 +377,11 @@ fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Dire
         target.preset != null -> {
             // Part 10b (`offline.py::build_preset_views`): per-joint One-Euro, then off-screen propagation
             val part = target.preset != "person"
-            if (part) minFit = PART_FIT
+            if (part) minFit = if (lowerBodyMode && target.preset == "legs") 0.0 else PART_FIT
             val kps = if (part && cfg.kpFilter) smoothKeypoints(doc, ids, cfg) else null
-            val b = presetBoxes(doc, ids, target.preset, cfg, kps)
-            if (part && cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
+            val rawBoxes = presetBoxes(doc, ids, target.preset, cfg, kps)
+            val b = if (lowerBodyMode && target.preset == "legs") lowerBodyBoxes(doc, ids, rawBoxes, cfg) else rawBoxes
+            if (part && cfg.kpWorld && cfg.kpHoldS > 0 && !(lowerBodyMode && target.preset == "legs")) propagateBoxes(doc, b, cfg) else b
         }
         target.part != null -> jointBoxes(doc, ids, target.part, cfg)
         else -> personBoxes(doc, ids)
@@ -347,7 +389,11 @@ fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Dire
     // a drawn region is framed to fill the screen (`regionFill`), not to 30% like a tapped spot or a person
     // (fixed zoom = `free.zoom` set: boxes are squares sized for exactly that zoom, so the normal fill applies)
     val fp = target.free
-    val viewCfg = if (fp != null && fp.framed && fp.zoom == null) cfg.copy(targetFill = regionFill(cfg.targetFill, fp.fill ?: 0.90)) else cfg
+    val viewCfg = when {
+        fp != null && fp.framed && fp.zoom == null -> cfg.copy(targetFill = regionFill(cfg.targetFill, fp.fill ?: 0.90))
+        lowerBodyMode && target.preset == "legs" -> cfg.copy(targetFill = 0.70)
+        else -> cfg
+    }
     return viewsFromBoxes(ts, boxes, viewCfg, cutIndices(doc), minFit, director)
 }
 

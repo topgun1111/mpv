@@ -119,7 +119,7 @@ class ScanService : Service() {
                     if (now - lastNote >= 1000) { lastNote = now; notify(note(getString(R.string.scan_notify_run, p.samples, p.total), p)) }
                 }
             }
-            var picked = applyPicks(if (pick.free) res.doc.copy(pt = null) else res.doc, pick, res.repicks, cfg, robust = true) // repicks: the user picked again after the target was lost
+            var picked = applyPicks(if (pick.free) res.doc.copy(pt = null) else res.doc, pick, res.repicks, cfg, robust = true, lowerBodyMode = true) // repicks: the user picked again after the target was lost
             val fp = picked?.target?.free
             if (picked != null && fp != null && OpenCvFlow.available) { // Part 16b: tracker passes for the tapped spot
                 try {
@@ -169,7 +169,7 @@ class ScanService : Service() {
     private suspend fun partialResult(c: CancelCtx): ScanUi.Cancelled? = try {
         val part = Scanner.loadPartial(c.file) ?: return null
         val last = part.samples.last().t
-        var picked = applyPicks(if (c.pick.free) part.copy(pt = null) else part, c.pick, c.repicks.toList(), c.cfg, robust = true)
+        var picked = applyPicks(if (c.pick.free) part.copy(pt = null) else part, c.pick, c.repicks.toList(), c.cfg, robust = true, lowerBodyMode = true)
         val fp = picked?.target?.free
         if (picked != null && fp != null && OpenCvFlow.available) { // free point: tracker passes over the processed part only (PointScanner stops after the last sample)
             try {
