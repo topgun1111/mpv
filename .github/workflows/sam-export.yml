@@ -1,0 +1,49 @@
+name: SAM export (PC)
+
+# Elle çalıştırılır: Actions -> "SAM export (PC)" -> Run workflow. Yalnız scripts/export_sam2.py'yi koşar ve
+# 5 statik ONNX grafiğini (sam-encoder, sam-decoder, sam-decoder-trk, sam-memenc, sam-memattn) artifact olarak
+# yükler; PC'de `python -m tracker sam-bench` ile ölçülür (docs/DECISIONS.md "SAM graphs"). Betik her dosyayı
+# PyTorch ile karşılaştırır, uyuşmazlıkta durur (bellek grafikleri başarısızsa burada geri düşüş YOK: hata görünsün).
+# build-all.yml'e bağlı değildir; push/PR'da çalışmaz.
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "Model: edgetam (önce bunu), small (SAM 2.1 Small), base_plus. Large 6 GB VRAM için denenmez."
+        type: choice
+        default: edgetam
+        options: [edgetam, small, base_plus]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    name: export-${{ inputs.variant }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VARIANT: ${{ inputs.variant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Export (static shapes, float32 I/O; checked against PyTorch by the script)
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install onnx onnxruntime timm
+          # Both repositories install a package named `sam2`: never together (one variant per run).
+          if [ "$VARIANT" = "edgetam" ]; then
+            git clone --depth 1 https://github.com/facebookresearch/EdgeTAM.git "$RUNNER_TEMP/EdgeTAM"
+            pip install -e "$RUNNER_TEMP/EdgeTAM"
+          else
+            pip install git+https://github.com/facebookresearch/sam2.git
+          fi
+          python scripts/export_sam2.py sam-models "$VARIANT"
+          ls -l sam-models
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sam-graphs-${{ inputs.variant }}
+          path: sam-models/*.onnx
+          if-no-files-found: error

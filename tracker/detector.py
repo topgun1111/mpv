@@ -16,6 +16,7 @@ gerçek bir model yüklerken içe aktarılır.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -257,14 +258,64 @@ def detect_model_type(path: str | Path, model_type: str = "auto") -> str:
     return "yolox" if "yolox" in Path(path).name.lower() else "yolov8"
 
 
+AUTO_ORDER_ENV = "TAKIPLI_PROVIDER_ORDER"  # örn. "cuda,dml"; config `provider_order`'ı geçer
+_AUTO_ORDER: tuple[str, ...] = ("dml", "cuda")  # varsayılan (S1: değişmedi)
+
+
+def parse_order(spec: str | list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+    """"cuda,dml" -> ("cuda", "dml"). dml/cuda; "cpu" yok sayılır (hep son). Boş: varsayılan."""
+    if spec is None:
+        return _AUTO_ORDER
+    items = spec.split(",") if isinstance(spec, str) else list(spec)
+    out: list[str] = []
+    for raw in items:
+        name = str(raw).strip().lower()
+        if not name or name == "cpu":
+            continue
+        if name not in ("dml", "cuda"):
+            raise ValueError(f"Bilinmeyen sağlayıcı '{name}' (provider_order: dml, cuda)")
+        if name not in out:
+            out.append(name)
+    return tuple(out) or _AUTO_ORDER
+
+
+def set_auto_order(spec: str | list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+    """`device=auto` sırasını ayarla (config `provider_order`); geçerli sırayı döndürür."""
+    global _AUTO_ORDER
+    _AUTO_ORDER = parse_order(spec)
+    return _AUTO_ORDER
+
+
+def auto_order() -> tuple[str, ...]:
+    """Etkin sıra: ortam değişkeni (varsa) > `set_auto_order` > varsayılan."""
+    env = os.environ.get(AUTO_ORDER_ENV, "").strip()
+    return parse_order(env) if env else _AUTO_ORDER
+
+
+def preload_cuda(ort: Any) -> str:
+    """CUDA/cuDNN DLL'lerini önceden yükle (onnxruntime-gpu >= 1.21): 'ok' | 'yok' | 'hata: ...'.
+
+    Yalnız CUDA seçildiğinde çağrılır; DirectML kurulumunda `preload_dlls` yoktur ('yok').
+    """
+    fn = getattr(ort, "preload_dlls", None)
+    if fn is None:
+        return "yok"
+    try:
+        fn()
+    except Exception as e:  # DLL bulunamadı vb.: oturum yine denenir, tanılama gösterir
+        return f"hata: {e}"
+    return "ok"
+
+
 def select_providers(available: list[str], device: str = "auto") -> list[str]:
     """Cihaz tercihine göre ONNX Runtime provider sırası. CPU her zaman son çare olarak kalır.
 
-    auto: DirectML -> CUDA -> CPU. İstenen cihaz yoksa sessizce CPU'ya düşer.
+    auto: varsayılan DirectML -> CUDA -> CPU (`provider_order` / `TAKIPLI_PROVIDER_ORDER` ile
+    değişir). İstenen cihaz yoksa sessizce CPU'ya düşer.
     """
     device = device.lower()
     if device == "auto":
-        order = [_PROVIDER_NAMES["dml"], _PROVIDER_NAMES["cuda"], _CPU]
+        order = [_PROVIDER_NAMES[n] for n in auto_order()] + [_CPU]
     elif device in _PROVIDER_NAMES:
         order = [_PROVIDER_NAMES[device], _CPU]
     else:
@@ -343,6 +394,8 @@ class Detector:
         import onnxruntime as ort
 
         providers = select_providers(ort.get_available_providers(), device)
+        if _PROVIDER_NAMES["cuda"] in providers:  # onnxruntime-gpu: DLL'ler oturumdan önce
+            preload_cuda(ort)
         opts = ort.SessionOptions()
         if _PROVIDER_NAMES["dml"] in providers:  # DirectML önerisi
             opts.enable_mem_pattern = False

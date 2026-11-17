@@ -90,6 +90,39 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--model", action="append", help="Poz ONNX (birden çok kez verilebilir)")
     pb.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"])
     pb.add_argument("--frames", type=int, default=60, help="Ölçülecek kare sayısı (60)")
+    sb = sub.add_parser("sam-bench", help="EdgeTAM/SAM 2.1 grafiklerini ölç: yükleme, ms, sağlayıcı, VRAM (S2)")
+    sb.add_argument("model_dir", help="sam-*.onnx dosyalarının klasörü (scripts/export_sam2.py çıktısı)")
+    sb.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"])
+    sb.add_argument("--runs", type=int, default=20, help="Ölçülecek koşu sayısı (20)")
+    sb.add_argument("--warmup", type=int, default=3, help="Isınma koşuları, ölçüme girmez (3)")
+    sb.add_argument("--fp16", action="store_true", help="fp16 sürümlerini de ölç (gerekirse üret)")
+    sb.add_argument("--out", help="JSON rapor yolu; yanına .md tablo satırları da yazılır")
+    sf = sub.add_parser("sam-first", help="Bir görüntü + dikdörtgen -> ilk maske, kontur PNG (S3)")
+    sf.add_argument("model_dir", help="sam-encoder.onnx ve sam-decoder.onnx klasörü")
+    sf.add_argument("image", help="Görüntü dosyası (png/jpg)")
+    sf.add_argument("--rect", required=True, help="x1,y1,x2,y2 (piksel; --norm ile 0-1 oranı)")
+    sf.add_argument("--norm", action="store_true", help="--rect değerleri 0-1 oranı")
+    sf.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"])
+    sf.add_argument("--rule", choices=["best", "smallest"], default="best",
+                    help="Aday kuralı: en yüksek iou (best) ya da en küçük güvenilir (smallest)")
+    sf.add_argument("--out", help="Kontur PNG yolu (varsayılan: <görüntü>_maske.png)")
+    st = sub.add_parser("sam-track", help="Video + ilk kare dikdörtgeni -> SAM bellek takibi, kare kayıtları (S4)")
+    st.add_argument("model_dir", help="5 sam-*.onnx dosyasının klasörü")
+    st.add_argument("video", help="Video dosyası")
+    st.add_argument("--rect", required=True, help="İlk karede x1,y1,x2,y2 (piksel; --norm ile 0-1 oranı)")
+    st.add_argument("--norm", action="store_true", help="--rect değerleri 0-1 oranı")
+    st.add_argument("--start", type=float, default=0.0, help="Dikdörtgenin çizildiği an, sn (0)")
+    st.add_argument("--fps", type=float, default=10.0, help="Örnekleme hızı (10)")
+    st.add_argument("--max-seconds", type=float, default=0.0, help="Başlangıçtan itibaren yalnız N sn (0: hepsi)")
+    st.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"])
+    st.add_argument("--rule", choices=["best", "smallest"], default="best", help="İlk kare aday kuralı")
+    st.add_argument("--out", help="Kayıt dosyası (varsayılan: <video>.sam.json)")
+    st.add_argument("--no-save", action="store_true", help="Kayıt dosyası yazma")
+    pv = sub.add_parser("providers", help="GPU sağlayıcı tanılaması (DirectML/CUDA) (S1)")
+    pv.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"],
+                    help="Denenecek cihaz (varsayılan: config.device)")
+    pv.add_argument("--model", help="Gerçek yükleme denetimi için ONNX model (oturum açılır)")
+    pv.add_argument("--json", action="store_true", help="JSON çıktı (TEST_RESULTS.md için)")
     ex = sub.add_parser("export", help="Takip kamerası videosu: görünümleri uygula → mp4 (ffmpeg)")
     ex.add_argument("video")
     ex.add_argument("--views", help="Görünüm dosyası (varsayılan: <video>.views.json)")
@@ -611,6 +644,126 @@ def _log_if_headless(cfg_path: str, name: str = "takipli-oynat-log.txt") -> Path
     return path
 
 
+def providers_cmd(cfg: Config, args: argparse.Namespace) -> int:
+    """GPU sağlayıcı tanılaması. Çıkış kodu 0: tanı yazıldı; 1: onnxruntime yok / hata."""
+    from . import providers
+
+    try:
+        rep = providers.diagnose(args.device or cfg.device, args.model)
+    except (ImportError, ValueError) as e:
+        print(f"HATA: {e}", file=sys.stderr)
+        return 1
+    print(providers.to_json(rep) if args.json else providers.format_report(rep))
+    return 1 if rep.get("session_error") else 0
+
+
+def sam_bench_cmd(cfg: Config, args: argparse.Namespace) -> int:
+    """SAM grafik kıyası. Çıkış kodu 0: en az bir grafik ölçüldü; 1: hiçbiri ölçülemedi."""
+    from . import sam_bench
+
+    rep = sam_bench.run_bench(args.model_dir, args.device or cfg.device, max(args.runs, 1),
+                              max(args.warmup, 0), args.fp16)
+    print(sam_bench.format_report(rep))
+    table = sam_bench.markdown_rows(rep)
+    print("\n" + table)
+    if args.out:
+        sam_bench.save_report(rep, args.out)
+        Path(args.out).with_suffix(".md").write_text(table + "\n", encoding="utf-8")
+        print(f"\nRapor: {args.out} (+ {Path(args.out).with_suffix('.md').name})")
+    return 0 if any("stats" in r for r in rep["rows"]) else 1
+
+
+def sam_first_cmd(cfg: Config, args: argparse.Namespace) -> int:
+    """Bir görüntü + dikdörtgen -> ilk maske. Çıkış kodu 0: maske bulundu ve PNG yazıldı; 1: bulunamadı."""
+    import time
+
+    from . import sam_engine as se
+
+    img = se.read_image(args.image)
+    h, w = img.shape[:2]
+    rect = se.parse_rect(args.rect, w, h, args.norm)
+    eng = se.SamEngine(args.model_dir, args.device or cfg.device, rule=args.rule)
+    ms: dict[str, float] = {}
+    t0 = time.perf_counter()
+    enc = eng.encode(img)
+    ms[se.ENC] = (time.perf_counter() - t0) * 1000
+    t1 = time.perf_counter()
+    res = eng.segment_rect(enc, rect)
+    ms[se.DEC] = (time.perf_counter() - t1) * 1000
+    if res is None:
+        print("Maske bulunamadı: dikdörtgeni nesnenin çevresine yeniden çizin.", file=sys.stderr)
+        return 1
+    print(se.format_result(res, eng.providers(), ms))
+    out = Path(args.out) if args.out else Path(args.image).with_name(Path(args.image).stem + "_maske.png")
+    se.save_png(out, se.draw_overlay(img, res))
+    print(f"Kontur PNG: {out}")
+    return 0
+
+
+def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
+    """Video boyunca SAM bellek takibi (S4). Çıkış kodu 0: kayıt üretildi; 1: ilk karede maske yok / hata."""
+    import time
+
+    from . import sam_bench, sam_track
+    from . import sam_engine as se
+    from .detector import _PROVIDER_NAMES
+
+    clip = sam_track.Clip(args.video, fps=args.fps, start=args.start, max_seconds=args.max_seconds)
+    try:
+        rect = se.parse_rect(args.rect, clip.w, clip.h, args.norm)
+    except ValueError:
+        clip.close()
+        raise
+    base_mb = sam_bench.nvidia_smi_used_mb()  # modeller yüklenmeden önce: VRAM farkı için
+    eng = se.SamEngine(args.model_dir, args.device or cfg.device, rule=args.rule, memory=True)
+    prov = eng.providers()
+    cuda = any(p["provider"] == _PROVIDER_NAMES["cuda"] for p in prov.values())
+    vram = sam_bench.VramSampler(sam_bench.nvidia_smi_used_mb) if cuda else None
+    stats, records = sam_track.TrackStats(), []
+    t0 = time.perf_counter()
+    complete = False
+    try:
+        if vram:
+            vram.__enter__()
+        for rec in sam_track.track_video(eng, clip, rect, stats=stats):
+            records.append(rec)
+            if rec.index % 30 == 0:
+                fps = stats.frames / max(time.perf_counter() - t0, 1e-9)
+                print(f"kare {rec.index} t={rec.t:.1f}s {rec.state} conf {rec.conf:.2f} · "
+                      f"izlenen {stats.tracked} kayıp {stats.lost} · {fps:.1f} kare/sn", flush=True)
+        complete = True
+    except KeyboardInterrupt:
+        print("Durduruldu: şimdiye kadarki kayıtlar yazılıyor.", file=sys.stderr)
+    finally:
+        if vram:
+            vram.__exit__(None, None, None)
+        wall = time.perf_counter() - t0
+        out = None
+        if records and not args.no_save:
+            doc = sam_track.make_doc(
+                args.video, records, size=(clip.w, clip.h), sample_fps=args.fps, start=args.start,
+                rect=se.to_norm_box(rect, clip.w, clip.h), rule=args.rule, providers=prov,
+                layout=eng.memory_layout(), timing_ms=sam_track.ms_per_call(eng), complete=complete)
+            out = sam_track.save_doc(args.out or sam_track.sam_path(args.video), doc)
+        if records:
+            print(f"\nkare {stats.frames} · izlenen {stats.tracked} · kayıp {stats.lost} · {wall:.1f} sn · "
+                  f"{stats.frames / max(wall, 1e-9):.2f} kare/sn")
+            for n, ms in sam_track.ms_per_call(eng).items():
+                p = prov.get(n, {})
+                print(f"  {n}: {p.get('provider', '?')}{' (FELL BACK)' if p.get('fell_back') else ''} · "
+                      f"{ms:.1f} ms/çağrı ({int(eng.timing[n][1])} çağrı)")
+            if cuda:
+                peak = vram.peak if vram and vram.peak is not None and base_mb is not None else None
+                print("  tepe VRAM: " + (f"{peak - base_mb:.0f} MB (yükleme öncesine göre)" if peak is not None else "ölçülemedi"))
+            else:
+                print("  tepe VRAM: n/a (yalnız CUDA'da ölçülür)")
+            if out:
+                print(f"Kayıt: {out}")
+    if not complete:
+        return 130
+    return 0 if records else 1
+
+
 def pose_bench_cmd(cfg: Config, args: argparse.Namespace) -> int:
     """Her poz modelini aynı karelerde ölçer (ısınma hariç): ms, fps, sağlayıcı, fp16."""
     import time
@@ -694,10 +847,44 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     cfg = Config.load(args.config) if args.config and Path(args.config).is_file() else Config()
     args.cfg_path = args.config or "tracker_config.json"  # canlı `track-save` hedefi
+    try:  # S1: device=auto sırası (varsayılan dml,cuda; TAKIPLI_PROVIDER_ORDER geçer)
+        if args.cmd not in ("ping", "view", "listen"):  # numpy'siz çalışırlar; detector numpy ister
+            from .detector import set_auto_order
+
+            set_auto_order(cfg.provider_order)
+    except ValueError as e:
+        print(f"HATA: {e}", file=sys.stderr)
+        return 1
+    if args.cmd == "providers":  # mpv bağlantısı gerekmez
+        return providers_cmd(cfg, args)
     if args.cmd == "detect":  # mpv bağlantısı gerekmez
         try:
             return detect_image(cfg, args)
         except (FileNotFoundError, ValueError, ImportError) as e:
+            print(f"HATA: {e}", file=sys.stderr)
+            return 1
+    if args.cmd == "sam-bench":  # mpv bağlantısı gerekmez
+        try:
+            return sam_bench_cmd(cfg, args)
+        except KeyboardInterrupt:
+            return 130
+        except (FileNotFoundError, ValueError, ImportError, OSError) as e:
+            print(f"HATA: {e}", file=sys.stderr)
+            return 1
+    if args.cmd == "sam-first":  # mpv bağlantısı gerekmez
+        try:
+            return sam_first_cmd(cfg, args)
+        except KeyboardInterrupt:
+            return 130
+        except (FileNotFoundError, ValueError, ImportError, OSError, RuntimeError) as e:
+            print(f"HATA: {e}", file=sys.stderr)
+            return 1
+    if args.cmd == "sam-track":  # mpv bağlantısı gerekmez
+        try:
+            return sam_track_cmd(cfg, args)
+        except KeyboardInterrupt:
+            return 130
+        except (FileNotFoundError, ValueError, ImportError, OSError, RuntimeError) as e:  # NoInitialMask ValueError
             print(f"HATA: {e}", file=sys.stderr)
             return 1
     if args.cmd == "pose-bench":
