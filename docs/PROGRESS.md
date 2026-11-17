@@ -1,7 +1,7 @@
 # PROGRESS
 
-Current session: 5
-Next smallest task: port `TrackGate` to Python and wire it into the SAM loop (see `docs/Lower body.md`, Session 5). Still open on your side: the Session 1 provider diagnostics, the Session 2 export + `sam-bench` runs, the Session 3 `sam-first` run and the Session 4 `sam-track` run on a 30 s clip (all need the exported graphs).
+Current session: 9
+Next smallest task: tracking state machine (see `docs/Lower body.md`, Session 9). Still open on your side: the Session 8 `sam-track --preview --posture` run + `P`-key check, the Session 7 `sam-track --preview --pose` run + `P`-key check, the Session 1 provider diagnostics, the Session 2 export + `sam-bench` runs, the Session 3 `sam-first` run, the Session 4/5 `sam-track` runs (with and without `--no-gate`) and the Session 6 `sam-preview` + `P`-key check in mpv on a 30 s clip (all need the exported graphs).
 
 ## Sessions
 
@@ -10,10 +10,10 @@ Next smallest task: port `TrackGate` to Python and wire it into the SAM loop (se
 - [x] 2. Export the 5 EdgeTAM graphs + PC loader + benchmark (code done 2026-11-17; your export and PC runs pending)
 - [x] 3. PC SAM engine: rectangle prompt → first mask (code done 2026-11-17; your `sam-first` run on the real graphs pending)
 - [x] 4. PC SAM memory loop: forward tracking with `MemoryBank`, per-frame records (code done 2026-11-17; your `sam-track` run on a 30 s clip pending)
-- [ ] 5. Port `TrackGate` to Python: confidence gating, jump rejection
-- [ ] 6. Mask outline + combined rectangle in the selection/preview
-- [ ] 7. Lower-body region: visible vs anatomical, left/right evidence
-- [ ] 8. Posture (seated/standing), desk occlusion, sit↔stand transitions
+- [x] 5. Port `TrackGate` to Python: confidence gating, jump rejection (code done 2026-11-17; your `sam-track` runs with/without `--no-gate` pending)
+- [x] 6. Mask outline + combined rectangle in the selection/preview (code done 2026-11-18; your `sam-preview` run + mpv `P` check pending)
+- [x] 7. Lower-body region: visible vs anatomical, left/right evidence (code done 2026-11-18; your `--pose` run + mpv `P` check pending)
+- [x] 8. Posture (seated/standing), desk occlusion, sit↔stand transitions (code done 2026-11-18; your `--posture` run + mpv `P` check pending)
 - [ ] 9. Tracking state machine (7 states)
 - [ ] 10. Re-entry with existing Re-ID + future-frame verification
 - [ ] 11. Camera: 70% occupancy, no zoom pumping from foot movement
@@ -22,6 +22,88 @@ Next smallest task: port `TrackGate` to Python and wire it into the SAM loop (se
 - [ ] 14. Real-clip validation and Definition of done
 
 ## Latest checkpoint
+
+SESSION CHECKPOINT
+
+Phase: M2 (reliable tracker)
+Task: Session 8, posture (seated/standing), desk occlusion, sit↔stand
+Files inspected: docs/{Lower body,PROGRESS,DECISIONS,TEST_RESULTS,KNOWN_ISSUES}.md, handover.md (first lines + S1-S7 tail), tracker/{lowerbody,parts,sam_preview,sam_track,main}.py, mpv/portable_config/scripts/track.lua (preview overlay), tests/{test_lowerbody,test_sam_track}.py (helpers), pyproject.toml
+Files changed: tracker/posture.py (new), tracker/main.py (`sam-track --posture`), tracker/sam_track.py (optional `posture` block in `make_doc`), mpv/portable_config/scripts/track.lua (posture word in the SAM label), tests/test_posture.py (new), pyproject.toml (E501 for the 2 new files), docs/{PROGRESS,DECISIONS,TEST_RESULTS,KNOWN_ISSUES,Lower body}.md, handover.md
+
+What changed: `PostureModel` wraps the S7 `LowerBodyModel` (same `update` signature, S7 regions passed through untouched). It adds: (1) a SEATED/STANDING/TRANSITION classifier from hip-knee-ankle geometry in torso-length units plus the visible/anatomical ratio, with exponential smoothing, hysteresis and a dwell time (no flicker; `direction` = standing_up/sitting_down; held when there is no evidence); (2) per-leg status visible / moved / hidden / left_frame / unknown (hidden vs moved vs left the frame), reusing S7's swap decision so crossing legs keep identity; (3) a desk rule: a SAM mask that is much wider than the previous anatomical region and mostly outside it (or wider than 4.5 torso lengths) is not used as evidence, no fixed desk height; (4) a seated region that keeps the hidden upper-leg box and the last visible shin/foot box (anchored to the hips) for 20 s while the desk hides the legs; (5) a standing/walking region with the short S7 hold, mixed with the seated one by a rate-limited `blend`, then S7's foot-lead cap, dead zone and smoothing. `sam-track --posture` writes a `posture` block to `.sam.json` and the preview; `track.lua` appends the posture word to the label. `--pose` alone is unchanged. No zoom/camera change.
+
+Tests/commands run: `tests/test_posture.py` and the lowerbody / SAM / preview / gate / parts / packaging / lua-ci test files through a stand-in runner (pytest and ruff are not installable offline here); `track.lua` loaded with texlua (syntax only)
+
+Test results: 33 new tests passed (stand-in): sit down, stand up, no flicker with noisy keypoints, hidden legs behind the desk, frame-cut legs, one hidden leg, foot wiggle, lifted foot, crossed legs, hidden/moved/left-frame/unknown, desk mask rejected (and shown to widen the region when the filter is off), shin/thigh held behind the desk and expiry, standing hold, smooth blend, S7 output unchanged, JSON/row/preview/make_doc/CLI. Neighbouring files unchanged: test_lowerbody 27, test_sam_track 48, test_sam_preview 15, test_trackgate 10, test_sam_engine 28, test_parts 4, test_parts_robust 3, test_parts_b3 8, test_ci_lua 1, test_no_conflict_markers 2, test_packaging 17; test_offline_pose 8 passed / 1 failed (stand-in `approx` limit, same on the untouched zip). Real `pytest -q` and `ruff check .` NOT run
+
+Known failures: none seen in the new code
+
+Unverified assumptions: all thresholds (`THIGH_*`, `REACH_*`, `ENTER_*`/`STAND_AT`/`SIT_AT`, `DESK_*`, hold times) are first guesses from body proportions, never tuned on a real clip; YOLOv8-pose keypoints behind a desk behave like the synthetic rows; the posture geometry assumes a frontal camera (a side view of a seated person has no foreshortened thigh but should still read as seated by the ankle drop); the "legs hidden" cue is weak by design and a standing person with knees undetected for 2-3 s could read as seated (the regions barely differ then); the desk rule misses a desk mask that is not much wider than the body region; a rejected desk mask is not removed from SAM's memory (Session 5 gate); the Lua label was never rendered in mpv; ruff rules other than E501 on the new files (e.g. import order of `_SIDES`)
+
+Next smallest task: Session 9 (tracking state machine, 7 states)
+Exact command to resume: new chat, paste Master instruction + Session 9 prompt from `docs/Lower body.md`; first run `python -m tracker sam-track models\sam-edgetam klip.mp4 --rect X1,Y1,X2,Y2 --max-seconds 30 --preview --posture`, open the clip in mpv, press `P`, and note whether the posture word flips on sit/stand and where the cyan box looks wrong
+
+Previous checkpoint (Session 7):
+
+SESSION CHECKPOINT
+
+Phase: M2 (reliable tracker)
+Task: Session 7, lower-body region (visible vs anatomical)
+Files inspected: docs/{Lower body,PROGRESS,DECISIONS,TEST_RESULTS}.md, handover.md (first 30 lines + tail), tracker/{parts,targets,sam_preview,sam_track,pose,offscreen}.py, tracker/main.py (sam-track, sam-preview), mpv/portable_config/scripts/track.lua (preview overlay), tests/{test_parts_robust,test_sam_preview,test_sam_track}.py (helpers)
+Files changed: tracker/lowerbody.py (new), tracker/main.py (`--pose`/`--pose-model` for `sam-track` and `sam-preview`), tracker/sam_preview.py (`lower` payload), tracker/sam_track.py (optional `lower` block in `make_doc`), mpv/portable_config/scripts/track.lua (2 extra boxes), tests/test_lowerbody.py (new), pyproject.toml (E501 for the 2 new files), docs/{PROGRESS,DECISIONS,Lower body}.md, handover.md
+
+What changed: `LowerBodyModel` keeps two regions per frame: visible (reliable knee/ankle + clipped SAM mask) and anatomical (hip down to the last visible foot, at least 1 torso length, hidden thighs included, always containing visible), plus per-leg evidence (left/right, hidden/held, mask overlap) and ONE framing rectangle (stretched-foot cap, dead zone, smoothing). Missing landmarks are held or mirrored, never "limb gone"; left/right swaps are repaired by continuity; the desk side/torso part of a mask is clipped. `Follower` matches the pose to the SAM box (seated person box extended downward). `sam-track --pose` writes `lower` rows to `.sam.json` and the preview; the cyan preview rectangle is now the framing. No zoom/camera change.
+
+Tests/commands run: `tests/test_lowerbody.py` and the parts / SAM / preview / gate / targets test files through a stand-in runner (pytest and ruff are not installable offline here); `track.lua` loaded with texlua (syntax only)
+
+Test results: 27 new tests passed (stand-in); 123 tests in the neighbouring files passed. Real `pytest -q` and `ruff check .` NOT run
+
+Known failures: none seen
+
+Unverified assumptions: the Lua boxes were never rendered in mpv; YOLOv8-pose keypoints behind a desk behave like the synthetic rows (knees/ankles low-confidence or absent, hips visible); constants (`LEG_REACH` 1.0 L, `FULL_LEG` 2.0 L, dead zone 6 %, foot lead 0.4 L) are first guesses, not tuned on a real clip; `--pose` cost per frame on the RTX 3050 (never measured); the pose model finds the seated person at all (box matching assumes legs lie below the person box); ruff rules other than E501 on the new files
+
+Next smallest task: Session 8 (posture seated/standing, desk occlusion, sit↔stand)
+Exact command to resume: new chat, paste Master instruction + Session 8 prompt from `docs/Lower body.md`; first run `python -m tracker sam-track models\sam-edgetam klip.mp4 --rect X1,Y1,X2,Y2 --max-seconds 30 --preview --pose`, open the clip in mpv, press `P` and note where magenta/orange/cyan look wrong
+
+Previous checkpoint (Session 6):
+
+SESSION CHECKPOINT
+
+Phase: M2 (reliable tracker)
+Task: Session 6, mask outline + combined rectangle preview
+Files inspected: docs/{Lower body,PROGRESS,DECISIONS}.md (Session 6 parts), handover.md (tail), tracker/{sam_engine,sam_track,main}.py, mpv/portable_config/scripts/track.lua (dot overlay, scan poll), tests/test_sam_track.py (helpers)
+Files changed: tracker/sam_preview.py (new), tracker/main.py (`sam-preview` command, `sam-track --preview`), mpv/portable_config/scripts/track.lua + input.conf (`P` overlay), tests/test_sam_preview.py (new), pyproject.toml (E501 for the 2 new files), docs/PROGRESS.md, handover.md
+
+What changed: all logic is in `tracker/sam_preview.py` (mask -> normalized outline <= 96 points, combined rectangle, state/confidence payload, atomic `<video>.sam.preview.json`, throttled `Writer`). `sam-preview MODEL_DIR VIDEO --rect ...` runs the first-mask step and writes a CONFIRM (or NO_MASK) preview; redraw = run it again with a new `--rect`. `sam-track --preview` writes outline, rectangle, conf and state (TRACKED/LOST placeholder until Session 9) at most every 0.5 s and a DONE frame at the end. `track.lua` only draws that file (`P` toggles, polls 0.5 s): green outline, cyan combined rectangle (= mask box for now; Session 7 makes it legs+feet), yellow drawn rectangle, state/conf text. Right-click/right-drag untouched.
+
+Tests/commands run: `tests/test_sam_preview.py` (15), `test_sam_track.py`, `test_trackgate.py`, `test_sam_engine.py` through a stand-in runner (pytest is not installed here); `track.lua` loads with texlua (syntax only).
+
+Test results: 15 new + 48 + 10 + 28 passed in the stand-in runner. Not run with real pytest or ruff.
+
+Known failures: none seen.
+
+Unverified assumptions: the Lua overlay was never rendered in mpv (no Lua test added; only a syntax load); `ruff` import order for `from test_sam_track import ...` in the new test; ASS border-only polygon (`\1a&HFF&` + `\bord`) looks right in libass.
+
+Next smallest task: Session 7 (lower-body region, visible vs anatomical)
+Exact command to resume: new chat, paste Master instruction + Session 7 prompt from `docs/Lower body.md`. First: `python -m tracker sam-preview models\sam-edgetam klip.mp4 --rect X1,Y1,X2,Y2 --device dml`, open the video in mpv, press `P`; then `python -m tracker sam-track models\sam-edgetam klip.mp4 --rect X1,Y1,X2,Y2 --max-seconds 30 --preview` and watch the overlay.
+
+Previous checkpoint (Session 5):
+
+SESSION CHECKPOINT
+
+Phase: M2 (reliable tracker)
+Task: Session 5, port TrackGate (gating + jump rejection)
+Files inspected: docs/{Lower body,PROGRESS,DECISIONS,KNOWN_ISSUES,IMPLEMENTATION_AUDIT}.md, handover.md (S1-S4 tail), android/core/.../TrackGate.kt + TrackGateTest.kt, android/app/src/sam/.../SamEngine.kt (`walkMemory`), tracker/{sam_track,sam_engine,edgetam_bank,main}.py, tests/test_sam_track.py
+Files changed: tracker/trackgate.py (new), tracker/sam_track.py (gate in the loop, record fields, schema v2), tracker/main.py (`--no-gate`, gate summary), tests/test_trackgate.py (new), tests/test_sam_track.py, pyproject.toml (E501 for the two new files), handover.md, docs/*
+What changed: `TrackGate` ported with the Kotlin constants (a test compares them with the Kotlin source). In `track_video` a frame that passes the S4 confidence check now goes through `accept` (jump / reappearance must look like the subject by object-pointer cosine; learned from the first clean frames) and `remember` (only clean frames enter the bank; 12 unclean frames in a row force one in). A gate rejection is a lost frame with `accepted` False and pushes nothing. Records gain `clean`, `w`, `h` (camera size = last clean size while the mask is under 0.6x), `.sam.json` version 2 with a `gate` block. `sam-track --no-gate` restores S4 behaviour; the console shows the gate summary and the count of tracked-but-not-remembered frames.
+Tests/commands run: `tests/test_trackgate.py`, `tests/test_sam_track.py` and the SAM/scan/cache/packaging/edgetam test files through a stand-in runner (pytest and ruff not installable offline here)
+Test results: 10 new gate tests + 9 new loop tests (incl. "mask jumps onto a desk box and is rejected") passed (stand-in); one S4 test adapted (`use_gate=False`), one renamed, the round-trip test extended. Neighbouring files unchanged. Real `pytest -q` and `ruff check .` NOT run
+Known failures: none seen in the new code (stand-in has no `pytest.fixture`, so `test_providers.py` cannot be imported there, same on the untouched zip)
+Unverified assumptions: Android thresholds suit legs behind a desk (they were tuned for phone clips; the first ~3 clean frames are ungated); object pointers of the real graphs separate "subject" from "desk" by cosine (only fake pointers ran); that desk frames score conf >= 0.35 at all (if the real graphs already call them lost, the gate is idle there); speed unchanged (cosine on 256 floats); ruff rules other than E501 on the new files
+Next smallest task: Session 6
+Exact command to resume: new chat, paste Master instruction + Session 6 prompt from `docs/Lower body.md`; first run `sam-track` with and without `--no-gate` (`docs/DECISIONS.md`, "TrackGate") on a 30 s clip
+
+Previous checkpoint (Session 4):
 
 SESSION CHECKPOINT
 

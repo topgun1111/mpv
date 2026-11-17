@@ -102,7 +102,7 @@ Decisions made here (all reversible; each has a test):
 - **Split.** `SamEngine` only makes single graph calls (and counts their time in `engine.timing`). The frame loop, the `MemoryBank`, the records and the file live in `sam_track.py`, so Session 5 (gate) and Session 12 (backward pass) change the loop without touching the engine. `SamEngine(..., memory=True)` loads the three extra graphs; `sam-first` still loads two.
 - **Bank sizes are read from the graph, not hard-coded.** K (memory slots), P (pointer slots) and the shape of one memory frame come from the static input shapes of `sam-memattn`; `sam-memenc`'s output size is checked against it. The existing `MemoryBank` is reused unchanged (slot 0 = prompted frame, slot d = d tracked steps back, empty slots repeat slot 0). Dynamic shapes are rejected with a clear error.
 - **Tracked or lost = the Android rule** (`walkMemory`): `object_score > 0`, non-empty mask and `conf >= 0.35`, with `conf = iou x sigmoid(object_score) x (1 if mask area is 0.25-4x the reference area, else 0.5)`. The reference area is the last tracked area (EMA 0.8/0.2, tracked frames only). A test compares these constants with the Kotlin source.
-- **Only tracked frames are pushed; lost frames push nothing.** Difference from Android, on purpose: Android also requires a "clean" frame (conf >= 0.6, size ratio 0.6-1.6) before pushing. That is `TrackGate.remember`, Session 5. Until then every tracked frame enters memory, so a half-hidden subject (desk in front of the legs) can pollute the bank. Expect worse results than Android on desk clips until Session 5.
+- **Only tracked frames are pushed; lost frames push nothing.** Difference from Android, on purpose: Android also requires a "clean" frame (conf >= 0.6, size ratio 0.6-1.6) before pushing. That is `TrackGate.remember`, Session 5. Until Session 5 every tracked frame entered memory (now gated, `--no-gate` restores it), so a half-hidden subject (desk in front of the legs) can pollute the bank. Expect worse results than Android on desk clips until Session 5.
 - **`accepted` is always True** in every record (the gate does not exist yet). `state` carries tracked/lost. Session 5 fills `accepted` and rejected frames stop being pushed.
 - **Records go to `<video>.sam.json`**, next to `.track.json` / `.views.json`; their schema is untouched. One row per sampled frame, columns in `fields`: `t, tracked, accepted, x1, y1, x2, y2, iou, object_score, conf, area, ratio` (box normalized, null when the mask is empty). The header holds the video signature (`vsig`, same as A3), start time, normalized rectangle, rule, providers actually used, memory layout, ms per graph call and counts. Writes are atomic. Ctrl+C saves what exists with `"complete": false` (exit code 130). No resume yet.
 - **Sampling 10 fps by default** (`--fps`, same as `offline_fps`; Android used 6). `--start S` means the rectangle was drawn at S seconds; earlier frames are skipped (forward pass only, the backward pass is Session 12). `--max-seconds N` stops N seconds after the start.
@@ -118,6 +118,75 @@ python -m tracker sam-track models\sam-edgetam klip.mp4 --rect 300,420,900,1000 
 ```
 
 Output: a progress line every 30 frames, then frames / tracked / lost, seconds and frames per second, ms per call and provider for each graph (with "(FELL BACK)" if a graph ran on CPU), peak VRAM, and the path of `klip.mp4.sam.json`. Paste the console text into `TEST_RESULTS.md`. Check by eye that "lost" runs match the moments the legs really are hidden or out of frame (the desk behaviour is not fixed until Sessions 5 and 8).
+
+## TrackGate: gating and jump rejection (Session 5)
+
+Code: `tracker/trackgate.py` (Kotlin `core/TrackGate.kt` port: `remember`, `cosine`, `is_jump`, `size`, `relax`, class `TrackGate` with `learn/note/accept/summary`) wired into `track_video` in `tracker/sam_track.py`. Same order as Android `walkMemory`. CLI: `sam-track ... [--no-gate]` prints `kapı: N kabul, M ret (benzerlik ref ..., K temiz kare)` and the count of tracked-but-not-remembered frames.
+
+Decisions made here (each has a test):
+
+- **Constants copied from Kotlin** (`REMEMBER_CONF` 0.6, ratio 0.6-1.6, `MIN_LEARN` 3, `JUMP_K` 0.75, `RESUME_K` 0.6, `FORCE_CLEAN_FRAMES` 12, relax 12/24/0.5). A test reads `TrackGate.kt` and compares them, so a drift in either file is caught. They were tuned for Android phone clips, not for legs behind a desk (open, see below).
+- **Order per frame:** (1) S4 decision (object_score > 0, non-empty mask, conf >= 0.35); (2) gate `accept(dist, max(stable_w, stable_h), lost, sim)` with `sim` = max cosine of the object pointer against the prompted frame's pointer and the last clean frame's pointer; (3) `remember(conf, ratio)` decides whether the frame enters the bank. A gate rejection is a LOST frame (`state` "lost", `accepted` False), pushes nothing and adds to `lost`.
+- **`accepted` means "the gate did not reject".** Frames lost by the confidence/object_score check never reach the gate and keep `accepted` True. Only a gate rejection gives `accepted` False.
+- **New record fields** (`clean`, `w`, `h`; `.sam.json` schema version 1 -> 2, `gate` block in the header). `clean` = pushed to the bank. `w`,`h` = size for the camera: the last clean size while the mask is under 0.6x the reference area (a leg covered by the desk must not zoom the camera in); `null` on lost frames. The raw mask box stays in `x1..y2`. Session 6/7/11 read these; nothing reads `w`,`h` yet.
+- **Learning:** the similarity reference is learned only from frames that are clean, not preceded by a loss and not preceded by an unclean frame (as Android). Until 3 such frames exist, everything passes. So the very first seconds are ungated.
+- **`--no-gate` / `use_gate=False`** gives the exact S4 behaviour (every tracked frame is remembered). Use it to compare on the same clip.
+- **No change to `sam_engine.py`:** the engine already returns `obj_ptr` and candidate centroids. The Android "reverse fill" of lost spans is Session 12.
+
+Run on your PC (same clip as the Session 4 run, so the two can be compared):
+
+```powershell
+python -m tracker sam-track models\sam-edgetam klip.mp4 --rect 300,420,900,1000 --max-seconds 30 --device dml
+python -m tracker sam-track models\sam-edgetam klip.mp4 --rect 300,420,900,1000 --max-seconds 30 --device dml --no-gate --out klip.nogate.sam.json
+```
+
+Paste both consoles into `TEST_RESULTS.md`. Look at: `kapı ... ret` (rejected frames should be the moments the desk or another person takes over, not the frames where the legs are visible), "belleğe girmeyen" (very high = the thresholds are too strict for legs, lower `REMEMBER_CONF`/ratio in `trackgate.py` and note it here), and whether `lost` grows compared with `--no-gate`.
+
+## Lower-body region: visible vs anatomical (Session 7)
+
+Code: `tracker/lowerbody.py` (pure Python: `LowerBodyModel.update`, `LowerBody`/`Leg`, `Follower`, `pick_pose`, `pose_row`). CLI: `sam-track ... --pose [--pose-model]` (pose every frame, `lower` block in `<video>.sam.json`, `lower` field + framing rectangle in the preview file) and `sam-preview ... --pose`. `track.lua` draws two extra boxes (magenta = anatomical, orange = visible); the cyan rectangle is now the framing. No zoom/camera change (Session 11).
+
+Decisions made here (each has a test in `tests/test_lowerbody.py`):
+
+- **Two regions per frame.** *Visible* = reliable knee/ankle joints of each leg (+ `VIS_PAD` 0.2 L) plus the SAM mask box when the mask is trusted. *Anatomical* = estimated whole lower body: per leg from the hip down to at least `LEG_REACH` 1.0 L (same as `anchored_leg_box`), further down to the lowest visible knee/ankle (+0.15 L), at most `FULL_LEG` 2.0 L; anatomical always contains visible. `L` = torso length (shoulders to hips; one visible hip uses the same-side shoulder; held up to 10 s; fallback shoulder width x 1.2, then 0.45 x person height). No fixed desk height anywhere.
+- **A missing landmark is not a missing limb.** A hidden knee/ankle keeps the leg's anatomical box (hip + reach, or the last seen bottom for `HOLD_S` 1.5 s). A missing hip is mirrored from the other hip (signed separation learned when both were seen), else held, else hangs from the shoulder. No pose at all: last region is held 1.5 s (`source` "held"), then `none`. Invented behind-the-desk joints are dropped with the existing `parts._limb_point` rule.
+- **SAM mask evidence is clipped**, never trusted raw: ignored under conf 0.5 or when not tracked; top cut at hip line - 0.1 L (torso out), sides at the anatomical region +-1 L (desk sides out), bottom at hip + 2.15 L. This is a first guard; the full desk rule (mask-vs-region overlap) is Session 8.
+- **One framing rectangle** (`framing`, the preview's combined `rect`): anatomical region, with the bottom edge limited to `FOOT_LEAD` 0.4 L below the higher foot when both ankles are seen (one stretched foot does not pull it), feet/knees clamped to hip x +- 0.9 L, then per-edge dead zone (6 % of the region size) and 35 % step smoothing. `anatomical` stays the honest estimate; only the framing is stabilised.
+- **Left/right identity by continuity.** If both far points (ankle, else knee) jump and the swapped assignment is under 0.6 x the direct cost and the jump is over 0.5 L, the two legs are swapped back (`swapped`, note). Smooth crossings and one-foot jumps are never swapped. Per-leg `evidence` (hip .2, knee .3, ankle .5 of confidence), `hidden`, `held`, `mask_overlap` are debug/support values; nothing steers the camera with them yet.
+- **Pose-to-target matching:** `pick_pose` takes the person whose box (extended 1.2 x its height downward, because a seated person's box stops at the desk) covers most of the SAM box; ties and lost-mask frames use distance to the last centre. Without `--pose` nothing changes (S6 behaviour, no `lower` block).
+- **Record format:** `.sam.json` gets an optional top-level `lower` = `{fields, rows}` (one row per record, `ROW_FIELDS`); `FIELDS`/schema version 2 untouched, `load_doc` unchanged. Preview file stays `v: 1` with an added `lower` object.
+
+Run on your PC (needs the exported graphs and `models/yolov8s-pose.onnx`):
+
+```powershell
+python -m tracker sam-preview models\sam-edgetam klip.mp4 --rect X1,Y1,X2,Y2 --device dml --pose
+python -m tracker sam-track models\sam-edgetam klip.mp4 --rect X1,Y1,X2,Y2 --max-seconds 30 --device dml --preview --pose
+```
+
+Open the clip in mpv and press `P`. Check: seated behind the desk, the magenta box reaches about one torso below the hips and the orange box appears only when shins/feet show; cyan stays calm while a foot wiggles, one foot is stretched, or the legs cross; a hidden leg keeps its half of the region. Note in `TEST_RESULTS.md` the pose cost per frame (fps of `sam-track` with and without `--pose`) and any frame where the cyan rectangle chases a foot or swallows the desk. Tunable constants are at the top of `lowerbody.py`.
+
+## Posture, desk occlusion, sit↔stand (Session 8)
+
+Code: `tracker/posture.py` (pure Python: `PostureModel.update`, `PostureFrame`, `desk_like`, `follower()`). CLI: `sam-track ... --posture` (implies pose; `--pose` alone behaves exactly as in Session 7). The `posture` block in `<video>.sam.json` (`posture.ROW_FIELDS`, one row per record) and the posture word in the mpv label (`track.lua`, after the confidence) are new; the preview file gets `lower.posture`, `lower.thigh`, `lower.leg_status`, `lower.desk_mask`, `lower.blend` and the cyan rectangle is now the posture-aware framing. `sam-preview` is untouched (one frame has no posture history). No zoom/camera change (Session 11).
+
+Decisions made here (each has a test in `tests/test_posture.py`):
+
+- **A layer on S7, not a rewrite.** `PostureModel` owns a `LowerBodyModel` and has the same `update(...)` signature, so `Follower` takes it unchanged. S7's visible/anatomical/left-right output is passed through untouched (a test compares the two models frame by frame); only the framing is replaced. S7's own `framing` stays in `lower.framing`.
+- **Posture score** (0 = seated, 1 = standing, exponential smoothing `TAU_S` 0.35 s) from torso-length units: knee drop below the hips (`THIGH_LO/HI` .45/.75 L; a seated person facing the camera has foreshortened thighs), ankle drop (`REACH_LO/HI` 1.3/1.6 L) and visible/anatomical height (`COV_LO/HI`, weight only .1 because it is high for a seated person with visible shins). Weights .5/.3/.1; with hips hidden the hip line is shoulders + L and the observation counts 0.7.
+- **Hysteresis + dwell.** SEATED leaves at score >= .45, STANDING at <= .55 (into TRANSITION); TRANSITION settles to STANDING at >= .72 or SEATED at <= .28 only after `SETTLE_S` 0.4 s beyond the threshold. `direction` = `standing_up` / `sitting_down` from where TRANSITION was entered. No evidence = the posture is held, `unknown` before the first evidence.
+- **Hidden legs are weak evidence, a frame-cut leg is none.** Hips/shoulders visible, no reliable knee/ankle and the anatomical region NOT reaching the frame bottom (`EDGE_BOTTOM` .99) = a weak "seated behind the desk" observation (score .15, weight .25, about 2-3 s to flip a standing person). If the region reaches the bottom edge the legs are cut by the frame, not hidden, and nothing is observed.
+- **Per-leg status** (`legs`): `visible`, `moved` (a reliable ankle/knee jumped >= .35 L since the last observation), `hidden` (person present, joints missing, not leaving), `left_frame` (last point at/near the left/right/bottom edge and not moving inward, or extrapolated outside the frame, or the leg box is cut by the frame bottom), `unknown` (no person). Left/right use S7's swap decision, so crossing legs are not "moved".
+- **Desk rule, no fixed height.** Before S7 sees a SAM mask (tracked, conf >= .5) it is judged against the previous anatomical region: width >= 2.0 x that width (or a flat, wide box) AND less than .45 of the mask inside the region -> `desk_mask`, mask not used as evidence (while standing the overlap limit is .25, because a stride widens the mask); width >= 4.5 torso lengths is always rejected. The first frame has no torso length yet, so it is not checked. Only the evidence is dropped: SAM's memory stays the business of the Session 5 gate.
+- **Seated region.** `thigh` = the hidden upper-leg box from the hip line down by the last measured knee drop (default .45 L, held while knees are not seen). The visible shin/foot box is stored relative to the hips and re-anchored every frame, so it is kept for `SEATED_HOLD_S` 20 s while the desk hides the legs (S7 alone collapses to 1 L after 1.5 s). The region is held for 20 s through pose dropouts, then dropped.
+- **Standing/walking region** = anatomical united with visible, short hold (S7's 1.5 s). The seated and standing regions are mixed by `blend` (target 0 seated, 1 standing, the score while in TRANSITION), limited to `BLEND_RATE` 1.5 per second, then the S7 foot-lead cap (.4 L), dead zone and 35 % smoothing. A lifted foot or a foot wiggle moves the bottom edge by less than .03 of the frame in the tests.
+
+Run on your PC (needs the exported graphs and `models/yolov8s-pose.onnx`):
+
+```powershell
+python -m tracker sam-track models\sam-edgetam klip.mp4 --rect X1,Y1,X2,Y2 --max-seconds 30 --device dml --preview --posture
+```
+
+Open the clip in mpv and press `P`. Check: the label ends with `seated` while the person sits behind the desk and does not flicker; standing up shows `transition` for about a second, then `standing`; the cyan rectangle follows the feet smoothly (no jump) and keeps covering the hidden legs behind the desk; a wide desk mask never makes the magenta/cyan boxes wider (`lower.desk_mask` true in the preview file for those frames). Constants (`THIGH_*`, `REACH_*`, `ENTER_*`, `DESK_*`, `SEATED_HOLD_S`) are first guesses, not tuned on a real clip; note which one looks wrong here.
 
 ## How to decide (Session 1 and 2)
 

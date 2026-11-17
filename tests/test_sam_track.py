@@ -14,6 +14,7 @@ import pytest
 from tracker import cache
 from tracker import sam_engine as se
 from tracker import sam_track as st
+from tracker import trackgate as tg
 from tracker.main import main
 from tracker.sam_engine import DEC, DEC_TRK, ENC, M, MEMATTN, MEMENC, SamEngine
 
@@ -67,7 +68,7 @@ class FakeDec:
 
 
 class FakeDecTrk:
-    """`script`: izleme çağrısı başına (bölge | None, iou, object_score). İşaretçi = 100 + çağrı no (1'den)."""
+    """`script`: izleme çağrısı başına (bölge | None, iou, object_score[, işaretçi]). Varsayılan işaretçi = 100 + çağrı no."""
 
     def __init__(self, script):
         self.script, self.calls = list(script), []
@@ -77,10 +78,11 @@ class FakeDecTrk:
 
     def run(self, names, feed):
         self.calls.append(feed)
-        region, iou, score = self.script[len(self.calls) - 1]
+        region, iou, score, *rest = self.script[len(self.calls) - 1]  # rest[0]: isteğe bağlı 256'lık işaretçi
         m = logits(region) if region else logits()
+        ptr = rest[0] if rest else np.full(256, 100 + len(self.calls), np.float32)
         return [m[None, None], np.array([[iou]], np.float32),
-                np.full((1, 1, 256), 100 + len(self.calls), np.float32), np.array([[score]], np.float32)]
+                np.asarray(ptr, np.float32).reshape(1, 1, 256), np.array([[score]], np.float32)]
 
 
 class FakeMemEnc:
@@ -224,16 +226,16 @@ def test_empty_mask_is_lost_with_no_box_and_zero_area():
 
 def test_reference_area_follows_clean_frames_slowly():
     big = ((64, 32, 191, 95), 0.9, 3.0)  # 2x alan: oran 2, izlenir
-    recs = run(make([big, big, big])[0], 4)
+    recs = run(make([big, big, big])[0], 4, use_gate=False)  # S4 davranışı: her izlenen kare referansı besler
     assert recs[1].ratio == pytest.approx(2.0)
     assert recs[2].ratio < recs[1].ratio  # referans 0.8/0.2 EMA ile büyüdü
     assert recs[3].ratio < recs[2].ratio
 
 
-def test_accepted_is_true_for_every_record_until_the_gate_exists():
+def test_frames_the_gate_never_judged_stay_accepted_even_when_lost():
     recs = run(make([GOOD, (None, 0.9, 3.0), GOOD])[0], 4)
     assert [r.tracked for r in recs] == [True, True, False, True]
-    assert all(r.accepted for r in recs)
+    assert all(r.accepted for r in recs)  # kayıp ama kapı reddi değil: güven/boş maske elemesi
 
 
 # --- kayıtlar ---
@@ -353,7 +355,7 @@ def test_sam_path_sits_next_to_the_video_like_track_and_views(tmp_path):
 
 def test_document_round_trip_keeps_rows_counts_and_signature(tmp_path):
     video, recs, doc = _docs(tmp_path)
-    assert doc["kind"] == "sam-track" and doc["version"] == 1 and doc["complete"] is True
+    assert doc["kind"] == "sam-track" and doc["version"] == 2 and doc["complete"] is True
     assert doc["counts"] == {"frames": 4, "tracked": 3, "lost": 1}
     assert doc["vsig"] == cache.file_sig(video) and doc["layout"] == {"k": K, "p": P, "frame_shape": [3]}
     assert doc["fields"][:3] == ["t", "tracked", "accepted"] and len(doc["records"][0]) == len(doc["fields"])
@@ -362,6 +364,9 @@ def test_document_round_trip_keeps_rows_counts_and_signature(tmp_path):
     assert [r.state for r in back] == [r.state for r in recs] and back[2].box is None
     assert back[1].box == pytest.approx(recs[1].box, abs=1e-4) and all(r.accepted for r in back)
     assert not list(tmp_path.glob("*.tmp"))  # atomik yazım: geçici dosya kalmaz
+    assert [r.clean for r in back] == [True, True, False, True] and back[0].size == pytest.approx((0.25, 0.25), abs=1e-4)
+    assert back[2].size is None and back[1].size == pytest.approx((0.25, 0.25), abs=1e-4)
+    assert doc["gate"] == {"enabled": True, "rejected": 0, "unclean": 0, "ref": None, "learned": None}
 
 
 def test_save_does_not_touch_existing_track_or_views_files(tmp_path):
@@ -519,3 +524,94 @@ def test_docs_name_the_new_command_and_the_decisions():
     d = (ROOT / "docs/DECISIONS.md").read_text(encoding="utf-8")
     assert "sam-track" in d and "SAM memory loop" in d
     assert ".sam.json" in (ROOT / "handover.md").read_text(encoding="utf-8")
+
+
+# --- S5: TrackGate ---
+
+OTHER = np.where(np.arange(256) % 2 == 0, 1.0, -1.0)  # ilk karedeki sabit işaretçiyle kosinüs tam 0
+DESK = ((150, 150, 250, 250), 0.9, 3.0, OTHER)  # uzakta, özneye benzemeyen işaretçi; alan oranı ~2.5 (makul), güven yüksek
+HALF = ((64, 32, 103, 71), 0.9, 3.0)  # GOOD'un 40x40'ı: oran 0.39 -> izlenir ama temiz değil
+
+
+def test_mask_jumping_onto_a_desk_is_rejected_and_never_enters_memory():
+    eng, p = make([GOOD, GOOD, GOOD, DESK, GOOD, GOOD])
+    stats = st.TrackStats()
+    recs = run(eng, 7, stats=stats)
+    assert [r.state for r in recs] == ["tracked"] * 4 + ["lost", "tracked", "tracked"]
+    assert recs[4].accepted is False and recs[4].box is not None and not recs[4].clean and recs[4].size is None
+    assert all(r.accepted for i, r in enumerate(recs) if i != 4)
+    assert (stats.rejected, stats.lost, stats.unclean) == (1, 1, 0)
+    assert len(p.memenc.calls) == 1 + 3 + 2  # masa kareden bellek yazılmadı
+    mem = [c["mem"].tolist() for c in p.memattn.calls]
+    assert mem[3] == mem[4] == [0, 3, 2, 1]  # masa karesi (4) ve sonrası: geçmiş hâlâ 1,2,3
+    assert mem[5] == [0, 5, 3, 2]  # kare 4 hiçbir yuvada yok
+    assert p.memattn.calls[4]["ptr"][1:4].tolist() == [103.0, 102.0, 101.0]
+
+
+def test_without_the_gate_the_desk_frame_is_remembered_like_in_s4():
+    eng, p = make([GOOD, GOOD, GOOD, DESK, GOOD, GOOD])
+    recs = run(eng, 7, use_gate=False)
+    assert all(r.tracked and r.accepted and r.clean for r in recs)
+    assert p.memattn.calls[5]["mem"].tolist() == [0, 5, 4, 3]  # masa karesi belleğe girdi
+
+
+def test_everything_passes_until_three_clean_frames_were_learned():
+    recs = run(make([GOOD, DESK])[0], 3)  # yalnız 1 temiz kare öğrenildi
+    assert recs[2].tracked and recs[2].accepted
+
+
+def test_lookalike_after_a_loss_is_rejected_but_the_subject_resumes():
+    eng, p = make([GOOD, GOOD, GOOD, (None, 0.9, 3.0), DESK, GOOD])
+    recs = run(eng, 7)
+    assert [r.state for r in recs] == ["tracked"] * 4 + ["lost", "lost", "tracked"]
+    assert [r.accepted for r in recs] == [True] * 5 + [False, True]  # 4: boş maske (kapı görmedi), 5: kapı reddi
+    assert len(p.memenc.calls) == 1 + 3 + 1
+
+
+def test_half_covered_frame_is_tracked_but_not_remembered_and_keeps_the_clean_size():
+    eng, p = make([GOOD, HALF, GOOD])
+    stats = st.TrackStats()
+    recs = run(eng, 4, stats=stats)
+    assert recs[0].clean and recs[0].size == (0.25, 0.25)
+    half = recs[2]
+    assert half.tracked and half.accepted and not half.clean
+    assert half.box == pytest.approx((0.25, 0.125, 0.40625, 0.28125))  # ham kutu küçük
+    assert half.size == pytest.approx((0.25, 0.25))  # kamera boyutu son temiz boyutta kalır (zoom pompalanmaz)
+    assert len(p.memenc.calls) == 1 + 2 and stats.unclean == 1 and stats.lost == 0
+    assert p.memattn.calls[2]["mem"].tolist() == [0, 1, 0, 0]  # örtülü kare (2) bellekte yok
+    assert recs[3].ratio == pytest.approx(1.0)  # referans alan örtülü kareyle küçülmedi
+
+
+def test_frames_that_never_become_clean_are_forced_into_memory_so_it_never_deadlocks():
+    n = tg.FORCE_CLEAN_FRAMES
+    eng, p = make([HALF] * (n + 2))
+    recs = run(eng, n + 3)
+    assert [r.clean for r in recs[1:]] == [False] * n + [True, False]
+    assert len(p.memenc.calls) == 1 + 1  # yalnız ilk kare ve zorlanan kare
+
+
+def test_a_clean_frame_after_a_covered_one_does_not_count_as_a_learning_frame():
+    eng, _ = make([GOOD, HALF, GOOD, GOOD, GOOD, DESK])
+    gate = tg.TrackGate()
+    recs = run(eng, 7, gate=gate)
+    assert gate.learned == 3  # kare 1, 4, 5; kare 3 örtülü kareden hemen sonra geldiği için öğretmez
+    assert recs[6].state == "lost" and recs[6].accepted is False  # 3 temiz kare tamam: masa artık reddedilir
+
+
+def test_gate_counters_are_exposed_to_the_caller():
+    gate = tg.TrackGate()
+    eng, _ = make([GOOD, GOOD, GOOD, DESK, GOOD])
+    run(eng, 6, gate=gate)
+    assert (gate.accepted, gate.rejected, gate.learned) == (4, 1, 3) and gate.ref == pytest.approx(1.0)
+    assert "4 kabul, 1 ret" in gate.summary()
+
+
+def test_cli_sam_track_prints_the_gate_summary_and_no_gate_turns_it_off(tmp_path, monkeypatch, capsys):
+    v, _ = _cli(tmp_path, monkeypatch)
+    base = ["sam-track", str(tmp_path), str(v), "--rect", "8,8,56,40", "--max-seconds", "0.5", "--device", "cpu"]
+    assert main(base) == 0
+    assert "kapı: 5 kabul, 0 ret" in capsys.readouterr().out
+    assert st.load_doc(st.sam_path(v))["gate"]["enabled"] is True
+    assert main(base + ["--no-gate"]) == 0
+    assert "kapı: kapalı" in capsys.readouterr().out
+    assert st.load_doc(st.sam_path(v))["gate"]["enabled"] is False

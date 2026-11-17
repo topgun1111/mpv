@@ -4,7 +4,7 @@ Companion to `docs/PROJECT_SPEC.md` (the roadmap) and `docs/IMPLEMENTATION_AUDIT
 Project: Takipli Oynat, PC build (Windows, mpv + Python). Hardware: RTX 3050 Laptop 6 GB, Ryzen 5 5600, 16 GB RAM. Offline-first.
 Free Claude account, weekdays: **15 sessions (0–14)**, one per weekday, about three weeks.
 
-**Status: Sessions 0, 1, 2, 3 and 4 done in code (2026-11-17); Sessions 1, 2, 3 and 4 still need your PC runs (see `TEST_RESULTS.md`, `DECISIONS.md` "SAM graphs", "SAM engine" and "SAM memory loop"). Next: Session 5.**
+**Status: Sessions 0-8 done in code (2026-11-17/18); Sessions 1-8 still need your PC runs (see `TEST_RESULTS.md`, `DECISIONS.md` "SAM graphs", "SAM engine", "SAM memory loop", "TrackGate" and "Lower-body region" and "Posture"). Next: Session 9.**
 
 ---
 
@@ -54,10 +54,10 @@ Token savers:
 | 2 | Export 5 EdgeTAM graphs, PC loader, benchmark | 3 | **Code done**, your PC runs pending | Real numbers in `TEST_RESULTS.md` |
 | 3 | PC SAM engine: rectangle → first mask | 4 | **Code done**, your PC run pending | Mask + box for frame 1 |
 | 4 | PC SAM memory loop (forward tracking) | 4 | **Code done**, your PC run pending | Masks across a clip, per-frame records |
-| 5 | Port `TrackGate`: gating + jump rejection | 4 | | Bad frames never enter memory |
-| 6 | Mask outline + combined rectangle preview | 5 | | Overlay shows mask, rectangle, state |
-| 7 | Lower-body region: visible vs anatomical | 6 | | One framing rectangle, left/right evidence |
-| 8 | Posture, desk occlusion, sit↔stand | 6 | | Desk never becomes target |
+| 5 | Port `TrackGate`: gating + jump rejection | 4 | **Code done**, your PC run pending | Bad frames never enter memory |
+| 6 | Mask outline + combined rectangle preview | 5 | **Code done**, your PC run pending | Overlay shows mask, rectangle, state |
+| 7 | Lower-body region: visible vs anatomical | 6 | **Code done**, your PC run pending | One framing rectangle, left/right evidence |
+| 8 | Posture, desk occlusion, sit↔stand | 6 | **Code done**, your PC run pending | Desk never becomes target |
 | 9 | Tracking state machine (7 states) | 7 | | Transitions tested |
 | 10 | Re-entry: existing Re-ID + future frames | 7 | | Ambiguous re-entry flagged |
 | 11 | Camera: 70% occupancy, no foot zoom pumping | 8 | | Stable apparent size |
@@ -284,7 +284,9 @@ Run on your PC: a 30 s clip; report fps and peak VRAM.
 
 ---
 
-### Session 5: Port TrackGate (Part 4)
+### Session 5: Port TrackGate (Part 4). CODE DONE
+
+Delivered: `tracker/trackgate.py` (Kotlin constants and maths), gate wired into `track_video` (`use_gate`, `gate`), `accepted`/`clean`/`w`/`h` record fields (`.sam.json` version 2), `sam-track --no-gate`, 10 + 9 new tests, decisions in `DECISIONS.md` ("TrackGate"). Your part: run `sam-track` with and without `--no-gate` on the same 30 s clip and paste both outputs into `TEST_RESULTS.md`. The original prompt is kept below for reference.
 
 Files: new `tracker/trackgate.py`, `tracker/sam_engine.py`, `android/.../core/TrackGate.kt` and `TrackGateTest.kt` (reference), `tests/`.
 
@@ -315,7 +317,7 @@ Do not change the Kotlin code or implement UI/zoom.
 
 ---
 
-### Session 6: Mask outline and combined rectangle preview (Part 5)
+### Session 6: Mask outline and combined rectangle preview (Part 5). CODE DONE
 
 Files: `mpv/portable_config/scripts/track.lua` (ASS overlay code only), `tracker/live.py` / `tracker/main.py` message path, `tests/test_lua_panel.py`.
 
@@ -336,7 +338,9 @@ Do not redesign other screens. Do not change right-click behavior.
 
 ---
 
-### Session 7: Lower-body region, visible vs anatomical (Part 6)
+### Session 7: Lower-body region, visible vs anatomical (Part 6). CODE DONE
+
+Delivered: `tracker/lowerbody.py` (`LowerBodyModel`, `Follower`, `pick_pose`), `sam-track --pose [--pose-model]` and `sam-preview --pose`, optional `lower` block in `<video>.sam.json`, `lower` object + framing rectangle in the preview file, two extra boxes in `track.lua` (magenta anatomical, orange visible), 27 tests, decisions in `DECISIONS.md` ("Lower-body region"). Your part: run `sam-track --preview --pose` on a seated-at-desk clip, press `P` in mpv, paste observations into `TEST_RESULTS.md`. The original prompt is kept below for reference.
 
 Files: `tracker/parts.py` (`PRESETS`, `anchored_leg_box`, `group_box`), `tracker/pose.py`, `tracker/targets.py`, SAM records from Session 4, `tests/test_parts*.py`.
 
@@ -365,7 +369,9 @@ Add debug overlay fields and focused tests. No zoom changes.
 
 ---
 
-### Session 8: Posture, desk occlusion, sit↔stand (Part 6)
+### Session 8: Posture, desk occlusion, sit↔stand (Part 6). CODE DONE
+
+Delivered: `tracker/posture.py` (`PostureModel` on top of `LowerBodyModel`, `PostureFrame`, `desk_like`), `sam-track --posture` (`posture` block in `.sam.json`, posture fields + posture-aware framing in the preview, posture word in the mpv label), 33 tests, decisions in `DECISIONS.md` ("Posture, desk occlusion, sit↔stand"). Your part: run `sam-track --preview --posture` on a seated-at-desk clip that includes sitting down/standing up, press `P` in mpv, paste observations into `TEST_RESULTS.md`. The original prompt is kept below for reference.
 
 Files: `tracker/parts.py`, new `tracker/posture.py`, SAM mask + pose records, tests.
 

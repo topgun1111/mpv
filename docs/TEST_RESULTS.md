@@ -53,6 +53,25 @@ Your part: `python -m pytest -q -p no:cacheprovider` and `ruff check .` (record 
 (paste: the same with --device cuda in the CUDA venv)
 ```
 
+## Lower-body region, Session 7 (your PC)
+
+```text
+(paste: python -m tracker sam-track models\sam-edgetam klip.mp4 --rect x1,y1,x2,y2 --max-seconds 30 --device dml --preview --pose)
+(paste: the same without --pose, for the fps difference)
+Observed in mpv (P): anatomical (magenta) / visible (orange) / framing (cyan) on a seated clip, a foot wiggle, crossed legs, one leg hidden: ...
+```
+
+## Posture, Session 8 (your PC)
+
+```text
+(paste: python -m tracker sam-track models\sam-edgetam klip.mp4 --rect x1,y1,x2,y2 --max-seconds 30 --device dml --preview --posture)
+Observed in mpv (P): posture word (seated / transition / standing) on sit-down and stand-up, flicker: ...
+Cyan framing while the desk hides the legs / while walking / one foot stretched: ...
+Frames with lower.desk_mask true and what the mask covered: ...
+```
+
+Stand-in results (not a replacement for `pytest`): `tests/test_posture.py` 33 passed; neighbouring files unchanged (see `PROGRESS.md`). Real `pytest -q` and `ruff check .` not run here.
+
 ## Provider diagnostics (your PC, paste outputs here)
 
 ### DirectML environment

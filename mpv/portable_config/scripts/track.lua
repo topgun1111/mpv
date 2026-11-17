@@ -736,6 +736,72 @@ mp.observe_property("video-pan-x", "number", function() render_dot() end)
 mp.observe_property("video-pan-y", "number", function() render_dot() end)
 mp.observe_property("osd-dimensions", "native", function() render_dot() end)
 
+-- S6: SAM önizleme. `<video>.sam.preview.json` (Python: `sam-preview` / `sam-track --preview`) okunur:
+-- maske konturu + birleşik dikdörtgen + durum/güven (+ S7: anatomik/görünen alt vücut kutuları). Yalnız ÇİZER; mantık Python'da. `P` açar/kapatır,
+-- açıkken 0.5 sn'de bir dosyayı yeniler. Sağ tık/sürükleme davranışına dokunmaz.
+local SAM_Z = 4
+local sam = { on = false, ov = nil, data = nil, timer = nil }
+local SAM_COL = { CONFIRM = "00E0FF", TRACKED = "00FF00", LOST = "0000FF", NO_MASK = "0000FF", DONE = "C0C0C0" } -- BGR
+
+local function render_sam()
+  if not sam.ov then sam.ov = mp.create_osd_overlay("ass-events"); sam.ov.z = SAM_Z end
+  local d, p = osd_dims(), sam.data
+  if not (sam.on and p and d and d.w and d.w > 0 and d.h and d.h > 0) then
+    sam.ov.data = ""; sam.ov:update(); return
+  end
+  local bx0, by0, bw, bh = video_box(d)
+  local col = SAM_COL[p.state] or "FFFFFF"
+  local function xy(x, y) return string.format("%d %d", math.floor(bx0 + x * bw), math.floor(by0 + y * bh)) end
+  local function path(pts, color, bord)
+    return string.format("{\\an7\\pos(0,0)\\1a&HFF&\\bord%d\\shad0\\3c&H%s&\\p1}%s{\\p0}", bord, color, pts)
+  end
+  local lines = {}
+  local function rect_path(r) return string.format("m %s l %s l %s l %s", xy(r[1], r[2]), xy(r[3], r[2]), xy(r[3], r[4]), xy(r[1], r[4])) end
+  if type(p.drawn) == "table" and #p.drawn == 4 then lines[#lines + 1] = path(rect_path(p.drawn), "00FFFF", 1) end -- çizilen (sarı)
+  if type(p.rect) == "table" and #p.rect == 4 then lines[#lines + 1] = path(rect_path(p.rect), "FFFF00", 2) end   -- birleşik (camgöbeği)
+  if type(p.lower) == "table" then -- S7: alt vücut; anatomik (macenta, gizli uyluklar dahil) ve görünen (turuncu) bölge
+    if type(p.lower.anatomical) == "table" and #p.lower.anatomical == 4 then lines[#lines + 1] = path(rect_path(p.lower.anatomical), "FF00FF", 1) end
+    if type(p.lower.visible) == "table" and #p.lower.visible == 4 then lines[#lines + 1] = path(rect_path(p.lower.visible), "0080FF", 1) end
+  end
+  if type(p.outline) == "table" and #p.outline >= 3 then
+    local t = {}
+    for i, q in ipairs(p.outline) do t[#t + 1] = (i == 1 and "m " or "l ") .. xy(q[1], q[2]) end
+    lines[#lines + 1] = path(table.concat(t, " "), col, 3)                                                       -- maske konturu
+  end
+  local conf = p.conf and string.format(" · güven %.2f", p.conf) or ""
+  if type(p.lower) == "table" and type(p.lower.posture) == "string" then conf = conf .. " · " .. p.lower.posture end -- S8: duruş
+  local note = (p.note and p.note ~= "") and (" · " .. p.note) or ""
+  lines[#lines + 1] = string.format("{\\an1\\pos(%d,%d)\\fs%d\\bord2\\shad0\\1c&H%s&\\3c&H000000&}SAM %s%s%s",
+    8, d.h - 8, math.max(math.floor(d.h * 0.03), 12), col, tostring(p.state), conf, note)
+  sam.ov.res_x, sam.ov.res_y = d.w, d.h
+  sam.ov.data = table.concat(lines, "\n")
+  sam.ov:update()
+end
+
+local function poll_sam()
+  if sam.timer then sam.timer:kill(); sam.timer = nil end
+  if not sam.on then return end
+  local vp = video_path()
+  local text = vp and read_file(vp .. ".sam.preview.json")
+  local p = text and utils.parse_json(text)
+  sam.data = (type(p) == "table" and p.v == 1) and p or nil
+  render_sam()
+  sam.timer = mp.add_timeout(0.5, poll_sam)
+end
+
+local function sam_toggle(mode)
+  sam.on = (mode == "on") or (mode ~= "off" and not sam.on)
+  if sam.on then
+    poll_sam()
+    if not sam.data then osd("SAM önizleme dosyası yok (sam-preview komutunu çalıştır)", 4) end
+  else
+    poll_sam(); sam.data = nil; render_sam()
+  end
+end
+mp.register_script_message("sam-preview", sam_toggle)
+mp.add_key_binding(nil, "sam_preview", function() sam_toggle("toggle") end)
+mp.observe_property("osd-dimensions", "native", function() if sam.on then render_sam() end end)
+
 -- video-zoom (takipte Python, elle zoomda biz) değişince değer etiketi güncellenir
 mp.observe_property("video-zoom", "number", function(_, z)
   zoomc.z = z or 0

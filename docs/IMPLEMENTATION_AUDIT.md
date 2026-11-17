@@ -47,7 +47,7 @@ Legend: **exists** = implemented and tested | **partial** = some of it exists | 
 ## 3. Things that differ from what the roadmap assumed
 
 1. **There is no PC SAM engine to "port or complete".** It has to be written from `SamEngine.kt`, using `edgetam_bank.py` and the graph contract in `scripts/export_sam2.py` and `tests/test_edgetam_contract.py`. This is the largest unplanned item.
-2. **`TrackGate` exists only in Kotlin.** Python needs a port (73 lines of pure maths, easy), plus the tests.
+2. **`TrackGate` existed only in Kotlin** (ported in Session 5: `tracker/trackgate.py`). Python needed a port (73 lines of pure maths, easy), plus the tests.
 3. **The 5 ONNX graphs are not in the repo.** `export_sam2.py` needs `torch` and the EdgeTAM/SAM2 package (CI only). They must be exported before any PC benchmark. Graphs use static shapes (1024×1024 input) and float32 I/O.
 4. **CUDA is not just a switch.** `onnxruntime-directml` and `onnxruntime-gpu` conflict, and CUDA needs matching CUDA/cuDNN runtime DLLs. Decide between DirectML and CUDA first (see `DECISIONS.md`).
 5. **Much of the camera work already exists.** Sessions 10 and 11 of the old plan merge into one.

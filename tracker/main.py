@@ -118,6 +118,28 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--rule", choices=["best", "smallest"], default="best", help="İlk kare aday kuralı")
     st.add_argument("--out", help="Kayıt dosyası (varsayılan: <video>.sam.json)")
     st.add_argument("--no-save", action="store_true", help="Kayıt dosyası yazma")
+    st.add_argument("--no-gate", action="store_true", help="TrackGate kapalı: her izlenen kare belleğe girer (S4)")
+    st.add_argument("--preview", action="store_true",
+                    help="Maske konturu + birleşik dikdörtgeni <video>.sam.preview.json'a yaz (mpv'de P tuşu, S6)")
+    st.add_argument("--pose", action="store_true",
+                    help="Poz ile alt vücut bölgesi: görünen/anatomik, sol/sağ, tek kadraj (S7); "
+                         "kayda `lower` bloğu yazar")
+    st.add_argument("--pose-model", help="Poz ONNX yolu (varsayılan: config.pose_model)")
+    st.add_argument("--posture", action="store_true",
+                    help="--pose + duruş (oturma/ayakta/geçiş), masa maskesi reddi, bacak durumu, duruşa duyarlı kadraj (S8); "
+                         "kayda `posture` bloğu yazar")
+    sp = sub.add_parser("sam-preview", help="Dikdörtgen -> ilk maske konturu + birleşik dikdörtgen, onay önizlemesi (S6)")
+    sp.add_argument("model_dir", help="sam-encoder.onnx ve sam-decoder.onnx klasörü")
+    sp.add_argument("video", help="Video dosyası")
+    sp.add_argument("--rect", required=True, help="x1,y1,x2,y2 (piksel; --norm ile 0-1 oranı). Yeniden çizmek = yeni --rect")
+    sp.add_argument("--norm", action="store_true", help="--rect değerleri 0-1 oranı")
+    sp.add_argument("--start", type=float, default=0.0, help="Dikdörtgenin çizildiği an, sn (0)")
+    sp.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"])
+    sp.add_argument("--rule", choices=["best", "smallest"], default="best", help="İlk kare aday kuralı")
+    sp.add_argument("--out", help="Önizleme dosyası (varsayılan: <video>.sam.preview.json)")
+    sp.add_argument("--pose", action="store_true",
+                    help="Birleşik dikdörtgen = poz + maske alt vücut kadrajı (S7)")
+    sp.add_argument("--pose-model", help="Poz ONNX yolu (varsayılan: config.pose_model)")
     pv = sub.add_parser("providers", help="GPU sağlayıcı tanılaması (DirectML/CUDA) (S1)")
     pv.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"],
                     help="Denenecek cihaz (varsayılan: config.device)")
@@ -700,13 +722,57 @@ def sam_first_cmd(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def sam_preview_cmd(cfg: Config, args: argparse.Namespace) -> int:
+    """Çizilen dikdörtgen -> ilk maske -> önizleme dosyası (S6). 0: maske var (CONFIRM); 1: maske yok (NO_MASK)."""
+    from . import sam_preview, sam_track
+    from . import sam_engine as se
+
+    clip = sam_track.Clip(args.video, fps=10.0, start=args.start)
+    try:
+        rect = se.parse_rect(args.rect, clip.w, clip.h, args.norm)
+        it = iter(clip)
+        try:
+            t, frame = next(it)
+        except StopIteration:
+            raise ValueError("videodan kare okunamadı") from None
+        finally:
+            it.close()
+    finally:
+        clip.close()
+    out = args.out or sam_preview.preview_path(args.video)
+    res = se.SamEngine(args.model_dir, args.device or cfg.device, rule=args.rule).first_mask(frame, rect)
+    if res is None:
+        sam_preview.save(out, sam_preview.no_mask(se.to_norm_box(rect, clip.w, clip.h), t=t))
+        print("Maske bulunamadı: dikdörtgeni nesnenin çevresine yeniden çizin (aynı komut, yeni --rect).", file=sys.stderr)
+        return 1
+    lower = None
+    if args.pose:
+        from types import SimpleNamespace
+
+        from . import lowerbody
+        from .pose import PoseEstimator
+
+        est = PoseEstimator(args.pose_model or cfg.pose_model, conf_thres=cfg.pose_conf,
+                            device=args.device or cfg.device)
+        first = sam_preview.from_first(res, t=t)
+        rec = SimpleNamespace(t=t, box=tuple(res.box_norm), conf=first["conf"], tracked=True)
+        lower = lowerbody.Follower(lowerbody.LowerBodyModel(min_conf=cfg.kp_min_conf)).step(
+            rec, est.estimate(frame), (clip.w, clip.h))
+    pay = sam_preview.from_first(res, t=t, lower=lower)
+    sam_preview.save(out, pay)
+    print(f"Önizleme: {out} · güven {pay['conf']:.2f} · kontur {len(pay['outline'])} nokta · mpv'de P tuşu. "
+          "Uygunsa aynı --rect ile `sam-track --preview`; değilse yeni --rect ile bu komutu yeniden çalıştır.")
+    return 0
+
+
 def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
     """Video boyunca SAM bellek takibi (S4). Çıkış kodu 0: kayıt üretildi; 1: ilk karede maske yok / hata."""
     import time
 
-    from . import sam_bench, sam_track
+    from . import sam_bench, sam_preview, sam_track
     from . import sam_engine as se
     from .detector import _PROVIDER_NAMES
+    from .trackgate import TrackGate
 
     clip = sam_track.Clip(args.video, fps=args.fps, start=args.start, max_seconds=args.max_seconds)
     try:
@@ -720,34 +786,77 @@ def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
     cuda = any(p["provider"] == _PROVIDER_NAMES["cuda"] for p in prov.values())
     vram = sam_bench.VramSampler(sam_bench.nvidia_smi_used_mb) if cuda else None
     stats, records = sam_track.TrackStats(), []
+    pw = (sam_preview.Writer(sam_preview.preview_path(args.video), se.to_norm_box(rect, clip.w, clip.h))
+          if args.preview else None)
+    use_gate = not args.no_gate
+    gate = TrackGate() if use_gate else None
+    frames = clip
+    follower, now_poses, lower_rows, posture_rows = None, [], [], []
+    lower = None
+    if args.pose or args.posture:  # S7: her karede poz; track_video tembel: kayıt i, i. karenin pozuyla eşleşir
+        from . import lowerbody
+        from .pose import PoseEstimator
+
+        est = PoseEstimator(args.pose_model or cfg.pose_model, conf_thres=cfg.pose_conf,
+                            device=args.device or cfg.device)
+        if args.posture:  # S8: duruş katmanı S7 modelinin üstünde; --pose çıktısı değişmez
+            from . import posture
+
+            follower = posture.follower(cfg.kp_min_conf)
+        else:
+            follower = lowerbody.Follower(lowerbody.LowerBodyModel(min_conf=cfg.kp_min_conf))
+
+        def frames_with_pose():
+            for tt, fr in clip:
+                now_poses[:] = est.estimate(fr)
+                yield tt, fr
+
+        frames = frames_with_pose()
     t0 = time.perf_counter()
     complete = False
     try:
         if vram:
             vram.__enter__()
-        for rec in sam_track.track_video(eng, clip, rect, stats=stats):
+        for rec in sam_track.track_video(eng, frames, rect, stats=stats, use_gate=use_gate, gate=gate,
+                                         keep_masks=pw is not None):
+            if follower is not None:
+                lower = follower.step(rec, now_poses, (clip.w, clip.h))
+                if args.posture:
+                    posture_rows.append(lower.row())
+                    lower_rows.append(lower.lower.row())
+                else:
+                    lower_rows.append(lower.row())
+            if pw is not None:
+                pw.update(rec, lower)
+                rec.mask = None  # önizleme yazıldı; maskeler bellekte birikmesin
             records.append(rec)
             if rec.index % 30 == 0:
                 fps = stats.frames / max(time.perf_counter() - t0, 1e-9)
                 print(f"kare {rec.index} t={rec.t:.1f}s {rec.state} conf {rec.conf:.2f} · "
-                      f"izlenen {stats.tracked} kayıp {stats.lost} · {fps:.1f} kare/sn", flush=True)
+                      f"izlenen {stats.tracked} kayıp {stats.lost} (kapı reddi {stats.rejected}) · {fps:.1f} kare/sn", flush=True)
         complete = True
     except KeyboardInterrupt:
         print("Durduruldu: şimdiye kadarki kayıtlar yazılıyor.", file=sys.stderr)
     finally:
         if vram:
             vram.__exit__(None, None, None)
+        if pw is not None and records:
+            pw.finish(lower=lower)
         wall = time.perf_counter() - t0
         out = None
         if records and not args.no_save:
             doc = sam_track.make_doc(
                 args.video, records, size=(clip.w, clip.h), sample_fps=args.fps, start=args.start,
                 rect=se.to_norm_box(rect, clip.w, clip.h), rule=args.rule, providers=prov,
-                layout=eng.memory_layout(), timing_ms=sam_track.ms_per_call(eng), complete=complete)
+                layout=eng.memory_layout(), timing_ms=sam_track.ms_per_call(eng), complete=complete,
+                gate=gate, use_gate=use_gate, lower=lower_rows or None,
+                posture=posture_rows or None)
             out = sam_track.save_doc(args.out or sam_track.sam_path(args.video), doc)
         if records:
             print(f"\nkare {stats.frames} · izlenen {stats.tracked} · kayıp {stats.lost} · {wall:.1f} sn · "
                   f"{stats.frames / max(wall, 1e-9):.2f} kare/sn")
+            print("  " + (gate.summary() if gate else "kapı: kapalı (--no-gate)")
+                  + f" · belleğe girmeyen (temiz değil) {stats.unclean}")
             for n, ms in sam_track.ms_per_call(eng).items():
                 p = prov.get(n, {})
                 print(f"  {n}: {p.get('provider', '?')}{' (FELL BACK)' if p.get('fell_back') else ''} · "
@@ -874,6 +983,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "sam-first":  # mpv bağlantısı gerekmez
         try:
             return sam_first_cmd(cfg, args)
+        except KeyboardInterrupt:
+            return 130
+        except (FileNotFoundError, ValueError, ImportError, OSError, RuntimeError) as e:
+            print(f"HATA: {e}", file=sys.stderr)
+            return 1
+    if args.cmd == "sam-preview":  # mpv bağlantısı gerekmez
+        try:
+            return sam_preview_cmd(cfg, args)
         except KeyboardInterrupt:
             return 130
         except (FileNotFoundError, ValueError, ImportError, OSError, RuntimeError) as e:
