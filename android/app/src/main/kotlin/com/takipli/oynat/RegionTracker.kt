@@ -22,6 +22,11 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
+/** LK must keep at least this share of the seeds, otherwise the region is treated as covered (a blocker killed the points). */
+private const val MIN_SURVIVE = 0.30
+/** Template score needed to re-find the region in a window around where it should be (whole-frame search keeps 0.65). */
+private const val NEAR_NCC = 0.50
+
 /**
  * Part 18: follows a drawn region (e.g. both legs) through the stored frames. Per step: corners are detected inside the
  * region mask in the previous frame, tracked with forward-backward LK (initial flow from the scan's camera motion), a
@@ -95,12 +100,30 @@ class RegionTracker(private val store: GrayStore, private val cam: List<List<Dou
         return r to f
     }
 
+    /** Template search in a window (full-frame pixels) around (cx, cy): (x, y, score) of the region centre, or null. */
+    private fun searchNear(cur: Mat, t: Pair<Mat, Double>, cx: Double, cy: Double, half: Double): Triple<Double, Double, Double>? {
+        val (tm, f) = t
+        val x1 = max(0, (cx - half).toInt()); val y1 = max(0, (cy - half).toInt())
+        val x2 = min(gw, (cx + half).toInt()); val y2 = min(gh, (cy + half).toInt())
+        if (x2 - x1 < 8 || y2 - y1 < 8) return null
+        val win = Mat(cur, Rect(x1, y1, x2 - x1, y2 - y1)); val small = Mat(); val res = Mat()
+        try {
+            if (f < 1.0) Imgproc.resize(win, small, Size((x2 - x1) * f, (y2 - y1) * f), 0.0, 0.0, Imgproc.INTER_AREA) else win.copyTo(small)
+            if (small.cols() <= tm.cols() || small.rows() <= tm.rows()) return null
+            Imgproc.matchTemplate(small, tm, res, Imgproc.TM_CCOEFF_NORMED)
+            val mm = Core.minMaxLoc(res)
+            if (mm.maxVal.isNaN()) return null
+            return Triple(x1 + (mm.maxLoc.x + tm.cols() / 2.0) / f, y1 + (mm.maxLoc.y + tm.rows() / 2.0) / f, mm.maxVal)
+        } finally { win.release(); small.release(); res.release() }
+    }
+
     fun run(start: Int, polys0: List<DoubleArray>, end: Int, step: Int, out: Array<DoubleArray?>, writeSeed: Boolean, isCancelled: () -> Unit = {}) {
         var polys = polys0
         var last = start
         var prev = store.get(start)
         val tmpl = template(prev, polys)
         var lostRun = 0
+        var vx = 0.0; var vy = 0.0 // subject velocity (store px / step) without the camera motion: the region keeps drifting while it is covered
         if (writeSeed) bounds(polys).let { out[start] = doubleArrayOf(it[0] / gw, it[1] / gh, 1.0, it[2] / gw, it[3] / gh) }
         try {
             var k = start
@@ -130,7 +153,7 @@ class RegionTracker(private val store: GrayStore, private val cam: List<List<Dou
                                     fx.add(a[i].x); fx.add(a[i].y); tx.add(b[i].x); tx.add(b[i].y)
                                 }
                                 val valid = fx.size / 2
-                                if (valid >= 6) {
+                                if (valid >= 6 && valid >= MIN_SURVIVE * src.size) { // else: most points died = covered, do not follow the few survivors (they sit on the blocker)
                                     val sim = estimateSimilarity(fx.toDoubleArray(), tx.toDoubleArray(), 2.5, 400, 6)
                                     val sc = sim?.let { hypot(it.a, it.b) } ?: 1.0
                                     val usable = if (sim != null && sc in 0.8..1.25) sim else { // implausible scale jump: shift only
@@ -142,6 +165,13 @@ class RegionTracker(private val store: GrayStore, private val cam: List<List<Dou
                                     conf = (min(1.0, usable.inliers / 25.0) * min(1.0, usable.inliers.toDouble() / valid + 0.2)).coerceIn(0.0, 1.0)
                                 }
                             } finally { listOf(p0, p1, back, st, er, st2, er2).forEach { it.release() } }
+                        }
+                    }
+                    if (moved == null && tmpl != null) { // covered / lost: first look where the region should be now (windowed, every frame)
+                        val bp = bounds(polys)
+                        val half = max(bp[2], bp[3]) * (0.75 + 0.15 * min(lostRun, 10)) + 24.0
+                        searchNear(cur, tmpl, bp[0], bp[1], half)?.let { (cx, cy, sc) ->
+                            if (sc >= NEAR_NCC) { moved = move(polys, Similarity(1.0, 0.0, cx - bp[0], cy - bp[1], 0)); conf = sc * 0.7 }
                         }
                     }
                     if (moved == null && tmpl != null) { // lost: re-find the region by template anywhere in the frame
@@ -169,7 +199,13 @@ class RegionTracker(private val store: GrayStore, private val cam: List<List<Dou
                     if (moved == null) {
                         lostRun++
                         cs?.let { polys = move(polys, it) } // keep the prediction for the next window, no row
+                        if (lostRun <= 20) { polys = move(polys, Similarity(1.0, 0.0, vx, vy, 0)); vx *= 0.9; vy *= 0.9 } // coast on the last subject motion
                     } else {
+                        if (lostRun == 0) { // subject motion = region motion minus what the camera alone explains
+                            val bo = bounds(polys); val bn = bounds(moved!!)
+                            val pc = cs?.apply(bo[0], bo[1]) ?: doubleArrayOf(bo[0], bo[1])
+                            vx = 0.5 * vx + 0.5 * (bn[0] - pc[0]); vy = 0.5 * vy + 0.5 * (bn[1] - pc[1])
+                        }
                         lostRun = 0; polys = moved
                         val b = bounds(polys)
                         out[k] = doubleArrayOf(b[0] / gw, b[1] / gh, conf, b[2] / gw, b[3] / gh)

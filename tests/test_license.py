@@ -209,7 +209,8 @@ def test_package_ships_notices_and_workflow_checks_them(tmp_path, monkeypatch):
     for key in ("THIRD_PARTY_NOTICES.md", "BUILD_INFO.txt"):
         assert key in wf, key
     # Release artık tek yerde: build-all.yml `release` işi (tüm uygulamalar, ortak sürüm)
-    assert "--generate-notes" in (ROOT / ".github/workflows/build-all.yml").read_text(encoding="utf-8")
+    all_wf = (ROOT / ".github/workflows/build-all.yml").read_text(encoding="utf-8")
+    assert "--generate-notes" in all_wf
     fd = (ROOT / "scripts" / "fetch_deps.ps1").read_text(encoding="utf-8")
     assert "BUILD_INFO.txt" in fd and "SHA256" in fd and "$Tag" in fd
     m = (ROOT / "models" / "MODELLER.txt").read_text(encoding="ascii")

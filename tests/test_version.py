@@ -103,8 +103,8 @@ def test_release_assets_main_writes_list_notes_and_checksums(tmp_path):
     lst, notes = tmp_path / "assets.txt", tmp_path / "notes.md"
     argv = [str(d), "--private", "false", "--tag-release", "false", "--list", str(lst), "--notes", str(notes)]
     assert ra.main(argv) == 0
-    listed = lst.read_text().split()
-    assert (d / "SHA256SUMS.txt").as_posix() in listed and len(listed) == 4  # 3 kayıt dosyası + SHA256SUMS
+    listed = [Path(x) for x in lst.read_text().splitlines()]  # Windows'ta ters eğik çizgi: Path ile karşılaştır
+    assert d / "SHA256SUMS.txt" in listed and len(listed) == 4  # 3 kayıt dosyası + SHA256SUMS
     assert "AGPL" in notes.read_text() and "TakipliKayit-Android" in notes.read_text()
     assert "TakipliOynatKayit-Setup-1.2.0-b5.exe" in (d / "SHA256SUMS.txt").read_text()
     empty = tmp_path / "empty"
