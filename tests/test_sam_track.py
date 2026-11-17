@@ -16,7 +16,7 @@ from tracker import sam_engine as se
 from tracker import sam_track as st
 from tracker import trackgate as tg
 from tracker.main import main
-from tracker.sam_engine import DEC, DEC_TRK, ENC, M, MEMATTN, MEMENC, SamEngine
+from tracker.sam_engine import DEC, DEC_TRK, ENC, MEMATTN, MEMENC, M, SamEngine
 
 ROOT = Path(__file__).resolve().parents[1]
 CPU = "CPUExecutionProvider"

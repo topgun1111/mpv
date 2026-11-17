@@ -724,8 +724,8 @@ def sam_first_cmd(cfg: Config, args: argparse.Namespace) -> int:
 
 def sam_preview_cmd(cfg: Config, args: argparse.Namespace) -> int:
     """Çizilen dikdörtgen -> ilk maske -> önizleme dosyası (S6). 0: maske var (CONFIRM); 1: maske yok (NO_MASK)."""
-    from . import sam_preview, sam_track
     from . import sam_engine as se
+    from . import sam_preview, sam_track
 
     clip = sam_track.Clip(args.video, fps=10.0, start=args.start)
     try:

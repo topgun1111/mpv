@@ -199,7 +199,7 @@ def test_upscale_mask_has_frame_size_and_keeps_the_region():
 
 def test_first_mask_runs_encoder_then_decoder_with_the_contract_names():
     eng, enc, dec = _engine()
-    res = eng.first_mask(_frame(), (100, 100, 400, 300))
+    eng.first_mask(_frame(), (100, 100, 400, 300))
     (en, ef), (dn, df) = enc.calls[0], dec.calls[0]
     assert en == list(ENC_OUT) and set(ef) == {"image"} and ef["image"].shape == (1, 3, S, S)
     assert dn == list(DEC_OUT)

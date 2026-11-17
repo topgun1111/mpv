@@ -327,6 +327,27 @@ fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config, kps: 
     return boxes
 }
 
+/**
+ * Combined legs-and-feet framing: carries each ID's last observed box across brief pose losses (up to
+ * [LOWER_BODY_HOLD_S] seconds of sample time) so the anatomical region survives a short occlusion; longer losses are
+ * left empty for the normal lost/zoom-out handling. Observed samples are never altered and the held box keeps its
+ * size. Mirrors `lowerbody.HOLD_S`.
+ */
+const val LOWER_BODY_HOLD_S = 1.0
+
+@Suppress("UNUSED_PARAMETER")
+fun lowerBodyBoxes(doc: TrackDoc, ids: Set<Int>, boxes: Map<Int, DoubleArray>, cfg: Config, holdS: Double = LOWER_BODY_HOLD_S): Map<Int, DoubleArray> {
+    if (ids.isEmpty()) return boxes
+    val out = HashMap<Int, DoubleArray>()
+    var last: DoubleArray? = null; var lastT = 0.0
+    for ((i, s) in doc.samples.withIndex()) {
+        val b = boxes[i]
+        if (b != null) { out[i] = b; last = b; lastT = s.t }
+        else if (last != null && s.t - lastT <= holdS) out[i] = last.copyOf()
+    }
+    return out
+}
+
 /** Views for a target: preset group, single joint (`part`) or the whole person; linked IDs count as the same target. */
 fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Director = Director(), robust: Boolean = false): List<ViewKey> {
     val ts = doc0.samples.map { it.t }
