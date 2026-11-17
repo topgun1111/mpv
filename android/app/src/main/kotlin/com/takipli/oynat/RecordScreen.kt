@@ -101,6 +101,8 @@ fun RecordScreen(onBack: () -> Unit) {
     val hostView = LocalView.current
     SideEffect { hostView.keepScreenOn = recording || exporter != null }
     DisposableEffect(Unit) { onDispose { exporter?.cancel(); player.release(); hostView.keepScreenOn = false } }
+    var volume by remember { mutableStateOf(1f) }; var muted by remember { mutableStateOf(false) } // preview volume only; the export is unaffected
+    SideEffect { player.volume = if (muted) 0f else volume }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { picked ->
         if (picked != null) {
@@ -228,6 +230,10 @@ fun RecordScreen(onBack: () -> Unit) {
                 Text("${String.format(Locale.ROOT, "%.1f", view.zoom.let { 2.0.pow(it) })}×", modifier = Modifier.padding(top = 12.dp))
             }
             Slider(value = posMs.toFloat().coerceIn(0f, durationMs.toFloat()), onValueChange = { if (!recording) { posMs = it.toLong(); player.seekTo(posMs) } }, valueRange = 0f..durationMs.toFloat(), enabled = !recording && exporter == null)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = { muted = !muted }) { Text(if (muted || volume == 0f) "\uD83D\uDD07" else "\uD83D\uDD0A") }
+                Slider(value = if (muted) 0f else volume, onValueChange = { volume = it; muted = it == 0f }, modifier = Modifier.weight(1f))
+            }
             Text("${posMs / 1000}s / ${durationMs / 1000}s · ${keys.size} camera keyframes", style = MaterialTheme.typography.labelSmall)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

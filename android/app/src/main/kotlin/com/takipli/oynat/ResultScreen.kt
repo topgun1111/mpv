@@ -194,6 +194,8 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     val rot = remember(doc) { UserRot.forDoc(ctx, doc) } // the turn this scan was made with (preview and export must match the tracking data, not a later setting)
     val player = remember { ExoPlayer.Builder(ctx).build() }
     DisposableEffect(Unit) { onDispose { player.release() } }
+    var volume by remember { mutableStateOf(1f) }; var muted by remember { mutableStateOf(false) } // preview volume only; the export is unaffected
+    SideEffect { player.volume = if (muted) 0f else volume }
     // The preview player keeps a 4K decoder and tens of MB of Java-heap buffers. The export (Media3 Transformer, 4K + stabilization)
     // needs that memory: build #50 died with OutOfMemoryError (heap 255/256 MB) right after Export. Park it while exporting.
     fun parkPlayer() { runCatching { player.pause(); player.stop(); player.clearMediaItems() } }
@@ -311,6 +313,10 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
         Text(clock((posMs - startMs).coerceAtLeast(0L)) + " / " + clock(durMs - startMs), modifier = Modifier.align(androidx.compose.ui.Alignment.CenterVertically), style = MaterialTheme.typography.labelLarge)
     }
     Slider(value = posMs.toFloat(), valueRange = startMs.toFloat()..durMs.toFloat().coerceAtLeast(startMs + 1f), onValueChange = { posMs = it.toLong(); player.seekTo(it.toLong()) })
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(onClick = { muted = !muted }) { Text(if (muted || volume == 0f) "\uD83D\uDD07" else "\uD83D\uDD0A") }
+        Slider(value = if (muted) 0f else volume, onValueChange = { volume = it; muted = it == 0f }, modifier = Modifier.weight(1f))
+    }
 
     // Oynatma hızı (yalnız önizleme/kayıt için; dışa aktarma hızı değişmez)
     var speed by remember { mutableStateOf(1f) }
