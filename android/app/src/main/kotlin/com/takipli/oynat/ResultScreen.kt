@@ -48,6 +48,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -255,7 +256,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     if (rot != 0) Text(stringResource(R.string.result_rotated, rot), fontSize = 12.sp)
     // Bound the result preview just like Manual Camera: portrait clips must not consume the whole page.
     BoxWithConstraints(
-        Modifier.fillMaxWidth().height(300.dp)
+        Modifier.fillMaxWidth().height((androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.45f).dp.coerceIn(220.dp, 520.dp))
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
             .clipToBounds(),
         contentAlignment = Alignment.Center,
@@ -460,7 +461,6 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                                 }
                         }) { Text(stringResource(R.string.result_save)) }
                     }
-                    if (saved.isNotEmpty()) Text(saved)
                     if (saved.isNotEmpty()) Text(saved)
                     if (partEndMs != null) Text(stringResource(if (doc.range != null) R.string.result_range_note else R.string.result_partial_note, String.format(Locale.ROOT, "%.1f", startMs / 1000.0), String.format(Locale.ROOT, "%.1f", partEndMs / 1000.0)), fontSize = 12.sp)
                     Text(stringResource(R.string.export_title), style = MaterialTheme.typography.labelLarge)

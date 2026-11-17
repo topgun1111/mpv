@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -197,7 +198,7 @@ fun RecordScreen(onBack: () -> Unit) {
         if (uri != null && vi != null) {
             // Bounded viewport: portrait videos no longer expand the page beyond the screen.
             androidx.compose.foundation.layout.BoxWithConstraints(
-                Modifier.fillMaxWidth().height(340.dp).clip(RoundedCornerShape(22.dp))
+                Modifier.fillMaxWidth().height((androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.5f).dp.coerceIn(220.dp, 560.dp)).clip(RoundedCornerShape(22.dp))
                     .clipToBounds().background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
@@ -245,24 +246,30 @@ fun RecordScreen(onBack: () -> Unit) {
                 OutlinedButton(onClick = { startExport() }, enabled = !recording && exporter == null && keys.isNotEmpty(), modifier = Modifier.weight(1f)) { Text("Export MP4") }
             }
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Playback speed", style = MaterialTheme.typography.titleSmall)
+                        Text(String.format(Locale.ROOT, "%.2f×", speed), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                                        Slider(value = speed.toFloat(), onValueChange = { applySpeed(it.toDouble()) }, valueRange = REC_SPEED_MIN.toFloat()..REC_SPEED_MAX.toFloat(), steps = 6, enabled = exporter == null)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        REC_SPEED_PRESETS.forEach { p ->
+                            FilterChip(selected = speed == p, enabled = exporter == null, onClick = { applySpeed(p) }, label = { Text(if (p == 1.0) "1×" else "${p}×".replace(".0×", "×")) })
+                        }
+                    }
+                    Text("Preview speed only. Exported video keeps its original speed.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     TextButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (showAdvanced) "⌃  Playback & audio" else "⌄  Playback & audio")
+                        Text(if (showAdvanced) "⌃  Audio" else "⌄  Audio")
                     }
                     if (showAdvanced) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             OutlinedButton(onClick = { muted = !muted }) { Text(if (muted || volume == 0f) "🔇" else "🔊") }
                             Slider(value = if (muted) 0f else volume, onValueChange = { volume = it; muted = it == 0f }, modifier = Modifier.weight(1f))
                         }
-                        Text("Playback speed", style = MaterialTheme.typography.titleSmall)
-                        Text(String.format(Locale.ROOT, "%.2f×", speed), style = MaterialTheme.typography.titleLarge)
-                        Slider(value = speed.toFloat(), onValueChange = { applySpeed(it.toDouble()) }, valueRange = REC_SPEED_MIN.toFloat()..REC_SPEED_MAX.toFloat(), steps = 6, enabled = exporter == null)
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            REC_SPEED_PRESETS.forEach { p ->
-                                FilterChip(selected = speed == p, enabled = exporter == null, onClick = { applySpeed(p) }, label = { Text(if (p == 1.0) "1×" else "${p}×".replace(".0×", "×")) })
-                            }
-                        }
-                        Text("Preview speed only. Exported video keeps its original speed.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

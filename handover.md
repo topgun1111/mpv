@@ -583,3 +583,8 @@ Sıra: (U5 ✅) U6 → U7 → U8 → U9. Kapsam dışı: küçük resim önizlem
 - Canlı: `track-addmode on|off` (Lua: `A` tuşu / Takip → «Hedef ekle», ✓) açıkken sağ tık/nesne mevcut hedefi kümeye sarar ve yenisini ekler; kümede bir üyeye sağ tık onu çıkarır; Takip → «Son hedefi çıkar» (`track-remove`); tek üye kalınca küme açılır; hiç kalmazsa bırakılır. B3: parça değişimi kümedeki tüm parça izleyicilerine uygulanır. Config: `set_min_zoom`, `set_hyst`.
 - Testler: 374 (`tests/test_targets_t1.py` ×7: birleşim/etiket, min-zoom + histerezis, anchor/ağırlık, görünmeyen/kayıp, member_at/on_cut, canlı ekle→birleşik kutu→üyeye sağ tık→açılma, remove mesajı + Lua/input.conf bağları). ruff temiz.
 - **AÇIK**: (a) öncelik ağırlığını değiştiren arayüz yok (yalnız API + eklenme sırası; M3'te adım düğmesi) (b) oyuncu (ByteTrack) hedefi kümeye eklenmez (yalnız nesne/eklem/parça izleyicileri; ekleme kipinde oyuncu hedefi yerine konur) (c) offline (`views.json`) çoklu hedef yok (d) gerçek klipte min-zoom/histerezis değerleri ayarlanmadı; kümedeki üyenin kayıp kalması kümeyi bozmaz ama elle çıkarılmalı.
+- Android UI part 2: PickScreen sections (Clip range / Selection / Advanced) done, uncompiled. Next: sticky Scan bar, ResultScreen, landscape.
+- Android UI part 3: RecordScreen speed card always visible, adaptive viewport; uncompiled.
+- Android UI part 4: rec/RecScreen speed card + adaptive viewport; uncompiled.
+- Android UI part 5: ResultScreen adaptive viewport + dup-line fix; uncompiled.
+- Android UI part 6: PickScreen sticky Scan bar (startScan hoisted); uncompiled. Next: landscape, Home/secondary screens.

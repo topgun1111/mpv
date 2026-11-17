@@ -48,4 +48,6 @@
     <string name="range_hint">A–B: seek to a frame, tap A or B to set it. Only the part between them is scanned, tracked and exported (leave empty for the whole clip). Tap your target on a frame inside A–B.</string>
     <string name="range_bad">The A–B range is invalid: B must be after A, and the frame you tap on must lie between them.</string>
     <string name="result_range_note">A–B scan: only %1$s–%2$s s were processed. Preview and export cover that part.</string>
+    <string name="pick_sec_clip">Clip range</string>
+    <string name="pick_sec_select">Selection</string>
 </resources>

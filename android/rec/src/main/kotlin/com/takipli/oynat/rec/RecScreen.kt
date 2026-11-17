@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -365,7 +366,7 @@ fun RecScreen() {
             }
             if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
             if (loaded && vi != null) {
-                Box(Modifier.fillMaxWidth().height(340.dp).clip(RoundedCornerShape(22.dp)).background(Color.Black)) {
+                Box(Modifier.fillMaxWidth().height((androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.5f).dp.coerceIn(220.dp, 560.dp)).clip(RoundedCornerShape(22.dp)).background(Color.Black)) {
                     PreviewSurface(player, view, aspect, recording, onGesture, Modifier.fillMaxSize())
                     if (recording) Text(stringResource(R.string.rec_badge), color = REC_RED, fontWeight = FontWeight.Bold, modifier = Modifier.padding(12.dp))
                     OverlayButton(stringResource(R.string.full_screen), { fullscreen = true }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp))
@@ -387,9 +388,18 @@ fun RecScreen() {
                     OverlayButton(stringResource(if (recording) R.string.stop_short else R.string.rec_short), { if (recording) stopRecording() else startRecording() }, modifier = Modifier.weight(1f), enabled = !exporting, accent = true)
                     if (!recording && keys.isNotEmpty()) OverlayButton(stringResource(R.string.export_mp4), { startExport() }, modifier = Modifier.weight(1f), enabled = !exporting)
                 }
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Speed  ${speedLabel(speed)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Slider(value = speed.toFloat(), onValueChange = { applySpeed(it.toDouble()) }, valueRange = 0.25f..3f, steps = 10, enabled = !exporting, modifier = Modifier.weight(1f))
+                    }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        REC_SPEED_PRESETS.forEach { p -> FilterChip(selected = speed == p, enabled = !exporting, onClick = { applySpeed(p) }, label = { Text(speedLabel(p)) }) }
+                    }
+                }
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp, vertical = 4.dp)) {
                     androidx.compose.material3.TextButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (showAdvanced) "⌃  Advanced controls" else "⌄  Advanced controls")
+                        Text(if (showAdvanced) "⌃  Rotate & audio" else "⌄  Rotate & audio")
                     }
                     if (showAdvanced) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -400,13 +410,6 @@ fun RecScreen() {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Volume", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                             Slider(value = if (muted) 0f else volume, onValueChange = { volume = it; muted = it == 0f }, modifier = Modifier.weight(1f))
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${speedLabel(speed)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Slider(value = speed.toFloat(), onValueChange = { applySpeed(it.toDouble()) }, valueRange = 0.25f..3f, steps = 10, enabled = !exporting, modifier = Modifier.weight(1f))
-                        }
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            REC_SPEED_PRESETS.forEach { p -> FilterChip(selected = speed == p, enabled = !exporting, onClick = { applySpeed(p) }, label = { Text(speedLabel(p)) }) }
                         }
                     }
                 }

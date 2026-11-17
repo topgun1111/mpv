@@ -48,4 +48,6 @@
     <string name="range_hint">A–B: bir kareye git, A veya B’ye dokun. Yalnızca ikisi arasındaki kısım taranır, takip edilir ve dışa aktarılır (boş bırakırsan tüm video). Hedefe A–B içindeki bir karede dokun.</string>
     <string name="range_bad">A–B aralığı geçersiz: B, A’dan sonra olmalı ve dokunduğun kare ikisinin arasında olmalı.</string>
     <string name="result_range_note">A–B taraması: yalnızca %1$s–%2$s sn işlendi. Önizleme ve dışa aktarma bu kısmı kapsar.</string>
+    <string name="pick_sec_clip">Klip aralığı</string>
+    <string name="pick_sec_select">Seçim</string>
 </resources>

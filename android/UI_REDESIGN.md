@@ -20,3 +20,30 @@ gradle :core:test :app:assemblePoseDebug :app:assembleSamDebug :rec:assembleDebu
 ## Follow-up polish
 
 The tracking selection screen still contains several mode-dependent settings in one scrollable workflow. The next UI pass should convert those into clearly separated Selection, Clip range, and Advanced sections, and test the layout on narrow phones, foldables, and landscape orientation.
+
+## Part 2 — PickScreen sections (not compiled)
+
+- `PickScreen.kt`: new private `PickSection` card. Controls are grouped into **Clip range** (seek, ±step, A/B), **Selection** (mode-specific: body parts / multi-point + keep-distance / freehand+rect undo-clear) and **Advanced** (collapsed by default; now also holds the version/SAM/pose status card, so the preview moves up the screen).
+- Rotation buttons moved from above the preview to directly below it (next to zoom controls).
+- Strings added: `pick_sec_clip`, `pick_sec_select` (en + tr, `strings_cam.xml`).
+- Still open: sticky Scan bar, Home/Result/Rec screens from the brief, landscape two-pane layout. No Android SDK was available here, so nothing was built; run the Gradle command above.
+
+## Part 3 — RecordScreen (not compiled)
+
+- Preview viewport height is now 50 % of the window (220–560 dp) instead of a fixed 340 dp; the page still scrolls, so controls stay reachable.
+- Playback-speed slider, value readout and presets are always visible (was hidden in the collapsed panel). Same `applySpeed` / `PlaybackParameters` path as before. The collapsed panel is now "Audio" only.
+
+## Part 4 — standalone recorder (`rec/RecScreen.kt`, not compiled)
+
+Same change as RecordScreen: speed slider + presets always visible in their own card; viewport 50 % of window height (220–560 dp); collapsed panel is now "Rotate & audio". The immersive full-screen overlay (speed button cycling presets) is untouched.
+
+## Part 5 — ResultScreen (not compiled)
+
+- Preview viewport is 45 % of window height (220–520 dp) instead of fixed 300 dp; page still scrolls to the Target / Camera / Manual / Export tabs.
+- Removed a duplicated `saved` message line. Tabs, tuning sliders, recording, speed and export code are unchanged.
+- Still open: sticky Scan button + landscape on PickScreen, Home dashboard check, Scan/Bench/Decode/Update screens.
+
+## Part 6 — sticky Scan bar (PickScreen, not compiled)
+
+- Scan / Resume-after-loss is now a bottom bar outside the scrolling area, always visible once a video frame is loaded. Its click body was moved unchanged into a local `startScan()` (only `return@Button` → `return`); enable conditions are identical.
+- Cancel / partial export / resume still live in the status area (`ScanUi.*`) that scrolls with the page, unchanged.

@@ -301,8 +301,28 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
         loadAt(at)
     }
 
+    // Scan lives in a bottom bar that stays visible while the settings above scroll.
+    val scanRangeErr = (rangeA != null && rangeB != null && rangeB!! <= rangeA!! + 0.5f) || (rangeA != null && frameT < rangeA!! - 0.05) || (rangeB != null && frameT > rangeB!! + 0.05)
+    val scanReady = (if (draw) strokes.isNotEmpty() else tap != null) && model.isNotEmpty() && !segBusy && !scanRangeErr
+    val showScanBar = uri != null && frame != null && !running && ui !is ScanUi.Done && ui !is ScanUi.Cancelled
+    fun startScan() {
+                    val shapes = if (draw) strokes.map { st -> com.takipli.oynat.core.simplifyStroke(st.map { listOf(it.x.toDouble(), it.y.toDouble()) }, 0.004) }.filter { it.size >= 3 } else emptyList()
+                    if (draw && shapes.isEmpty()) return
+                    val dots = if (!draw && multi && extra.isNotEmpty() && tap != null) (listOf(tap!!) + extra).map { listOf(it.x.toDouble(), it.y.toDouble()) } else emptyList()
+                    val t = if (draw) com.takipli.oynat.core.shapeBounds(shapes)!!.let { Offset(it[0].toFloat(), it[1].toFloat()) }
+                    else if (dots.size >= 2) Offset(dots.map { it[0] }.average().toFloat(), dots.map { it[1] }.average().toFloat())
+                    else tap ?: return
+                    val np = TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = if (objectMode) null else preset, exact = exact && preset == null && !objectMode, free = free, zoom = if (free && (!draw || regionFixed) && dots.isEmpty()) zoomLog2.toDouble() else null, shapes = shapes, fill = if (draw && !regionFixed) regionFill.toDouble() else null, dots = dots, keepDist = keepDist && free)
+                    if (lost != null) ScanService.resolveLost(np) // paused scan: the new pick joins the target and the scan goes on
+                    else {
+                        notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), np, preview, rangeA?.toDouble(), rangeB?.toDouble())
+                    }
+    }
+
+    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
     Column(
-        Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp).verticalScroll(rememberScrollState()),
+        Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -331,27 +351,11 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 objectMode = true; draw = true; rectMode = true; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
             }, label = { Text(stringResource(R.string.mode_tab_rect)) })
         }
-        // Compact capability summary, separated from the actual picking workflow.
-        androidx.compose.material3.Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(stringResource(R.string.status_version, BuildConfig.VERSION_NAME), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(stringResource(if (samMem) R.string.status_sam_full else if (samOk) R.string.status_sam_basic else R.string.status_sam_none), style = MaterialTheme.typography.bodySmall)
-                Text(stringResource(if (models.isNotEmpty()) R.string.status_pose_ok else R.string.status_pose_none), style = MaterialTheme.typography.bodySmall)
-                if (models.isEmpty()) Text(stringResource(R.string.bench_no_models), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            }
-        }
         OutlinedButton(enabled = !running, onClick = { picker.launch(arrayOf("video/*")) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.decode_pick)) }
         if (error.isNotEmpty()) Text(error)
 
         val bmp = frame
         if (uri != null && bmp != null && !running && ui !is ScanUi.Done && ui !is ScanUi.Cancelled) {
-            // Rotate until the people stand upright (like at 0 degrees): the preview below is exactly what is tracked and exported.
-            Text(stringResource(R.string.pick_rotate, rot), style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { turn(270) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_left)) }
-                OutlinedButton(onClick = { turn(90) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_right)) }
-                OutlinedButton(onClick = { turn(360 - rot) }, enabled = rot != 0, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_reset)) }
-            }
             // The selected mode is controlled by the three tabs above.
             // 2. say what to do next, in plain words
             val fl = found
@@ -552,7 +556,15 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 Text(String.format(Locale.ROOT, "%.1f\u00d7", vz), style = MaterialTheme.typography.labelLarge)
             }
             Text(stringResource(R.string.pick_view_hint), fontSize = 12.sp)
-            // 3. which part of the video
+            // Rotate until the people stand upright (like at 0 degrees): the preview below is exactly what is tracked and exported.
+            Text(stringResource(R.string.pick_rotate, rot), style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { turn(270) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_left)) }
+                OutlinedButton(onClick = { turn(90) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_right)) }
+                OutlinedButton(onClick = { turn(360 - rot) }, enabled = rot != 0, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.pick_rot_reset)) }
+            }
+            val rangeErr = (rangeA != null && rangeB != null && rangeB!! <= rangeA!! + 0.5f) || (rangeA != null && frameT < rangeA!! - 0.05) || (rangeB != null && frameT > rangeB!! + 0.05)
+            PickSection(stringResource(R.string.pick_sec_clip)) {
             Text(stringResource(R.string.pick_frame_time, fmtClock(seekT.toDouble()), if (durationS > 0) fmtClock(durationS) else "?"), style = MaterialTheme.typography.labelLarge)
             if (durationS > 0.5) {
                 androidx.compose.material3.Slider(
@@ -574,9 +586,9 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 FilterChip(selected = rangeB != null, onClick = { rangeB = frameT.toFloat() }, label = { Text(stringResource(R.string.range_set_b, rangeB?.let { fmtClock(it.toDouble()) } ?: "—")) })
                 if (rangeA != null || rangeB != null) OutlinedButton(onClick = { rangeA = null; rangeB = null }) { Text(stringResource(R.string.range_clear)) }
             }
-            val rangeErr = (rangeA != null && rangeB != null && rangeB!! <= rangeA!! + 0.5f) || (rangeA != null && frameT < rangeA!! - 0.05) || (rangeB != null && frameT > rangeB!! + 0.05)
             Text(stringResource(if (rangeErr) R.string.range_bad else R.string.range_hint), fontSize = 12.sp, color = if (rangeErr) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-            // 4. mode specific choices
+            }
+            PickSection(stringResource(R.string.pick_sec_select)) {
             if (!objectMode) {
                 Text(stringResource(R.string.pick_part), style = MaterialTheme.typography.labelLarge)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -608,9 +620,18 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     OutlinedButton(enabled = strokes.isNotEmpty(), onClick = { strokes.clear() }) { Text(stringResource(R.string.pick_clear)) }
                 }
             }
+            }
             // 5. technical settings stay out of sight
             TextButton(onClick = { adv = !adv }) { Text(stringResource(if (adv) R.string.pick_adv_hide else R.string.pick_adv_show)) }
-            if (adv) {
+            if (adv) PickSection(stringResource(R.string.pick_adv_show)) {
+        androidx.compose.material3.Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stringResource(R.string.status_version, BuildConfig.VERSION_NAME), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(if (samMem) R.string.status_sam_full else if (samOk) R.string.status_sam_basic else R.string.status_sam_none), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(if (models.isNotEmpty()) R.string.status_pose_ok else R.string.status_pose_none), style = MaterialTheme.typography.bodySmall)
+                if (models.isEmpty()) Text(stringResource(R.string.bench_no_models), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+        }
                 if (!objectMode) FilterChip(selected = exact, enabled = preset == null, onClick = { exact = !exact }, label = { Text(stringResource(R.string.pick_exact)) })
                 if (models.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     models.forEach { m -> FilterChip(selected = m == model, onClick = { model = m }, label = { Text(m.removeSuffix(".onnx")) }) }
@@ -637,23 +658,6 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 }
             }
             BatteryWarning()
-            Button(
-                enabled = (if (draw) strokes.isNotEmpty() else tap != null) && model.isNotEmpty() && !segBusy && !rangeErr,
-                onClick = {
-                    val shapes = if (draw) strokes.map { st -> com.takipli.oynat.core.simplifyStroke(st.map { listOf(it.x.toDouble(), it.y.toDouble()) }, 0.004) }.filter { it.size >= 3 } else emptyList()
-                    if (draw && shapes.isEmpty()) return@Button
-                    val dots = if (!draw && multi && extra.isNotEmpty() && tap != null) (listOf(tap!!) + extra).map { listOf(it.x.toDouble(), it.y.toDouble()) } else emptyList()
-                    val t = if (draw) com.takipli.oynat.core.shapeBounds(shapes)!!.let { Offset(it[0].toFloat(), it[1].toFloat()) }
-                    else if (dots.size >= 2) Offset(dots.map { it[0] }.average().toFloat(), dots.map { it[1] }.average().toFloat())
-                    else tap ?: return@Button
-                    val np = TargetPick(frameT, t.x.toDouble(), t.y.toDouble(), preset = if (objectMode) null else preset, exact = exact && preset == null && !objectMode, free = free, zoom = if (free && (!draw || regionFixed) && dots.isEmpty()) zoomLog2.toDouble() else null, shapes = shapes, fill = if (draw && !regionFixed) regionFill.toDouble() else null, dots = dots, keepDist = keepDist && free)
-                    if (lost != null) ScanService.resolveLost(np) // paused scan: the new pick joins the target and the scan goes on
-                    else {
-                        notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), np, preview, rangeA?.toDouble(), rangeB?.toDouble())
-                    }
-                },
-            ) { Text(stringResource(if (lost != null) R.string.scan_lost_resume else R.string.pick_start)) }
         }
 
         when (val s = ui) {
@@ -700,6 +704,27 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
             }
             is ScanUi.Failed -> Text(s.message)
             ScanUi.Idle -> {}
+        }
+    }
+    if (showScanBar) androidx.compose.material3.Surface(Modifier.fillMaxWidth(), tonalElevation = 3.dp, shadowElevation = 6.dp) {
+        Button(
+            enabled = scanReady, onClick = { startScan() },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        ) { Text(stringResource(if (lost != null) R.string.scan_lost_resume else R.string.pick_start)) }
+    }
+    }
+}
+
+/** Titled, compact surface that groups related controls (Selection / Clip range / Advanced) so the screen reads as sections, not one long list. */
+@Composable
+private fun PickSection(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    androidx.compose.material3.Card(
+        Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+            content()
         }
     }
 }
