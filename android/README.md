@@ -77,3 +77,25 @@ camera: pick a clip, play it, pinch to zoom and drag at the same time while reco
   play/pause, seek, speed, REC/STOP, Export. Back exits full screen (stops the take first if recording).
 - **Rotate** buttons turn the video 90 degrees (preview and export); recorded moves are cleared on rotate because they were made in the old orientation.
 - Build: `cd android && gradle :rec:assembleDebug` -> `rec/build/outputs/apk/debug/rec-debug.apk`. CI: `.github/workflows/android-rec.yml` (started by `build-all.yml`) (artifact `TakipliKayit-Android`).
+
+## Frontal seated lower-body tracking (camera slightly below knee level)
+
+The core module now includes `LowerBodyModel.kt` for the frontal, slightly-upward camera
+profile (8° is a nominal profile label, not a measured camera calibration). It separates the
+**anatomical target envelope** from an optional **visible-pixel envelope**. When knee/ankle
+landmarks are implausible or hidden, the anatomical envelope is anchored at the hips and
+scaled from shoulder-to-hip torso length; the existing robust landmark sanitizer still
+rejects distal joints that are too far from their anatomical roots. `presetBoxes()` uses this
+estimate for its robust lower-body fallback and applies a per-track short-gap filter, so the
+camera target does not collapse immediately to a tiny visible fragment.
+
+`estimateLowerBody(..., deskOcclusionY = ...)` can clip a visible-region estimate below a
+detected horizontal desk/front-panel boundary while preserving the full anatomical box.
+The boundary is an explicit input: **this change does not yet detect desks or desk edges from
+video pixels**. Until such a detector is connected, pass `null`; do not treat SAM's person mask
+as a desk detector. `LowerBodyTemporalFilter` provides the short-gap hold and smoothing used by `presetBoxes()`.
+
+The model is designed for a frontal camera at approximately knee height, tilted slightly
+upward. It does not yet perform camera-pitch calibration or automatic desk-edge detection;
+the optional boundary must come from a future detector or explicit input. It does not assume
+a top-down view of the tabletop.

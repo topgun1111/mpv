@@ -28,7 +28,7 @@ fun Config.withTuning(t: Tuning): Config =
 fun Tuning.Companion.of(c: Config) = Tuning(c.targetFill, c.kpBox, c.maxZoom, c.offlineAlpha, c.lostHoldS, lostBridgeS = c.lostBridgeS)
 
 /** Scan doc + (possibly changed) target + tuning -> new views; the doc is not modified. Same call the export will use. */
-fun rebuildViews(doc: TrackDoc, target: Target, cfg: Config, t: Tuning, robust: Boolean = false): List<ViewKey> = buildTargetViews(doc, target, cfg.withTuning(t), t.director, robust, lowerBodyMode = target.preset == "legs")
+fun rebuildViews(doc: TrackDoc, target: Target, cfg: Config, t: Tuning, robust: Boolean = false): List<ViewKey> = buildTargetViews(doc, target, cfg.withTuning(t), t.director, robust)
 
 /**
  * How to show a view on a full-frame video surface (Part 13 player, same crop as `cropRect`): scale about the centre,

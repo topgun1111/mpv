@@ -1,150 +1,116 @@
 package com.takipli.oynat.core
 
-import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 
-/** Seated/standing estimate used by the lower-body camera model. */
-enum class LowerBodyPosture { UNKNOWN, SEATED, STANDING, TRANSITION }
+/** Camera geometry used by the lower-body estimator. Coordinates remain in source-image space. */
+enum class LowerBodyCameraProfile(val nominalUpTiltDegrees: Double) {
+    /** Frontal camera placed around knee height and tilted slightly upward. */
+    FRONTAL_SLIGHT_UP(8.0),
+}
 
-/** One frame's lower-body estimate. Boxes are normalized [cx, cy, width, height]. */
+/**
+ * Separates the anatomical target from the pixels that are currently visible.
+ * `anatomicalBox` is the complete estimated leg/foot region; `visibleBox` is its
+ * intersection with the image area below an optional horizontal desk-occlusion edge.
+ * Boxes are [cx, cy, width, height], normalized to 0..1.
+ *
+ * The desk edge is deliberately an input, not guessed from a person mask: this avoids
+ * silently learning the desk as part of the body. A later image-based desk-edge detector
+ * can supply it without changing the anatomical model.
+ */
 data class LowerBodyEstimate(
-    val visible: DoubleArray?,
-    val anatomical: DoubleArray?,
-    val posture: LowerBodyPosture,
+    val anatomicalBox: DoubleArray,
+    val visibleBox: DoubleArray?,
     val confidence: Double,
-    val held: Boolean,
+    val inferred: Boolean,
+    val cameraProfile: LowerBodyCameraProfile,
 )
 
 /**
- * Stateful temporal model for a combined legs+feet target.
+ * Estimate a seated person's lower-body envelope from COCO-17 keypoints.
+ * If knees/ankles are hidden by a desk, the envelope is anchored at the hips and scaled
+ * from shoulder-to-hip torso length. This is intentionally conservative for the frontal,
+ * slightly-upward camera profile: implausible distal landmarks are not allowed to pull the
+ * target onto the desk or another object.
  *
- * It deliberately does not run a neural network. It stabilizes the existing Pose/SAM evidence, keeps the last reliable
- * anatomical extent through short occlusions, limits implausible frame-to-frame scale changes, and classifies posture
- * from COCO hip/knee/ankle geometry when enough landmarks are present.
- *
- * Input boxes and keypoints are normalized to 0..1. Keypoints use COCO-17 triples (x,y,confidence).
+ * `deskOcclusionY` is an optional normalized image y-coordinate (0..1) of a detected
+ * horizontal occlusion boundary. Pixels below that line are treated as visible. Pass null
+ * until a reliable boundary detector is available.
  */
-class LowerBodyModel(
-    private val minJointConfidence: Double = 0.25,
-    private val holdSeconds: Double = 1.0,
+fun estimateLowerBody(
+    row: List<Double>?,
+    width: Int,
+    height: Int,
+    personHeightPx: Double,
+    minConfidence: Double = 0.35,
+    preset: String = "legs",
+    deskOcclusionY: Double? = null,
+    cameraProfile: LowerBodyCameraProfile = LowerBodyCameraProfile.FRONTAL_SLIGHT_UP,
+): LowerBodyEstimate? {
+    if (width <= 0 || height <= 0 || row == null || row.size < 3 * N_KPT) return null
+    if (preset !in setOf("legs", "left_leg", "right_leg", "feet", "left_foot", "right_foot")) return null
+
+    val clean = sanitizeRow(row, width, height, minConfidence, personHeightPx)
+    val anchored = anchoredLegBox(preset, row, width, height, minConfidence, personHeightPx) ?: return null
+
+    // If reliable distal joints survived sanitation, use them as evidence that the limb is
+    // visible. The anchored envelope remains the stable anatomical target for framing.
+    val joints = when (preset) {
+        "left_leg" -> listOf(13, 15)
+        "right_leg" -> listOf(14, 16)
+        "left_foot" -> listOf(15)
+        "right_foot" -> listOf(16)
+        "feet" -> listOf(15, 16)
+        else -> listOf(13, 14, 15, 16)
+    }
+    val reliableDistal = joints.count { clean[3 * it + 2] >= minConfidence }
+    val inferred = reliableDistal == 0
+    val confidence = if (inferred) 0.35 else min(0.95, 0.45 + 0.15 * reliableDistal)
+
+    val anatomical = anchored.copyOf()
+    val boundary = deskOcclusionY?.coerceIn(0.0, 1.0)
+    val visible = if (boundary == null) anatomical.copyOf() else {
+        val x1 = max(0.0, anatomical[0] - anatomical[2] / 2.0)
+        val x2 = min(1.0, anatomical[0] + anatomical[2] / 2.0)
+        val y1 = max(boundary, anatomical[1] - anatomical[3] / 2.0)
+        val y2 = min(1.0, anatomical[1] + anatomical[3] / 2.0)
+        if (x2 <= x1 || y2 <= y1) null else doubleArrayOf((x1 + x2) / 2.0, (y1 + y2) / 2.0, x2 - x1, y2 - y1)
+    }
+
+    return LowerBodyEstimate(anatomical, visible, confidence, inferred, cameraProfile)
+}
+
+/** Stateful short-occlusion stabilizer for anatomical boxes. It never expands the target to a blocker. */
+class LowerBodyTemporalFilter(
     private val smoothing: Double = 0.35,
-    private val maxScaleChangePerSecond: Double = 0.65,
+    private val maxMissingFrames: Int = 12,
 ) {
-    private var lastTime: Double? = null
-    private var stable: DoubleArray? = null
-    private var lastReliable: DoubleArray? = null
-    private var lastReliableTime: Double? = null
-    private var posture = LowerBodyPosture.UNKNOWN
-    private var postureCandidate = LowerBodyPosture.UNKNOWN
-    private var postureVotes = 0
+    private var previous: DoubleArray? = null
+    private var missing = 0
 
     init {
-        require(minJointConfidence in 0.0..1.0)
-        require(holdSeconds >= 0.0)
         require(smoothing in 0.0..1.0)
-        require(maxScaleChangePerSecond > 0.0)
+        require(maxMissingFrames >= 0)
+    }
+
+    fun update(estimate: LowerBodyEstimate?): DoubleArray? {
+        if (estimate == null) {
+            missing++
+            return if (missing <= maxMissingFrames) previous?.copyOf() else null
+        }
+        val next = estimate.anatomicalBox
+        val old = previous
+        val result = if (old == null || missing > maxMissingFrames) next.copyOf() else {
+            DoubleArray(4) { i -> old[i] + smoothing * (next[i] - old[i]) }
+        }
+        previous = result
+        missing = 0
+        return result.copyOf()
     }
 
     fun reset() {
-        lastTime = null
-        stable = null
-        lastReliable = null
-        lastReliableTime = null
-        posture = LowerBodyPosture.UNKNOWN
-        postureCandidate = LowerBodyPosture.UNKNOWN
-        postureVotes = 0
-    }
-
-    /**
-     * @param timeSeconds monotonically increasing media time
-     * @param visibleBox current union from SAM/Pose, normalized [cx,cy,w,h], or null on a lost frame
-     * @param keypoints COCO-17 normalized triples; null if Pose is unavailable
-     * @param evidenceConfidence confidence in the current region, normally 0..1
-     */
-    fun update(timeSeconds: Double, visibleBox: DoubleArray?, keypoints: List<Double>?, evidenceConfidence: Double = 1.0): LowerBodyEstimate {
-        require(timeSeconds.isFinite())
-        require(visibleBox == null || visibleBox.size >= 4)
-        require(evidenceConfidence.isFinite())
-        val dt = (lastTime?.let { timeSeconds - it } ?: 0.0).coerceAtLeast(0.0)
-        lastTime = timeSeconds
-        val detectedPosture = classifyPosture(keypoints)
-        updatePosture(detectedPosture)
-
-        val valid = visibleBox?.takeIf { validBox(it) && evidenceConfidence >= 0.20 }
-        if (valid != null) {
-            val prev = stable
-            val next = if (prev == null) valid.copyOf(4) else blendAndLimit(prev, valid, dt)
-            stable = next
-            // Only high-quality, plausible observations may refresh the anatomical anchor.
-            if (evidenceConfidence >= 0.55 && (prev == null || scaleRatio(prev, valid) <= 1.65)) {
-                lastReliable = next.copyOf()
-                lastReliableTime = timeSeconds
-            }
-            return LowerBodyEstimate(valid.copyOf(4), next.copyOf(), posture, evidenceConfidence.coerceIn(0.0, 1.0), false)
-        }
-
-        val anchor = lastReliable
-        val age = lastReliableTime?.let { timeSeconds - it } ?: Double.POSITIVE_INFINITY
-        if (anchor != null && age in 0.0..holdSeconds) {
-            stable = anchor.copyOf()
-            return LowerBodyEstimate(null, anchor.copyOf(), posture, (1.0 - age / max(holdSeconds, 1e-6)).coerceIn(0.0, 1.0), true)
-        }
-        return LowerBodyEstimate(null, null, posture, 0.0, false)
-    }
-
-    private fun validBox(b: DoubleArray): Boolean = b.take(4).all { it.isFinite() } && b[2] in 0.002..1.5 && b[3] in 0.002..1.5
-
-    private fun scaleRatio(a: DoubleArray, b: DoubleArray): Double = max(max(b[2] / max(a[2], 1e-6), a[2] / max(b[2], 1e-6)), max(b[3] / max(a[3], 1e-6), a[3] / max(b[3], 1e-6)))
-
-    private fun blendAndLimit(previous: DoubleArray, current: DoubleArray, dt: Double): DoubleArray {
-        val alpha = if (dt <= 0.0) smoothing else (1.0 - (1.0 - smoothing).powSafe(dt * 30.0)).coerceIn(0.08, 0.85)
-        val out = DoubleArray(4)
-        for (i in 0..1) out[i] = previous[i] + alpha * (current[i] - previous[i])
-        val maxLogStep = maxScaleChangePerSecond * if (dt <= 0.0) (1.0 / 30.0) else dt
-        for (i in 2..3) {
-            val desired = kotlin.math.ln(max(current[i], 1e-6) / max(previous[i], 1e-6))
-            val limited = desired.coerceIn(-maxLogStep, maxLogStep)
-            val limitedCurrent = previous[i] * kotlin.math.exp(limited)
-            out[i] = previous[i] + alpha * (limitedCurrent - previous[i])
-        }
-        return out
-    }
-
-    private fun Double.powSafe(n: Double): Double = kotlin.math.exp(kotlin.math.ln(this.coerceAtLeast(1e-6)) * n)
-
-    private fun classifyPosture(kp: List<Double>?): LowerBodyPosture {
-        if (kp == null || kp.size < 51) return LowerBodyPosture.UNKNOWN
-        fun point(j: Int): Pair<Double, Double>? {
-            val x = kp[3 * j]; val y = kp[3 * j + 1]; val c = kp[3 * j + 2]
-            return if (x.isFinite() && y.isFinite() && c >= minJointConfidence) x to y else null
-        }
-        fun angle(a: Pair<Double, Double>, b: Pair<Double, Double>, c: Pair<Double, Double>): Double {
-            val v1x = a.first - b.first; val v1y = a.second - b.second
-            val v2x = c.first - b.first; val v2y = c.second - b.second
-            val dot = v1x * v2x + v1y * v2y
-            val den = hypot(v1x, v1y) * hypot(v2x, v2y)
-            if (den < 1e-8) return 180.0
-            return Math.toDegrees(kotlin.math.acos((dot / den).coerceIn(-1.0, 1.0)))
-        }
-        val angles = listOf(Triple(11, 13, 15), Triple(12, 14, 16)).mapNotNull { (hip, knee, ankle) ->
-            val h = point(hip) ?: return@mapNotNull null
-            val k = point(knee) ?: return@mapNotNull null
-            val a = point(ankle) ?: return@mapNotNull null
-            angle(h, k, a)
-        }
-        if (angles.isEmpty()) return LowerBodyPosture.UNKNOWN
-        val mean = angles.average()
-        return when {
-            mean < 125.0 -> LowerBodyPosture.SEATED
-            mean > 150.0 -> LowerBodyPosture.STANDING
-            else -> LowerBodyPosture.TRANSITION
-        }
-    }
-
-    private fun updatePosture(candidate: LowerBodyPosture) {
-        if (candidate == LowerBodyPosture.UNKNOWN) return
-        if (candidate == posture) { postureCandidate = candidate; postureVotes = 0; return }
-        if (candidate == postureCandidate) postureVotes++ else { postureCandidate = candidate; postureVotes = 1 }
-        if (postureVotes >= 3) { posture = candidate; postureVotes = 0 }
+        previous = null
+        missing = 0
     }
 }
