@@ -4,7 +4,7 @@ Companion to `docs/PROJECT_SPEC.md` (the roadmap) and `docs/IMPLEMENTATION_AUDIT
 Project: Takipli Oynat, PC build (Windows, mpv + Python). Hardware: RTX 3050 Laptop 6 GB, Ryzen 5 5600, 16 GB RAM. Offline-first.
 Free Claude account, weekdays: **15 sessions (0–14)**, one per weekday, about three weeks.
 
-**Status: Sessions 0-8 done in code (2026-11-17/18); Sessions 1-8 still need your PC runs (see `TEST_RESULTS.md`, `DECISIONS.md` "SAM graphs", "SAM engine", "SAM memory loop", "TrackGate" and "Lower-body region" and "Posture"). Next: Session 9.**
+**Status: Sessions 0-9 done in code (2026-11-17/18); Sessions 1-9 still need your PC runs (see `TEST_RESULTS.md`, `DECISIONS.md` "SAM graphs", "SAM engine", "SAM memory loop", "TrackGate", "Lower-body region", "Posture" and "Tracking state machine"). Next: Session 10.**
 
 ---
 
@@ -58,7 +58,7 @@ Token savers:
 | 6 | Mask outline + combined rectangle preview | 5 | **Code done**, your PC run pending | Overlay shows mask, rectangle, state |
 | 7 | Lower-body region: visible vs anatomical | 6 | **Code done**, your PC run pending | One framing rectangle, left/right evidence |
 | 8 | Posture, desk occlusion, sit↔stand | 6 | **Code done**, your PC run pending | Desk never becomes target |
-| 9 | Tracking state machine (7 states) | 7 | | Transitions tested |
+| 9 | Tracking state machine (7 states) | 7 | **Code done**, your PC run pending | Transitions tested |
 | 10 | Re-entry: existing Re-ID + future frames | 7 | | Ambiguous re-entry flagged |
 | 11 | Camera: 70% occupancy, no foot zoom pumping | 8 | | Stable apparent size |
 | 12 | Bidirectional refinement (backward SAM pass) | 9 | | Uncertain intervals repaired |
@@ -395,7 +395,9 @@ cross legs, one leg hidden). No zoom changes.
 
 ---
 
-### Session 9: Tracking state machine (Part 7)
+### Session 9: Tracking state machine (Part 7). CODE DONE
+
+Delivered: `tracker/trackstate.py` (`TrackStateMachine`, `StateFrame`, `Anchor`, `ALLOWED` transition table), run on every `sam-track` (no new flag): `state` block in `<video>.sam.json` (optional, schema version unchanged), `track` block + machine state in the preview file, state colours and absence time in the mpv label, `lost_hold_s` from the config is the camera hold, 31 tests, decisions in `DECISIONS.md` ("Tracking state machine"). Your part: run `sam-track --preview --posture` on a clip with a desk occlusion, a leave/re-enter and (if you have one) a long loss, press `P`, paste the `durum:` line and observations into `TEST_RESULTS.md`. The original prompt is kept below for reference.
 
 Files: new `tracker/trackstate.py`, `tracker/offline.py` (records), `tracker/config.py` (`lost_hold_s`), `core/LostWatch.kt` (reference).
 

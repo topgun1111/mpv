@@ -1,7 +1,7 @@
 # PROGRESS
 
-Current session: 9
-Next smallest task: tracking state machine (see `docs/Lower body.md`, Session 9). Still open on your side: the Session 8 `sam-track --preview --posture` run + `P`-key check, the Session 7 `sam-track --preview --pose` run + `P`-key check, the Session 1 provider diagnostics, the Session 2 export + `sam-bench` runs, the Session 3 `sam-first` run, the Session 4/5 `sam-track` runs (with and without `--no-gate`) and the Session 6 `sam-preview` + `P`-key check in mpv on a 30 s clip (all need the exported graphs).
+Current session: 10
+Next smallest task: re-entry with the existing Re-ID plus future-frame verification (see `docs/Lower body.md`, Session 10). Still open on your side: the Session 9 `sam-track --preview --posture` run (states + `P`-key label) on a clip with desk occlusion and a leave/re-enter, the Session 8 `sam-track --preview --posture` run + `P`-key check, the Session 7 `sam-track --preview --pose` run + `P`-key check, the Session 1 provider diagnostics, the Session 2 export + `sam-bench` runs, the Session 3 `sam-first` run, the Session 4/5 `sam-track` runs (with and without `--no-gate`) and the Session 6 `sam-preview` + `P`-key check in mpv on a 30 s clip (all need the exported graphs).
 
 ## Sessions
 
@@ -14,7 +14,7 @@ Next smallest task: tracking state machine (see `docs/Lower body.md`, Session 9)
 - [x] 6. Mask outline + combined rectangle in the selection/preview (code done 2026-11-18; your `sam-preview` run + mpv `P` check pending)
 - [x] 7. Lower-body region: visible vs anatomical, left/right evidence (code done 2026-11-18; your `--pose` run + mpv `P` check pending)
 - [x] 8. Posture (seated/standing), desk occlusion, sit↔stand transitions (code done 2026-11-18; your `--posture` run + mpv `P` check pending)
-- [ ] 9. Tracking state machine (7 states)
+- [x] 9. Tracking state machine (7 states) (code done 2026-11-18; your `sam-track --preview --posture` run + mpv `P` check pending)
 - [ ] 10. Re-entry with existing Re-ID + future-frame verification
 - [ ] 11. Camera: 70% occupancy, no zoom pumping from foot movement
 - [ ] 12. Bidirectional refinement (backward SAM pass)
@@ -22,6 +22,26 @@ Next smallest task: tracking state machine (see `docs/Lower body.md`, Session 9)
 - [ ] 14. Real-clip validation and Definition of done
 
 ## Latest checkpoint
+
+SESSION CHECKPOINT
+
+Phase: M2 (reliable tracker)
+Task: Session 9, tracking state machine (7 states)
+Files inspected: docs/{Lower body,PROGRESS,DECISIONS,TEST_RESULTS,KNOWN_ISSUES}.md, handover.md (first lines + S7/S8 tail), android/core/.../LostWatch.kt, tracker/{sam_track,trackgate,sam_preview,posture,lowerbody,config,main}.py, mpv/portable_config/scripts/track.lua (SAM overlay), tests/test_sam_track.py + test_sam_preview.py (helpers), pyproject.toml
+Files changed: tracker/trackstate.py (new), tracker/sam_track.py (optional `states` argument in `make_doc`), tracker/sam_preview.py (`track` argument), tracker/main.py (`sam-track` runs the machine), mpv/portable_config/scripts/track.lua (state colours, absence time), tests/test_trackstate.py (new), pyproject.toml (E501 for the 2 new files), docs/{PROGRESS,DECISIONS,TEST_RESULTS,KNOWN_ISSUES,Lower body}.md, handover.md
+
+What changed: `TrackStateMachine.update(rec)` turns each `TrackRecord` into a `StateFrame` with one of TRACKED, PARTIALLY_OCCLUDED, TEMPORARILY_LOST, OUT_OF_FRAME, REACQUISITION_CANDIDATE, REACQUIRED, MANUAL_RESELECT_REQUIRED. Inputs are signals that already exist: `tracked`/`accepted` (confidence + TrackGate), `clean`/`ratio` (mask ratio), the box position at the frame edge, and the S8 "both legs left the frame" hint. Partial occlusion = tracked but not clean (debounced, a low ratio switches at once). A frame exit needs the last box to touch an edge AND move towards it or shrink there, so a seated legs box resting on the bottom edge is an occlusion, not an exit. A loss shorter than `lost_hold_s` resumes directly; a longer one, and any exit, comes back through a candidate and needs 3 tracked frames to become REACQUIRED (no Re-ID yet). Long loss ends in MANUAL_RESELECT_REQUIRED (8 s, 30 s after an exit). The last clean box (`Anchor`) and `crop` are kept through loss and candidate, `hold` tells the camera to keep the old crop. `sam-track` writes the optional `state` block to `.sam.json` and a `track` block to the preview file, and prints a `durum:` summary. No Re-ID matching, no camera or zoom change.
+
+Tests/commands run: `python -m pytest -q -p no:cacheprovider` (real pytest 9.2.0, Python 3.12, CPU), `ruff check .` (0.17.5), `track.lua` loaded with texlua (syntax only)
+Test results: 693 passed, 1 skipped (31 new in `tests/test_trackstate.py`: each state and transition, hysteresis, short vs long loss, gate rejection, exits through all four edges and the no-exit case, manual timeout and reset, a table check on 40 random sequences, doc/preview/CLI). `ruff check .`: 31 findings, identical to the untouched upload (29 in `tracker/main.py`, 2 in tests); none from the new or changed code
+Known failures: none seen in the new code
+
+Unverified assumptions: all thresholds (`MANUAL_LOST_S` 8 s, `OUT_MAX_S` 30 s, `CONFIRM_FRAMES` 3, `EXIT_MOVE`/`EXIT_SHRINK`, `EDGE_MARGIN`) are first guesses, not tuned on a real clip; frames are assumed to arrive at the sampling rate (counts are frames, not seconds); the real graphs' `clean`/`ratio` behave like the fake records; the mpv label colours and the absence time were never rendered; `legs_left` only exists with `--posture`
+
+Next smallest task: Session 10 (re-entry with the existing Re-ID plus future-frame verification)
+Exact command to resume: new chat, paste Master instruction + Session 10 prompt from `docs/Lower body.md`; first run `sam-track --preview --posture` on a clip with a leave/re-enter (`docs/DECISIONS.md`, "Tracking state machine") so the states are seen on real masks
+
+Previous checkpoint (Session 8):
 
 SESSION CHECKPOINT
 

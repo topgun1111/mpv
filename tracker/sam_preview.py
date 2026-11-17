@@ -2,7 +2,8 @@
 
 Dosya: `<video>.sam.preview.json` (`preview_path`). Koordinatlar videonun 0-1 oranıdır.
 `sam-preview` (dikdörtgen çizildikten sonra onay) ve `sam-track --preview` (işlem sırasında) yazar;
-`track.lua` `P` tuşuyla okuyup çizer. Durum etiketi S9'a kadar yer tutucudur (CONFIRM/TRACKED/LOST/NO_MASK/DONE).
+`track.lua` `P` tuşuyla okuyup çizer. Durum etiketi: onay aşamasında CONFIRM/NO_MASK, işlem sırasında S9 durum makinesinin
+durumu (`trackstate.STATES`; makine yoksa kaydın `tracked`/`lost` durumu), bitince DONE. S9 ayrıntısı `track` bloğunda.
 """
 from __future__ import annotations
 
@@ -54,10 +55,15 @@ def clamp_rect(r: tuple[float, float, float, float] | list[float] | None) -> lis
 
 def make_payload(state: str, *, conf: float | None = None, pts: list[list[float]] | None = None,
                  rect: Any = None, drawn: Any = None, t: float = 0.0, index: int = 0,
-                 note: str = "", lower: Any = None) -> dict[str, Any]:
+                 note: str = "", lower: Any = None, track: Any = None) -> dict[str, Any]:
     """`rect` = birleşik dikdörtgen (maske kutusu; `lower` varsa S7 kadrajı: bacak+ayak bölgesi),
     `drawn` = kullanıcının çizdiği dikdörtgen (yeniden çizim karşılaştırması için).
-    `lower` (S7 `LowerBody`): `rect` kadraja döner, `lower` alanı görünen/anatomik bölge ve sol/sağ kanıtı taşır."""
+    `lower` (S7 `LowerBody`): `rect` kadraja döner, `lower` alanı görünen/anatomik bölge ve sol/sağ kanıtı taşır.
+    `track` (S9 `StateFrame`): `state` makine durumu olur, `track` bloğu neden/yokluk süresi/kenar/tut bilgisini taşır;
+    `note` nedeni gösterir ("ok"/"start" dışında)."""
+    if track is not None:
+        state = track.state
+        note = note or ("" if track.reason in ("ok", "start") else track.reason)
     if lower is not None and lower.framing is not None:
         rect = lower.framing
     d = {"v": VERSION, "state": state, "conf": None if conf is None else round(float(conf), 3),
@@ -65,6 +71,8 @@ def make_payload(state: str, *, conf: float | None = None, pts: list[list[float]
          "t": round(float(t), 3), "index": int(index), "note": note}
     if lower is not None:
         d["lower"] = lower.to_dict()
+    if track is not None:
+        d["track"] = track.to_dict()
     return d
 
 
@@ -82,11 +90,11 @@ def no_mask(drawn: Any, *, t: float = 0.0) -> dict[str, Any]:
     return make_payload("NO_MASK", drawn=drawn, t=t, note="maske yok: dikdörtgeni nesnenin çevresine yeniden çiz")
 
 
-def from_record(rec: Any, drawn: Any = None, lower: Any = None) -> dict[str, Any]:
-    """`TrackRecord` (keep_masks=True) -> işlem önizlemesi; durum = kaydın durumu (S9'a kadar yer tutucu)."""
+def from_record(rec: Any, drawn: Any = None, lower: Any = None, track: Any = None) -> dict[str, Any]:
+    """`TrackRecord` (keep_masks=True) -> işlem önizlemesi; durum = S9 `StateFrame.state` (yoksa kaydın durumu)."""
     pts = outline(rec.mask) if rec.mask is not None else []
     return make_payload(rec.state, conf=rec.conf, pts=pts, rect=rec.box, drawn=drawn, t=rec.t, index=rec.index,
-                        lower=lower)
+                        lower=lower, track=track)
 
 
 def save(path: str | os.PathLike, payload: dict[str, Any]) -> Path:
@@ -107,18 +115,19 @@ class Writer:
         self._state: str | None = None
         self.writes = 0
 
-    def update(self, rec: Any, lower: Any = None) -> bool:
+    def update(self, rec: Any, lower: Any = None, track: Any = None) -> bool:
         now = self._clock()
-        if rec.state == self._state and now - self._last < self.every:
+        state = track.state if track is not None else rec.state
+        if state == self._state and now - self._last < self.every:
             return False
-        self._state, self._last = rec.state, now
-        save(self.path, from_record(rec, self.drawn, lower))
+        self._state, self._last = state, now
+        save(self.path, from_record(rec, self.drawn, lower, track))
         self.writes += 1
         return True
 
-    def finish(self, last: Any = None, lower: Any = None) -> None:
+    def finish(self, last: Any = None, lower: Any = None, track: Any = None) -> None:
         """Bitiş: son çerçeve + `DONE` durumu."""
-        pay = (from_record(last, self.drawn, lower) if last is not None
-               else make_payload("DONE", drawn=self.drawn, lower=lower))
+        pay = (from_record(last, self.drawn, lower, track) if last is not None
+               else make_payload("DONE", drawn=self.drawn, lower=lower, track=track))
         pay["state"] = "DONE"
         save(self.path, pay)

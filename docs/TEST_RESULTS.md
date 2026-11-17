@@ -72,6 +72,17 @@ Frames with lower.desk_mask true and what the mask covered: ...
 
 Stand-in results (not a replacement for `pytest`): `tests/test_posture.py` 33 passed; neighbouring files unchanged (see `PROGRESS.md`). Real `pytest -q` and `ruff check .` not run here.
 
+## State machine, Session 9 (your PC)
+
+```text
+(paste: python -m tracker sam-track models\sam-edgetam klip.mp4 --rect x1,y1,x2,y2 --max-seconds 60 --device dml --preview --posture)
+The `durum:` line (frames per state, transition count): ...
+Observed in mpv (P): colours/labels on desk occlusion, short dropout, walk out and back, a long loss: ...
+Any seated loss that read OUT_OF_FRAME, any exit that read TEMPORARILY_LOST, flicker between TRACKED and PARTIALLY_OCCLUDED: ...
+```
+
+Linux scratch copy (CPU, real pytest 9.2.0): `python -m pytest -q -p no:cacheprovider` 693 passed, 1 skipped (31 new in `tests/test_trackstate.py`); `ruff check .` 31 findings, the same as the untouched upload (none in the new or changed code). `track.lua` loaded with texlua (syntax only).
+
 ## Provider diagnostics (your PC, paste outputs here)
 
 ### DirectML environment

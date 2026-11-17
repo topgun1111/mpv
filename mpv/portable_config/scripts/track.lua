@@ -741,7 +741,9 @@ mp.observe_property("osd-dimensions", "native", function() render_dot() end)
 -- açıkken 0.5 sn'de bir dosyayı yeniler. Sağ tık/sürükleme davranışına dokunmaz.
 local SAM_Z = 4
 local sam = { on = false, ov = nil, data = nil, timer = nil }
-local SAM_COL = { CONFIRM = "00E0FF", TRACKED = "00FF00", LOST = "0000FF", NO_MASK = "0000FF", DONE = "C0C0C0" } -- BGR
+local SAM_COL = { CONFIRM = "00E0FF", TRACKED = "00FF00", LOST = "0000FF", NO_MASK = "0000FF", DONE = "C0C0C0", -- BGR
+  PARTIALLY_OCCLUDED = "00A5FF", TEMPORARILY_LOST = "0000FF", OUT_OF_FRAME = "FF8000", REACQUISITION_CANDIDATE = "00FFFF",
+  REACQUIRED = "FFFF00", MANUAL_RESELECT_REQUIRED = "FF00FF" } -- S9 durum makinesi
 
 local function render_sam()
   if not sam.ov then sam.ov = mp.create_osd_overlay("ass-events"); sam.ov.z = SAM_Z end
@@ -770,6 +772,7 @@ local function render_sam()
   end
   local conf = p.conf and string.format(" · güven %.2f", p.conf) or ""
   if type(p.lower) == "table" and type(p.lower.posture) == "string" then conf = conf .. " · " .. p.lower.posture end -- S8: duruş
+  if type(p.track) == "table" and type(p.track.lost_s) == "number" and p.track.lost_s > 0 then conf = conf .. string.format(" · %.1fs", p.track.lost_s) end -- S9: yokluk süresi
   local note = (p.note and p.note ~= "") and (" · " .. p.note) or ""
   lines[#lines + 1] = string.format("{\\an1\\pos(%d,%d)\\fs%d\\bord2\\shad0\\1c&H%s&\\3c&H000000&}SAM %s%s%s",
     8, d.h - 8, math.max(math.floor(d.h * 0.03), 12), col, tostring(p.state), conf, note)

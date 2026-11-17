@@ -268,10 +268,12 @@ def make_doc(video: str | os.PathLike, records: list[TrackRecord], *, size: tupl
              providers: dict[str, Any] | None = None, layout: Any = None,
              timing_ms: dict[str, float] | None = None, complete: bool = True,
              gate: TrackGate | None = None, use_gate: bool = True,
-             lower: list[Any] | None = None, posture: list[Any] | None = None) -> dict[str, Any]:
+             lower: list[Any] | None = None, posture: list[Any] | None = None,
+             states: list[Any] | None = None) -> dict[str, Any]:
     """Kayıt belgesi (`track.json` şemasından BAĞIMSIZ). `rect`: ilk karede normalize dikdörtgen.
     `lower` (S7, isteğe bağlı): `LowerBody.row()` satırları, kayıtla aynı sırada; yoksa anahtar yazılmaz.
-    `posture` (S8, isteğe bağlı): `PostureFrame.row()` satırları (`posture.ROW_FIELDS`), aynı sırada."""
+    `posture` (S8, isteğe bağlı): `PostureFrame.row()` satırları (`posture.ROW_FIELDS`), aynı sırada.
+    `states` (S9, isteğe bağlı): `StateFrame.row()` satırları (`trackstate.ROW_FIELDS`), aynı sırada; `state.counts` durum başına kare."""
     w, h = size
     n_tr = sum(r.tracked for r in records)
     doc = {
@@ -296,6 +298,12 @@ def make_doc(video: str | os.PathLike, records: list[TrackRecord], *, size: tupl
         from .posture import ROW_FIELDS as POSTURE_FIELDS
 
         doc["posture"] = {"fields": list(POSTURE_FIELDS), "rows": posture}
+    if states:
+        from .trackstate import ROW_FIELDS as STATE_FIELDS
+        from .trackstate import STATES
+
+        counts = {s: sum(1 for r in states if r[1] == s) for s in STATES}
+        doc["state"] = {"fields": list(STATE_FIELDS), "rows": states, "counts": {k: v for k, v in counts.items() if v}}
     return doc
 
 

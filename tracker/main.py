@@ -772,7 +772,9 @@ def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
     from . import sam_bench, sam_preview, sam_track
     from . import sam_engine as se
     from .detector import _PROVIDER_NAMES
+    from .posture import LEFT_FRAME
     from .trackgate import TrackGate
+    from .trackstate import TrackStateMachine
 
     clip = sam_track.Clip(args.video, fps=args.fps, start=args.start, max_seconds=args.max_seconds)
     try:
@@ -793,6 +795,8 @@ def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
     frames = clip
     follower, now_poses, lower_rows, posture_rows = None, [], [], []
     lower = None
+    machine = TrackStateMachine(hold_s=cfg.lost_hold_s)  # S9: 7 durumlu makine
+    state_rows, track = [], None
     if args.pose or args.posture:  # S7: her karede poz; track_video tembel: kayıt i, i. karenin pozuyla eşleşir
         from . import lowerbody
         from .pose import PoseEstimator
@@ -826,8 +830,13 @@ def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
                     lower_rows.append(lower.lower.row())
                 else:
                     lower_rows.append(lower.row())
+            # S8: iki bacak da kareden çıktıysa ipucu
+            legs = getattr(lower, "legs", None) if args.posture else None
+            gone = bool(legs) and all(v == LEFT_FRAME for v in legs.values())
+            track = machine.update(rec, legs_left=gone)
+            state_rows.append(track.row())
             if pw is not None:
-                pw.update(rec, lower)
+                pw.update(rec, lower, track)
                 rec.mask = None  # önizleme yazıldı; maskeler bellekte birikmesin
             records.append(rec)
             if rec.index % 30 == 0:
@@ -841,7 +850,7 @@ def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
         if vram:
             vram.__exit__(None, None, None)
         if pw is not None and records:
-            pw.finish(lower=lower)
+            pw.finish(lower=lower, track=track)
         wall = time.perf_counter() - t0
         out = None
         if records and not args.no_save:
@@ -850,13 +859,14 @@ def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
                 rect=se.to_norm_box(rect, clip.w, clip.h), rule=args.rule, providers=prov,
                 layout=eng.memory_layout(), timing_ms=sam_track.ms_per_call(eng), complete=complete,
                 gate=gate, use_gate=use_gate, lower=lower_rows or None,
-                posture=posture_rows or None)
+                posture=posture_rows or None, states=state_rows or None)
             out = sam_track.save_doc(args.out or sam_track.sam_path(args.video), doc)
         if records:
             print(f"\nkare {stats.frames} · izlenen {stats.tracked} · kayıp {stats.lost} · {wall:.1f} sn · "
                   f"{stats.frames / max(wall, 1e-9):.2f} kare/sn")
             print("  " + (gate.summary() if gate else "kapı: kapalı (--no-gate)")
                   + f" · belleğe girmeyen (temiz değil) {stats.unclean}")
+            print("  " + machine.summary())
             for n, ms in sam_track.ms_per_call(eng).items():
                 p = prov.get(n, {})
                 print(f"  {n}: {p.get('provider', '?')}{' (FELL BACK)' if p.get('fell_back') else ''} · "
