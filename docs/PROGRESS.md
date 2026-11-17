@@ -1,7 +1,7 @@
 # PROGRESS
 
-Current session: 10
-Next smallest task: re-entry with the existing Re-ID plus future-frame verification (see `docs/Lower body.md`, Session 10). Still open on your side: the Session 9 `sam-track --preview --posture` run (states + `P`-key label) on a clip with desk occlusion and a leave/re-enter, the Session 8 `sam-track --preview --posture` run + `P`-key check, the Session 7 `sam-track --preview --pose` run + `P`-key check, the Session 1 provider diagnostics, the Session 2 export + `sam-bench` runs, the Session 3 `sam-first` run, the Session 4/5 `sam-track` runs (with and without `--no-gate`) and the Session 6 `sam-preview` + `P`-key check in mpv on a 30 s clip (all need the exported graphs).
+Current session: 12
+Next smallest task: bidirectional refinement, backward SAM pass (see `docs/Lower body.md`, Session 12). Still open on your side: the Session 11 `sam-camera` / `sam-track --camera` run on a clip (foot wiggle, crossed legs, sit/stand, a desk occlusion, a leave/re-enter) and a look at the exported crop, the Session 10 `sam-track --preview --posture --reid` run (leave/re-enter, a stranger walking in, two similar people) on a clip, the Session 9 `sam-track --preview --posture` run (states + `P`-key label) on a clip with desk occlusion and a leave/re-enter, the Session 8 `sam-track --preview --posture` run + `P`-key check, the Session 7 `sam-track --preview --pose` run + `P`-key check, the Session 1 provider diagnostics, the Session 2 export + `sam-bench` runs, the Session 3 `sam-first` run, the Session 4/5 `sam-track` runs (with and without `--no-gate`) and the Session 6 `sam-preview` + `P`-key check in mpv on a 30 s clip (all need the exported graphs).
 
 ## Sessions
 
@@ -15,13 +15,53 @@ Next smallest task: re-entry with the existing Re-ID plus future-frame verificat
 - [x] 7. Lower-body region: visible vs anatomical, left/right evidence (code done 2026-11-18; your `--pose` run + mpv `P` check pending)
 - [x] 8. Posture (seated/standing), desk occlusion, sit↔stand transitions (code done 2026-11-18; your `--posture` run + mpv `P` check pending)
 - [x] 9. Tracking state machine (7 states) (code done 2026-11-18; your `sam-track --preview --posture` run + mpv `P` check pending)
-- [ ] 10. Re-entry with existing Re-ID + future-frame verification
-- [ ] 11. Camera: 70% occupancy, no zoom pumping from foot movement
+- [x] 10. Re-entry with existing Re-ID + future-frame verification (code done 2026-11-18; your `sam-track --preview --posture --reid` run + mpv `P` check pending)
+- [x] 11. Camera: 70% occupancy, no zoom pumping from foot movement (code done 2026-11-18; your `sam-track --posture --camera` run + exported crop check pending)
 - [ ] 12. Bidirectional refinement (backward SAM pass)
 - [ ] 13. Export: NVENC + fallback, validation, optional stabilization
 - [ ] 14. Real-clip validation and Definition of done
 
 ## Latest checkpoint
+
+SESSION CHECKPOINT
+
+Phase: M3 (camera)
+Task: Session 11, lower-body camera: 70% occupancy, no zoom pumping from foot movement
+Files inspected: docs/{Lower body,PROGRESS,DECISIONS,TEST_RESULTS,KNOWN_ISSUES}.md, handover.md (first 30 lines + S10 tail), tracker/{geometry,smooth,offline (`_views_from_boxes`, `build_preset_views`),config,posture,lowerbody,trackstate,sam_track,main}.py, tests/{test_posture,test_sam_track}.py (helpers), pyproject.toml
+Files changed: tracker/camera.py (new), tracker/config.py (`lower_fill`, `lower_zoom_tol`, `lower_zoom_rate`, `lower_window_s`, `lower_reacq_s`), tracker/main.py (`sam-camera`, `sam-track --camera`), tests/test_camera.py (new), pyproject.toml (E501 ignores for the two new files), docs/*, handover.md
+
+What changed: `tracker/camera.py` turns a `<video>.sam.json` into `<video>.views.json` keyframes (Lua schema, version 1) without touching the existing director (`geometry`, `smooth`, `offline` unchanged). (1) Occupancy: the combined region fills `lower_fill` = 0.70 of the output height (the global `target_fill` 0.30 is unchanged); width is capped at 90%. (2) Zoom input is the posture-aware framing region (S8; else S7 `lower.framing`; else the SAM box centre with the last CLEAN size `w`,`h`), never the raw mask box height, and only frames that are TRACKED/REACQUIRED and not flagged `desk` feed it, so a desk or a covering leg cannot zoom in (PARTIALLY_OCCLUDED frames still steer the pan). (3) No pumping from feet: target = 2 s trimmed mean (top/bottom 25% dropped), a posture-dependent start threshold (seated 0.24 log2, standing 0.12, transition 0.10), the target must stay beyond it for 1.5 s seated / 0.8 s standing / 0 s in transition, then the zoom settles on the target at a rate limit of 0.25 log2/s in (1.5x faster out). (4) Occlusion: the S9 `hold` flag freezes the view, then the existing hold -> zoom-out to 1x in `lost_zoomout_s`, and before the subject returns the view eases in (1 s after a hold, `lost_zoomout_s` after a zoom-out). (5) The module reads only boxes and state strings, no Re-ID/SAM/pose import (tested). CLI: `python -m tracker sam-camera X.sam.json [--fill F] [--out O]` and `sam-track ... --camera`; both print region source, median occupancy, zoom range and fastest zoom change.
+
+Tests/commands run: `tests/test_camera.py` (35 new) and the whole `tests/` (minus `test_lua_menu.py`) through a stand-in runner on Python 3.12 / CPU (real pytest and ruff are not installable offline here); mutation checks on the new module (each of: no start threshold, no persistence, no trimming, desk filter removed, partial frames feeding zoom, no hold, no re-entry ramp, no rate limit makes at least one new test fail)
+Test results: new file 35 passed. Whole suite through the stand-in: 693 passed, 57 failed-or-errored, the same 57 that fail on the untouched uploaded zip (659 passed, 57 failed there), so no regression seen; the 57 are stand-in limits, not code. Real `python -m pytest -q -p no:cacheprovider` and `ruff check .` NOT run (manual check only: no unused imports, no trailing whitespace, import order matches the repo)
+Known failures: none seen in the new code
+
+Unverified assumptions: every constant (2 s window, thresholds, persistence, 0.25 log2/s) is a first guess, none tuned on a real clip; the posture framing (S8) is stable enough on a real desk clip that its height reflects posture and not foot excursions; TRANSITION uses 0 s persistence, which relies on S8 labelling a sit-down/stand-up as TRANSITION in time; 70% of output height is judged on the region box, so a person whose region is already taller than 70% of the frame cannot be zoomed below 1x; `views.json` written next to the video REPLACES an existing one (that is how mpv/export find it); the exported crop was never rendered
+
+Next smallest task: Session 12
+Exact command to resume: new chat, paste Master instruction + Session 12 prompt from `docs/Lower body.md`; first run `python -m tracker sam-track models\sam-edgetam klip.mp4 --rect X1,Y1,X2,Y2 --max-seconds 90 --device dml --preview --posture --camera` (`docs/DECISIONS.md`, "Lower-body camera") and look at the cropped result with `python -m tracker export`
+
+Previous checkpoint (Session 10):
+
+SESSION CHECKPOINT
+
+Phase: M2 (reliable tracker)
+Task: Session 10, re-entry with the existing Re-ID plus future-frame verification
+Files inspected: docs/{Lower body,PROGRESS,DECISIONS,TEST_RESULTS,KNOWN_ISSUES}.md, handover.md (S9 tail), tracker/{reid,trackstate,sam_track,sam_preview,lowerbody,pose,config,main}.py, tests/{test_trackstate,test_reid_live,test_posture,test_sam_track}.py (helpers), models/{manifest.json,MODELLER.txt}, pyproject.toml
+Files changed: tracker/reentry.py (new), tracker/trackstate.py (identity gate), tracker/sam_track.py (optional `reentry` block in `make_doc`), tracker/main.py (`sam-track --reid`), tracker/config.py (`reid_accept_n`, `reid_reject_n`, `reid_verify_s`), tests/test_reentry.py (new), pyproject.toml (E501 for the 2 new files), docs/{PROGRESS,DECISIONS,TEST_RESULTS,KNOWN_ISSUES,Lower body}.md, handover.md
+
+What changed: `ReentryVerifier` feeds the existing `PartAppearance` gallery while the subject is TRACKED and clean, and checks every tracked frame that follows a long loss / exit: appearance (gallery cosine, weak band), other people in the frame (two similar = ambiguous, a better match elsewhere = mismatch), body proportions, and motion+timing from the last trusted box. The decision needs the last 3 frames all matching (ACCEPT) or the last 2 all mismatching (REJECT) and times out to UNCERTAIN after 3 s, so the first returned frames stay REACQUISITION_CANDIDATE. `TrackStateMachine.update(..., identity=)`: only ACCEPT leads to REACQUIRED, REJECT keeps the loss (`other_person`, clock running, anchor untouched), UNCERTAIN gives MANUAL_RESELECT_REQUIRED (`ambiguous_reentry`); unverified frames never move the anchor; without `identity` the machine is the S9 machine. `sam-track --reid` (implies `--pose`) writes an optional `reentry` block and `track.identity` in the preview; a missing OSNet model prints a warning and runs as S9.
+
+Tests/commands run: `python -m pytest -q -p no:cacheprovider --ignore=tests/test_lua_menu.py` (real pytest 9.1.1, Python 3.13, CPU), `ruff check .` (1.2.0)
+Test results: 720 passed, 1 skipped (29 new in `tests/test_reentry.py`: target accepted after 3 matches, different person rejected, one bad frame restarts the count, two similar people ambiguous then uncertain, SAM on the wrong person while the target is elsewhere, weak score band, too-far/too-soon return, size/proportion veto, unusable crops, window reset per absence, accept after uncertain, embedder failure, machine gate for every decision, anchor never polluted, manual timeout with a stranger, OUT_OF_FRAME with a stranger, 40 random sequences against the transition table, verifier+machine end to end, make_doc block, three CLI runs: stranger rejected, target reacquired, missing model). The 691 earlier tests are unchanged. `tests/test_lua_menu.py` excluded as in the earlier sessions. `ruff check .` clean with ruff 1.2.0 (the earlier checkpoints used 0.17.5, which reported 31 old findings; not re-run here)
+Known failures: none seen in the new code
+
+Unverified assumptions: OSNet x0.25 (ImageNet weights) separates people on a seated, mostly upper-body crop; `reid_thres` 0.6 / `reid_margin` 0.05 / `WEAK_BAND` / `GEO_BASE` / `GEO_SPEED` / `HEIGHT_RANGE` / `ASPECT_RANGE` are first guesses; the pose person box that contains the SAM box is the right person to embed; a real return produces 3 clean, non-edge-cut frames within 3 s; the real `.sam.json` `reentry` rows and the mpv note text (`other_person`, `verifying`, `ambiguous_reentry`) were never seen on a real clip
+
+Next smallest task: Session 11 (camera, 70% occupancy, no foot zoom pumping)
+Exact command to resume: new chat, paste Master instruction + Session 11 prompt from `docs/Lower body.md`; first run `python -m tracker sam-track models\sam-edgetam klip.mp4 --rect X1,Y1,X2,Y2 --max-seconds 90 --device dml --preview --posture --reid`, press `P` in mpv, and note any wrong-person return or any true return stuck in `verifying`
+
+Previous checkpoint (Session 9):
 
 SESSION CHECKPOINT
 

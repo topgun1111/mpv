@@ -4,7 +4,7 @@ Companion to `docs/PROJECT_SPEC.md` (the roadmap) and `docs/IMPLEMENTATION_AUDIT
 Project: Takipli Oynat, PC build (Windows, mpv + Python). Hardware: RTX 3050 Laptop 6 GB, Ryzen 5 5600, 16 GB RAM. Offline-first.
 Free Claude account, weekdays: **15 sessions (0–14)**, one per weekday, about three weeks.
 
-**Status: Sessions 0-9 done in code (2026-11-17/18); Sessions 1-9 still need your PC runs (see `TEST_RESULTS.md`, `DECISIONS.md` "SAM graphs", "SAM engine", "SAM memory loop", "TrackGate", "Lower-body region", "Posture" and "Tracking state machine"). Next: Session 10.**
+**Status: Sessions 0-11 done in code (2026-11-17/18); Sessions 1-11 still need your PC runs (see `TEST_RESULTS.md`, `DECISIONS.md` "SAM graphs", "SAM engine", "SAM memory loop", "TrackGate", "Lower-body region", "Posture", "Tracking state machine", "Re-entry with Re-ID" and "Lower-body camera"). Next: Session 12.**
 
 ---
 
@@ -59,8 +59,8 @@ Token savers:
 | 7 | Lower-body region: visible vs anatomical | 6 | **Code done**, your PC run pending | One framing rectangle, left/right evidence |
 | 8 | Posture, desk occlusion, sit↔stand | 6 | **Code done**, your PC run pending | Desk never becomes target |
 | 9 | Tracking state machine (7 states) | 7 | **Code done**, your PC run pending | Transitions tested |
-| 10 | Re-entry: existing Re-ID + future frames | 7 | | Ambiguous re-entry flagged |
-| 11 | Camera: 70% occupancy, no foot zoom pumping | 8 | | Stable apparent size |
+| 10 | Re-entry: existing Re-ID + future frames | 7 | **Code done**, your PC run pending | Ambiguous re-entry flagged |
+| 11 | Camera: 70% occupancy, no foot zoom pumping | 8 | **Code done**, your PC run pending | Stable apparent size |
 | 12 | Bidirectional refinement (backward SAM pass) | 9 | | Uncertain intervals repaired |
 | 13 | Export: NVENC + fallback, validation, optional stabilization | 10 | | Valid file, audio and timing kept |
 | 14 | Real-clip validation + Definition of done | 12 | | Checklist recorded |
@@ -417,7 +417,9 @@ field from Session 6. Transition tests only. No Re-ID matching yet.
 
 ---
 
-### Session 10: Re-entry with existing Re-ID (Part 7)
+### Session 10: Re-entry with existing Re-ID (Part 7). CODE DONE
+
+Delivered: `tracker/reentry.py` (`ReentryVerifier`, `Identity`), `TrackStateMachine.update(..., identity=)` + `reentry_context()` (identity gate: ACCEPT is the only way to REACQUIRED, REJECT keeps the loss as `other_person`, UNCERTAIN → MANUAL_RESELECT_REQUIRED as `ambiguous_reentry`), `sam-track --reid` (implies `--pose`; missing OSNet model = warning, S9 behaviour), optional `reentry` block in `<video>.sam.json`, `track.identity` in the preview file, config `reid_accept_n` / `reid_reject_n` / `reid_verify_s`, 29 tests, decisions in `DECISIONS.md` ("Re-entry with Re-ID"). Your part: run `sam-track --preview --posture --reid` on a clip where the subject leaves and comes back (and, if you have one, where a second person walks in first), press `P`, paste the `durum:` and `re-ID:` lines into `TEST_RESULTS.md`. The original prompt is kept below for reference.
 
 Files: `tracker/reid.py`, `tracker/config.py` (`reid_*`, `kp_reid`), `tracker/trackstate.py`, `offline.py`.
 
@@ -441,7 +443,10 @@ a missing file gracefully.
 
 ---
 
-### Session 11: Camera, 70% occupancy, no foot zoom pumping (Part 8)
+### Session 11: Camera, 70% occupancy, no foot zoom pumping (Part 8). CODE DONE
+
+Delivered: `tracker/camera.py` (`build`, `frames_from_doc`, `views_from_doc`, `save_views`): `<video>.sam.json` -> `<video>.views.json`; config `lower_fill` 0.70 (global `target_fill` unchanged), `lower_zoom_tol`, `lower_zoom_rate`, `lower_window_s`, `lower_reacq_s`; `python -m tracker sam-camera X.sam.json [--fill] [--out]` and `sam-track --camera`; zoom input = posture framing region on TRACKED/REACQUIRED non-desk frames (never the raw mask box), trimmed-mean window + posture-aware start threshold + persistence + rate limit, hold on the S9 `hold` flag, then zoom-out, then an ease-in before the return; 35 tests, decisions in `DECISIONS.md` ("Lower-body camera"). Your part: run `sam-track --preview --posture --camera` on a seated clip with foot movement, crossed legs, a sit/stand and an occlusion, then `export` and look at the crop; paste the camera line and observations into `TEST_RESULTS.md`. The original prompt is kept below for reference.
+
 
 Files: `tracker/geometry.py` (`compute_view`), `tracker/smooth.py`, `tracker/offline.py` (`_views_from_boxes`), `tracker/config.py` (`target_fill` 0.30 today), tests.
 

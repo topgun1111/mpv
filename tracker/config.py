@@ -60,6 +60,9 @@ class Config:
     reid_min_age: int = 3  # aday iz en az bu kadar kare yaşamış olmalı (canlı)
     reid_min_samples: int = 3  # offline: zincire girecek izin en az örnek sayısı
     reid_link_gap_s: float = 20.0  # offline: iki iz arası en fazla boşluk (sn)
+    reid_accept_n: int = 3  # S10: kayıptan dönen hedefi kabul için son N karenin hepsi galeriyle eşleşmeli
+    reid_reject_n: int = 2  # S10: son N kare üst üste uyumsuzsa dönen şey başka kişi sayılır
+    reid_verify_s: float = 3.0  # S10: dönüşten sonra bu süre içinde karar çıkmazsa belirsiz -> elle seçim (video sn)
     team_min_samples: int = 40  # takım kümeleme alt sınırı (canlı: özellik, offline: iz başına)
     team_refit: int = 100  # canlı: bu kadar yeni özellikte bir yeniden kümele
     team_margin: float = 0.15  # merkezlere uzaklık farkı oranı bundan azsa etiket belirsiz
@@ -100,6 +103,11 @@ class Config:
     gmc: bool = True  # ByteTrack tahmini kamera hareketiyle telafi edilir (canlı + offline)
     gmc_side: int = 480  # kamera kestirimi için kare en uzun kenarı (px)
     point_max_side: int = 640  # nesne izleyici kareyi en uzun kenarı bu olacak şekilde küçültür
+    lower_fill: float = 0.70  # S11: alt vücut kamerası; birleşik bölge çıktı yüksekliğinin bu kadarını kaplar (target_fill'e dokunmaz)
+    lower_zoom_tol: float = 0.12  # S11: zoom başlatma eşiği (log2; duruşa göre 0.8-1.5 katı): hedefle fark bundan azsa zoom oynamaz
+    lower_zoom_rate: float = 0.25  # S11: en çok yakınlaşma hızı (log2/sn); uzaklaşma 1.5 katı hızlı olabilir
+    lower_window_s: float = 2.0  # S11: zoom hedefi bu pencerede kırpılmış ortalamayla süzülür (ayak kıpırtısı, çaprazlama)
+    lower_reacq_s: float = 1.0  # S11: kısa kayıptan dönüşte yeni görünüme geçiş süresi (dönüşten önce başlar)
 
     def __post_init__(self) -> None:
         if not self.ipc_path:

@@ -83,6 +83,29 @@ Any seated loss that read OUT_OF_FRAME, any exit that read TEMPORARILY_LOST, fli
 
 Linux scratch copy (CPU, real pytest 9.2.0): `python -m pytest -q -p no:cacheprovider` 693 passed, 1 skipped (31 new in `tests/test_trackstate.py`); `ruff check .` 31 findings, the same as the untouched upload (none in the new or changed code). `track.lua` loaded with texlua (syntax only).
 
+## Re-entry with Re-ID, Session 10 (your PC)
+
+```text
+(paste: python -m tracker sam-track models\sam-edgetam klip.mp4 --rect x1,y1,x2,y2 --max-seconds 90 --device dml --preview --posture --reid)
+The `durum:` and `re-ID:` lines: ...
+Observed in mpv (P): walk out and back (candidate -> reacquired timing), a stranger walking in first (other_person), two similar people (ambiguous_reentry): ...
+Any return that read REACQUIRED but was the wrong person, any true return that stayed uncertain, `doğrulanamadı` count and why: ...
+```
+
+Linux scratch copy (CPU, real pytest 9.1.1, Python 3.13): `python -m pytest -q -p no:cacheprovider --ignore=tests/test_lua_menu.py` 720 passed, 1 skipped (29 new in `tests/test_reentry.py`; the 691 before are unchanged); `ruff check .` clean (ruff 1.2.0). Fake embedder/pose/SAM only: no real OSNet, no GPU.
+
+## Camera, Session 11 (your PC)
+
+```text
+(paste: python -m tracker sam-track models\sam-edgetam klip.mp4 --rect x1,y1,x2,y2 --max-seconds 90 --device dml --preview --posture --camera)
+The `kamera:` line (median occupancy, zoom range, fastest change): ...
+(paste: python -m tracker export klip.mp4, then look at klip_*.mp4)
+Observed in the export: foot wiggle / crossed legs / extended foot (size changes?), sit down and stand up (smooth? how long?), desk mask (never zoomed in?), an occlusion (held?) and a return (eased in?): ...
+Any moment the zoom pumped or the feet were cut off, and which constant you changed (`lower_window_s`, `lower_zoom_tol`, `lower_zoom_rate`, `camera.PERSIST_S`): ...
+```
+
+Linux scratch copy (CPU, Python 3.12, no pytest/ruff installable offline): `tests/test_camera.py` 35 passed through a stand-in runner; the whole `tests/` (minus `test_lua_menu.py`) 693 passed / 57 failed-or-errored, the same 57 that fail on the untouched upload (659 passed / 57 there; the 57 are stand-in limits). Mutation checks: removing the start threshold, the persistence, the trimming, the desk filter, the PARTIALLY_OCCLUDED exclusion, the hold, the re-entry ramp or the rate limit each makes at least one new test fail. Real `python -m pytest -q -p no:cacheprovider` and `ruff check .` NOT run.
+
 ## Provider diagnostics (your PC, paste outputs here)
 
 ### DirectML environment

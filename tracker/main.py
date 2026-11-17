@@ -128,6 +128,16 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--posture", action="store_true",
                     help="--pose + duruş (oturma/ayakta/geçiş), masa maskesi reddi, bacak durumu, duruşa duyarlı kadraj (S8); "
                          "kayda `posture` bloğu yazar")
+    st.add_argument("--reid", action="store_true",
+                    help="Uzun kayıp/kare dışından dönüşte kişiyi mevcut Re-ID (OSNet) ile doğrula, başka kişiye bağlanma "
+                         "(S10); --pose'u içerir, kayda `reentry` bloğu yazar. Model yoksa uyarıp Re-ID'siz sürer")
+    st.add_argument("--camera", action="store_true",
+                    help="Kayıttan sonra alt vücut kamerasını (%%70 doluluk, S11) <video>.views.json'a yaz; "
+                         "`sam-camera` ile aynı")
+    sc = sub.add_parser("sam-camera", help="<video>.sam.json -> alt vücut kamerası: <video>.views.json (S11)")
+    sc.add_argument("sam_json", help="sam-track kaydı (<video>.sam.json)")
+    sc.add_argument("--fill", type=float, help="Doluluk 0-1 (varsayılan: config.lower_fill = 0.70)")
+    sc.add_argument("--out", help="Görünüm dosyası (varsayılan: <video>.views.json; VAROLANI EZER)")
     sp = sub.add_parser("sam-preview", help="Dikdörtgen -> ilk maske konturu + birleşik dikdörtgen, onay önizlemesi (S6)")
     sp.add_argument("model_dir", help="sam-encoder.onnx ve sam-decoder.onnx klasörü")
     sp.add_argument("video", help="Video dosyası")
@@ -765,6 +775,25 @@ def sam_preview_cmd(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def sam_camera_cmd(cfg: Config, args: argparse.Namespace) -> int:
+    """`.sam.json` -> `.views.json` (S11). Model/GPU gerekmez. Kayıtta durum/duruş yoksa kayıttan türetilir."""
+    from dataclasses import replace
+
+    from . import camera, sam_track
+
+    if args.fill is not None:
+        if not 0.05 <= args.fill <= 1.0:
+            raise ValueError("--fill 0.05-1.0 aralığında olmalı")
+        cfg = replace(cfg, lower_fill=args.fill)
+    doc = sam_track.load_doc(args.sam_json)
+    cam, src = camera.views_from_doc(doc, cfg)
+    out = camera.save_views(doc, cam, args.out or camera.views_path_for(args.sam_json), src)
+    print(f"bölge kaynağı: {src} · hedef doluluk {cfg.lower_fill:.2f}")
+    print("  " + cam.summary())
+    print(f"Görünümler: {out}")
+    return 0 if cam.views else 1
+
+
 def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
     """Video boyunca SAM bellek takibi (S4). Çıkış kodu 0: kayıt üretildi; 1: ilk karede maske yok / hata."""
     import time
@@ -774,6 +803,7 @@ def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
     from .detector import _PROVIDER_NAMES
     from .posture import LEFT_FRAME
     from .trackgate import TrackGate
+    from .trackstate import TRACKED as TRACKED_STATE
     from .trackstate import TrackStateMachine
 
     clip = sam_track.Clip(args.video, fps=args.fps, start=args.start, max_seconds=args.max_seconds)
@@ -794,10 +824,19 @@ def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
     gate = TrackGate() if use_gate else None
     frames = clip
     follower, now_poses, lower_rows, posture_rows = None, [], [], []
-    lower = None
+    lower, now_frame, verifier = None, [None], None
     machine = TrackStateMachine(hold_s=cfg.lost_hold_s)  # S9: 7 durumlu makine
     state_rows, track = [], None
-    if args.pose or args.posture:  # S7: her karede poz; track_video tembel: kayıt i, i. karenin pozuyla eşleşir
+    if args.reid:  # S10: Re-ID modeli (isteğe bağlı dosya); yoksa uyar, Re-ID'siz sür
+        from .reentry import ReentryVerifier
+
+        try:
+            from .reid import Embedder
+
+            verifier = ReentryVerifier(Embedder(cfg.reid_model, device=args.device or cfg.device), cfg)
+        except Exception as e:  # model dosyası yok / açılamadı
+            print(f"Re-ID kapalı (kayıptan dönüş yalnız S9 kurallarıyla doğrulanır): {e}", file=sys.stderr)
+    if args.pose or args.posture or verifier is not None:  # S7: her karede poz; track_video tembel: kayıt i, i. karenin pozuyla eşleşir
         from . import lowerbody
         from .pose import PoseEstimator
 
@@ -813,6 +852,7 @@ def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
         def frames_with_pose():
             for tt, fr in clip:
                 now_poses[:] = est.estimate(fr)
+                now_frame[0] = fr  # S10: Re-ID aynı kareyi kırpar
                 yield tt, fr
 
         frames = frames_with_pose()
@@ -833,7 +873,12 @@ def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
             # S8: iki bacak da kareden çıktıysa ipucu
             legs = getattr(lower, "legs", None) if args.posture else None
             gone = bool(legs) and all(v == LEFT_FRAME for v in legs.values())
-            track = machine.update(rec, legs_left=gone)
+            ident, ctx = None, (machine.reentry_context(rec) if verifier is not None else None)
+            if ctx is not None:  # S10: kayıptan dönen kare: kişi hedef mi?
+                ident = verifier.check(now_frame[0], rec, now_poses, (clip.w, clip.h), ctx)
+            track = machine.update(rec, legs_left=gone, identity=ident)
+            if verifier is not None and track.state == TRACKED_STATE and rec.clean:
+                verifier.observe(now_frame[0], rec, now_poses, (clip.w, clip.h), rec.t)  # hedef görünür: galeri
             state_rows.append(track.row())
             if pw is not None:
                 pw.update(rec, lower, track)
@@ -859,14 +904,23 @@ def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
                 rect=se.to_norm_box(rect, clip.w, clip.h), rule=args.rule, providers=prov,
                 layout=eng.memory_layout(), timing_ms=sam_track.ms_per_call(eng), complete=complete,
                 gate=gate, use_gate=use_gate, lower=lower_rows or None,
-                posture=posture_rows or None, states=state_rows or None)
+                posture=posture_rows or None, states=state_rows or None,
+                reentry=verifier.rows if verifier is not None else None)
             out = sam_track.save_doc(args.out or sam_track.sam_path(args.video), doc)
+            if args.camera:
+                from . import camera
+
+                cam, cam_src = camera.views_from_doc(doc, cfg)
+                vout = camera.save_views(doc, cam, camera.views_path_for(out), cam_src)
+                print(f"  {cam.summary()}\n  Görünümler: {vout} (bölge kaynağı: {cam_src})")
         if records:
             print(f"\nkare {stats.frames} · izlenen {stats.tracked} · kayıp {stats.lost} · {wall:.1f} sn · "
                   f"{stats.frames / max(wall, 1e-9):.2f} kare/sn")
             print("  " + (gate.summary() if gate else "kapı: kapalı (--no-gate)")
                   + f" · belleğe girmeyen (temiz değil) {stats.unclean}")
             print("  " + machine.summary())
+            if verifier is not None:
+                print("  " + verifier.summary())
             for n, ms in sam_track.ms_per_call(eng).items():
                 p = prov.get(n, {})
                 print(f"  {n}: {p.get('provider', '?')}{' (FELL BACK)' if p.get('fell_back') else ''} · "
@@ -1004,6 +1058,12 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             return 130
         except (FileNotFoundError, ValueError, ImportError, OSError, RuntimeError) as e:
+            print(f"HATA: {e}", file=sys.stderr)
+            return 1
+    if args.cmd == "sam-camera":  # mpv bağlantısı gerekmez
+        try:
+            return sam_camera_cmd(cfg, args)
+        except (FileNotFoundError, ValueError, KeyError, OSError) as e:
             print(f"HATA: {e}", file=sys.stderr)
             return 1
     if args.cmd == "sam-track":  # mpv bağlantısı gerekmez

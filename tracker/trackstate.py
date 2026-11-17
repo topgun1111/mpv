@@ -28,6 +28,12 @@ kayıp, aday ve doğrulama boyunca korunur. `hold`: kamera son kırpımı tutmal
 aday doğrulanana dek); sonrası mevcut zoom-out mantığına bırakılır (S11).
 `lost_s`: şimdiye dek süren yokluk; aday/REACQUIRED karelerinde az önce biten yokluğun uzunluğu (S10 için).
 
+S10 (Re-ID ile geri dönüş): `update(..., identity=)` isteğe bağlıdır; verilmezse davranış S9 ile BİREBİR aynıdır. Kayıp/aday
+sırasında izlenen bir kare için `reentry_context(rec)` doluysa çağıran `reentry.ReentryVerifier.check` ile bir `Identity` üretip
+verir. Karar: ACCEPT (yalnız bu REACQUIRED'a götürür; `confirm_frames` de gerekir), PENDING (aday kalır, kamera eski kırpımda),
+REJECT (başka kişi: kayıp durumu SÜRER, neden `other_person`, kayıp saati durmaz, `Anchor` ve kutu geçmişi DEĞİŞMEZ),
+UNCERTAIN (belirsiz: MANUAL_RESELECT_REQUIRED, neden `ambiguous_reentry`). Doğrulanmamış kare `Anchor`'ı güncellemez.
+
 Süre/eşik sabitleri ilk tahmindir, gerçek klipte ayarlanmadı.
 """
 from __future__ import annotations
@@ -76,6 +82,9 @@ EXIT_LOOKBACK = 6  # çıkış kararı için bakılan son izlenen kare sayısı
 EXIT_MOVE = 0.03  # kenara doğru merkez kayması (karenin oranı), LOOKBACK boyunca
 EXIT_SHRINK = 0.85  # kenara değen kutunun genişliği/yüksekliği LOOKBACK başına göre bu orana inmişse çıkış
 
+# S10: kimlik kararı (reentry.ReentryVerifier üretir; makine yalnız bu dizgilere bakar)
+ID_PENDING, ID_ACCEPT, ID_REJECT, ID_UNCERTAIN = "pending", "accept", "reject", "uncertain"
+
 EDGES = ("left", "right", "top", "bottom")
 Box = tuple[float, float, float, float]
 
@@ -109,6 +118,17 @@ class Anchor:
     ratio: float
 
 
+@dataclass(frozen=True)
+class ReentryContext:
+    """S10: kayıptan dönen karede kimlik denetimi için makinenin bildikleri (`TrackStateMachine.reentry_context`)."""
+
+    episode: float  # kaybın başladığı an: aynı yokluk boyunca aynı değer (doğrulayıcı bununla yeni yokluğu ayırır)
+    gap: float  # yokluğun şimdiye dek süren uzunluğu (sn)
+    anchor: Anchor  # son GÜVENİLİR (doğrulanmış temiz) kare
+    edge: str | None  # çıkış kenarı (OUT_OF_FRAME), yoksa None
+    state: str  # kare gelmeden önceki makine durumu
+
+
 @dataclass
 class StateFrame:
     index: int
@@ -121,6 +141,7 @@ class StateFrame:
     edge: str | None = None  # OUT_OF_FRAME: çıkılan kenar; aday/REACQUIRED: kutunun değdiği kenar (giriş kenarı)
     hold: bool = False  # kamera son kırpımı tutmalı
     crop: Box | None = None  # son güvenilir kare kutusu (önceki kamera kırpımının dayanağı); hiç temiz kare yoksa None
+    identity: Any = None  # S10: bu kareye verilen `reentry.Identity` (yoksa None); önizlemede `track.identity`
 
     @property
     def changed(self) -> bool:
@@ -132,9 +153,12 @@ class StateFrame:
 
     def to_dict(self) -> dict[str, Any]:
         """Önizleme dosyasındaki `track` bloğu."""
-        return {"state": self.state, "prev": self.prev, "reason": self.reason, "lost_s": round(self.lost_s, 2),
-                "edge": self.edge, "hold": self.hold,
-                "crop": None if self.crop is None else [round(v, 4) for v in self.crop]}
+        d = {"state": self.state, "prev": self.prev, "reason": self.reason, "lost_s": round(self.lost_s, 2),
+             "edge": self.edge, "hold": self.hold,
+             "crop": None if self.crop is None else [round(v, 4) for v in self.crop]}
+        if self.identity is not None:  # S10: yalnız kimlik denetlenen karelerde
+            d["identity"] = self.identity.to_dict()
+        return d
 
     def row(self) -> list[Any]:
         """`.sam.json` `state.rows` satırı (alan sırası `ROW_FIELDS`)."""
@@ -177,17 +201,34 @@ class TrackStateMachine:
         self._gap = 0.0
         self._cand = self._settle = self._un = self._cl = 0
 
-    def update(self, rec: Any, *, legs_left: bool = False) -> StateFrame:
-        """`rec`: `sam_track.TrackRecord` (t, index, tracked, accepted, clean, ratio, conf, box, size)."""
+    def reentry_context(self, rec: Any) -> ReentryContext | None:
+        """İzlenen bir kare kayıptan/adaylıktan dönüyorsa ve kimlik denetimi anlamlıysa bağlam; yoksa None (denetim yok).
+
+        Kısa kayıp (TEMPORARILY_LOST, `hold_s` içinde) doğrudan sürer: denetlenmez. Hiç güvenilir kare yoksa (`anchor` None)
+        karşılaştırılacak kimlik yoktur: denetlenmez."""
+        if self.state not in (*LOST_STATES, REACQUISITION_CANDIDATE) or self.anchor is None:
+            return None
+        if not (rec.tracked and rec.box is not None):
+            return None
+        gap = float(rec.t) - self._lost_since
+        if self.state == TEMPORARILY_LOST and gap <= self.hold_s:
+            return None
+        return ReentryContext(self._lost_since, gap, self.anchor, self._exit_edge, self.state)
+
+    def update(self, rec: Any, *, legs_left: bool = False, identity: Any = None) -> StateFrame:
+        """`rec`: `sam_track.TrackRecord` (t, index, tracked, accepted, clean, ratio, conf, box, size).
+        `identity` (S10, isteğe bağlı): `reentry.Identity` (`decision`); yalnız kayıp/aday sonrası izlenen karelerde okunur."""
         t = float(rec.t)
         prev = self.state
         seen = bool(rec.tracked and rec.box is not None)
         if seen:
-            new, reason = self._on_seen(rec, t, prev)
+            new, reason = self._on_seen(rec, t, prev, identity)
         else:
             new, reason = self._on_lost(rec, t, prev, legs_left)
         self.state = new
         frame = self._frame(rec, t, prev, new, reason, seen)
+        if identity is not None and seen and (prev in LOST_STATES or prev == REACQUISITION_CANDIDATE):
+            frame.identity = identity
         self.counts[new] += 1
         if prev != new:
             self.transitions.append((t, prev, new, reason))
@@ -199,15 +240,21 @@ class TrackStateMachine:
 
     # --- geçişler ---
 
-    def _on_seen(self, rec: Any, t: float, prev: str | None) -> tuple[str, str]:
+    def _on_seen(self, rec: Any, t: float, prev: str | None, identity: Any = None) -> tuple[str, str]:
         box = tuple(rec.box)
-        self._hist.append((t, box))
-        if rec.clean:
-            size = tuple(rec.size) if rec.size else (box[2] - box[0], box[3] - box[1])
-            self.anchor = Anchor(rec.index, t, box, size, float(rec.conf), float(rec.ratio))
-            self._cl, self._un = self._cl + 1, 0
-        else:
-            self._un, self._cl = self._un + 1, 0
+        reentry = prev in LOST_STATES or prev == REACQUISITION_CANDIDATE
+        decision = identity.decision if (identity is not None and reentry) else None
+        if decision in (ID_REJECT, ID_UNCERTAIN):
+            return self._refuse(t, prev, decision)  # başka kişi / belirsiz: anchor ve kutu geçmişine DOKUNMA
+        trusted = decision is None or decision == ID_ACCEPT  # bekleyen kare anchor'ı kirletmez (sonra reddedilebilir)
+        if trusted:
+            self._hist.append((t, box))
+            if rec.clean:
+                size = tuple(rec.size) if rec.size else (box[2] - box[0], box[3] - box[1])
+                self.anchor = Anchor(rec.index, t, box, size, float(rec.conf), float(rec.ratio))
+                self._cl, self._un = self._cl + 1, 0
+            else:
+                self._un, self._cl = self._un + 1, 0
         if prev in LOST_STATES:
             gap = t - self._lost_since
             if prev == TEMPORARILY_LOST and gap <= self.hold_s:
@@ -217,14 +264,31 @@ class TrackStateMachine:
         if prev == REACQUISITION_CANDIDATE:
             self._cand += 1
             if self._cand >= self.confirm_frames:
-                self._settle = 0
-                return REACQUIRED, "confirmed"
+                if decision is None or decision == ID_ACCEPT:
+                    self._settle = 0
+                    return REACQUIRED, "confirmed"
+                return REACQUISITION_CANDIDATE, "verifying"  # kare sayısı yetti, kimlik henüz doğrulanmadı
             return REACQUISITION_CANDIDATE, "back"
         if prev == REACQUIRED:
             self._settle += 1
             if self._settle < self.settle_frames:
                 return REACQUIRED, "settling"
         return self._base(rec, prev, "start" if prev is None else "ok")
+
+    def _refuse(self, t: float, prev: str | None, decision: str) -> tuple[str, str]:
+        """İzlenen kare ama özne değil (REJECT) ya da doğrulanamıyor (UNCERTAIN): kayıp sürer, kayıp saati durmaz."""
+        self._un = self._cl = self._cand = 0
+        if decision == ID_UNCERTAIN:
+            return MANUAL_RESELECT_REQUIRED, "ambiguous_reentry"
+        new = self._lost_state if prev == REACQUISITION_CANDIDATE else prev
+        return self._deadline(new, t, "other_person")
+
+    def _deadline(self, new: str, t: float, reason: str) -> tuple[str, str]:
+        """Kayıp durumu süresini doldurduysa elle seçim."""
+        if new in (TEMPORARILY_LOST, OUT_OF_FRAME):
+            if t - self._lost_since >= (self.out_max_s if new == OUT_OF_FRAME else self.manual_s):
+                return MANUAL_RESELECT_REQUIRED, "timeout"
+        return new, reason
 
     def _base(self, rec: Any, prev: str | None, ok: str) -> tuple[str, str]:
         """TRACKED <-> PARTIALLY_OCCLUDED, titremesin diye iki yönde de kare sayısıyla."""
@@ -257,10 +321,7 @@ class TrackStateMachine:
             new, reason = self._lost_state, why  # aday tutmadı: eski kayıp sürüyor (yokluk süresi kesilmedi)
         else:
             new, reason = prev, why
-        if new in (TEMPORARILY_LOST, OUT_OF_FRAME):
-            if t - self._lost_since >= (self.out_max_s if new == OUT_OF_FRAME else self.manual_s):
-                new, reason = MANUAL_RESELECT_REQUIRED, "timeout"
-        return new, reason
+        return self._deadline(new, t, reason)
 
     def _detect_exit(self, legs_left: bool) -> str | None:
         """Son izlenen kutu kenara değiyor VE o kenara doğru gidiyor/küçülüyor mu? Yalnız değmek yetmez."""
