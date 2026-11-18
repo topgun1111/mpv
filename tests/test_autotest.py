@@ -81,3 +81,22 @@ def test_main_reports_failure_when_graphs_missing(tmp_path):
 def test_run_step_missing_command_is_logged(tmp_path):
     s = at.run_step("x y", ["yok-komut-xyz"], tmp_path)
     assert s.code not in (0, None) and (tmp_path / "x_y.log").exists()
+
+
+def test_file_mode_writes_log_and_md_to_out(tmp_path):
+    f = tmp_path / "ders.mp4"
+    f.write_bytes(b"x")
+    out = tmp_path / "desk"
+    code = at.main(["--file", str(f), "--model-dir", str(tmp_path / "yok"), "--out", str(out), "--device", "cpu"])
+    assert code == 1
+    dirs = [d for d in out.iterdir() if d.is_dir()]
+    assert len(dirs) == 1 and dirs[0].name.startswith("Takipli-Test-ders-")
+    assert (out / f"{dirs[0].name}.md").exists()  # masaüstünde tek dosya kopyası
+
+
+def test_file_mode_missing_file_returns_2(tmp_path):
+    assert at.main(["--file", str(tmp_path / "yok.mp4")]) == 2
+
+
+def test_desktop_dir_exists():
+    assert at.desktop_dir().is_dir()

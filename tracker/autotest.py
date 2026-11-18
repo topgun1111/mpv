@@ -372,6 +372,27 @@ def preflight(a: argparse.Namespace, logdir: Path) -> list[Check]:
     return out
 
 
+# ---------------------------------------------------------------- masaüstü
+
+def desktop_dir() -> Path:
+    """Masaüstü klasörü (OneDrive yönlendirmesi dahil: Windows'ta Bilinen Klasör API'si); bulunamazsa ~/Desktop."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            guid = ctypes.c_byte * 16
+            fid = guid(*bytes.fromhex("3accbfb42cdb4c42b0297fe99a87c641"))  # FOLDERID_Desktop
+            buf = ctypes.c_wchar_p()
+            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(fid), 0, wintypes.HANDLE(0),
+                                                          ctypes.byref(buf)) == 0 and buf.value:
+                return Path(buf.value)
+        except Exception:
+            pass
+    d = Path.home() / "Desktop"
+    return d if d.is_dir() else Path.home()
+
+
 # ---------------------------------------------------------------- rapor
 
 def write_report(logdir: Path, pre: list[Check], clips: list[ClipResult]) -> bool:
@@ -397,20 +418,32 @@ def write_report(logdir: Path, pre: list[Check], clips: list[ClipResult]) -> boo
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="autotest", description="Otomatik doğrulama (S14)")
     p.add_argument("--clips", default="klipler", help="video klasörü (varsayılan: klipler)")
+    p.add_argument("--file", help="yalnız bu video; günlük MASAÜSTÜNE yazılır (--out verilmezse)")
     p.add_argument("--model-dir", default="models/sam-edgetam")
     p.add_argument("--device", default="auto", choices=("auto", "dml", "cuda", "cpu"))
     p.add_argument("--max-seconds", type=int, default=90)
-    p.add_argument("--out", default="validation")
+    p.add_argument("--out", default=None, help="günlük klasörü (varsayılan: validation; --file ile masaüstü)")
     p.add_argument("--quick", action="store_true", help="sabitlemeli dışa aktarmayı atla")
     p.add_argument("--no-baseline", action="store_true", help="eski izleyici temelini atla")
     p.add_argument("--skip-bench", action="store_true", help="sam-bench'i atla")
     a = p.parse_args(argv)
-    src = Path(a.clips)
-    vids = sorted(f for f in src.iterdir() if f.suffix.lower() in VIDEO_EXT) if src.is_dir() else []
-    if not vids:
-        print(f"HATA: {src} klasöründe video yok. Klipleri oraya koy ({', '.join(VIDEO_EXT)}).")
-        return 2
-    logdir = Path(a.out) / time.strftime("%Y%m%d-%H%M%S")
+    if a.file:
+        f = Path(a.file)
+        if not f.is_file():
+            print(f"HATA: dosya yok: {f}")
+            return 2
+        vids, label = [f], f"Takipli-Test-{f.stem}"
+        a.out = a.out or str(desktop_dir())
+    else:
+        src = Path(a.clips)
+        vids = sorted(f for f in src.iterdir() if f.suffix.lower() in VIDEO_EXT) if src.is_dir() else []
+        if not vids:
+            print(f"HATA: {src} klasöründe video yok. Klipleri oraya koy ({', '.join(VIDEO_EXT)}).")
+            return 2
+        label = ""
+        a.out = a.out or "validation"
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    logdir = Path(a.out) / (f"{label}-{stamp}" if label else stamp)
     logdir.mkdir(parents=True, exist_ok=True)
     print(f"{len(vids)} klip, günlükler: {logdir}", flush=True)
     pre = preflight(a, logdir)
@@ -422,6 +455,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"> {v.name}", flush=True)
             clips.append(process_clip(v, a, logdir))
     ok = write_report(logdir, pre, clips)
+    if label:  # masaüstünde tek dosya olarak da dursun
+        try:
+            (logdir.parent / f"{logdir.name}.md").write_text((logdir / "report.md").read_text(encoding="utf-8"),
+                                                              encoding="utf-8")
+        except OSError:
+            pass
     print(f"\nRapor: {logdir / 'report.md'}\nSonuç: {'GEÇTİ' if ok else 'KALDI'}")
     return 0 if ok else 1
 

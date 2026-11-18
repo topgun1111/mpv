@@ -137,6 +137,8 @@ No features were added. This section is the test plan, the tables you fill in, a
 
 Put the clips in `klipler\` and double-click `launcher\Dogrula.bat` (or `python -m tracker.autotest --clips klipler --device dml`). It runs preflight (`providers`, `export_check`, `sam-bench`), then per clip: old-tracker baseline, `sam-track` with all flags, `sam-refine --plan`, `sam-refine --camera`, `export`, `export --stabilize`; samples GPU memory (nvidia-smi, or Windows `typeperf`, whole card) and checks the produced files: tracked ratio, expected states, 70 % occupancy, zoom pumping (reversals per minute) and zoom rate limit, refine frame counts, export validation. Report: `validation\<time>\report.md` + `report.json` + one log per step; exit code 1 on any failure. The box is taken automatically from the first frame (lower half of the person box, preview PNG saved for a quick look) unless `X.mp4.test.json` gives `rect`, `start` and `expect` (`min_tracked`, `states_include`, `states_exclude`). Only the failure path and the pure checks were run here (873 tests); the happy path needs the real graphs. The observations in table 2b (what you *see*) stay manual.
 
+Single file: drag a video onto `launcher\Test.bat`, or run `launcher\Sag-Tik-Ekle.bat` once to get "Takipli Oynat ile test et" in the right-click menu of video files. The log goes to the Desktop: a `Takipli-Test-<clip>-<time>` folder (report, one log per step, rectangle preview) and the same report as a single `.md` file. `Sag-Tik-Kaldir.bat` removes the menu entry.
+
 ### 1. Test plan (3 clips, about 60-90 s each, 1080p or 720p as you normally record)
 
 | Clip | Scene | What it must show |
