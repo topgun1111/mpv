@@ -53,7 +53,7 @@ jobs:
         continue-on-error: true
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install torchreid gdown onnx scipy
+          pip install torchreid gdown onnx scipy tensorboard
           python scripts/export_reid.py dist/TakipliOynat/models osnet_x0_25
       - name: Tüm-vücut poz modeli (RTMPose-wholebody, el/yüz/ayak parmağı; isteğe bağlı)
         shell: pwsh
