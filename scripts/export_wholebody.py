@@ -20,7 +20,7 @@ import zipfile
 from pathlib import Path
 
 URL = ("https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/"
-       "rtmpose-m_simcc-ucoco-dw-ucoco_270e-256x192-c8b76419_20230728.zip")
+       "rtmpose-m_simcc-ucoco_dw-ucoco_270e-256x192-c8b76419_20230728.zip")
 NAME = "rtmpose-wholebody.onnx"
 MIN_BYTES = 20_000_000
 

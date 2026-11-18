@@ -12,7 +12,8 @@ def fake_run(listed=True, probe_rc=0):
     def run(cmd, **kw):
         calls.append(cmd)
         if "-encoders" in cmd:
-            return NS(returncode=0, stdout=b" V....D h264_nvenc NVIDIA\n" if listed else b" V libx264\n")
+            out = b" V....D h264_nvenc NVIDIA\n" if listed else b" V libx264\n"
+            return NS(returncode=0, stdout=out)
         return NS(returncode=probe_rc, stdout=b"")
     run.calls = calls
     return run
@@ -58,4 +59,5 @@ def test_cmd_default_unchanged_and_nvenc_variant():
     assert nv[nv.index("-c:v") + 1] == "h264_nvenc" and nv[nv.index("-cq") + 1] == "20"
     assert "-crf" not in nv and "-c:a" in nv and "copy" in nv
     assert "-shortest" in nv  # süre verilmediyse eski komut (recorder ile eşlik)
-    assert ex.ffmpeg_cmd("ff", (64, 64), 25.0, "i", "o", audio=False, encoder="h264_nvenc")[-1] == "o"
+    cmd = ex.ffmpeg_cmd("ff", (64, 64), 25.0, "i", "o", audio=False, encoder="h264_nvenc")
+    assert cmd[-1] == "o"
