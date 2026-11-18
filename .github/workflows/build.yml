@@ -25,7 +25,7 @@ jobs:
         run: python scripts/make_package.py
       - name: Güncelleme deposu (Yardım → Güncellemeleri denetle)
         run: |
-          python -c "import json,os; json.dump({'repo': os.environ['GITHUB_REPOSITORY']}, open('dist/TakipliOynat/update.json','w'))"
+          python -c "import json,os; json.dump({'repo': os.environ['GITHUB_REPOSITORY'], 'build': int(os.environ['GITHUB_RUN_NUMBER'])}, open('dist/TakipliOynat/update.json','w'))"
       - name: Gömülü Python + bağımlılıklar
         run: python scripts/build_embedded.py
       - name: mpv indir

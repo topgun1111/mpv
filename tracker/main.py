@@ -447,7 +447,8 @@ def run_update_cmd(cfg: Config, args: argparse.Namespace) -> int:
 
     from . import update
 
-    info = update.check(update.resolve_repo(cfg.update_repo), __version__)
+    info = update.check(update.resolve_repo(cfg.update_repo), __version__,
+                       build=update.current_build())
     if args.action == "check":
         print(json.dumps(info, ensure_ascii=False))
         return 0

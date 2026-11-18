@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+from pathlib import Path
 
 import pytest
 
@@ -25,11 +26,23 @@ def test_version_compare():
 
 def test_resolve_repo(tmp_path):
     assert update.resolve_repo("a/b", tmp_path) == "a/b"
-    assert update.resolve_repo("", tmp_path) == ""
+    assert update.resolve_repo("", tmp_path) == update.DEFAULT_REPO == "topgun1111/mpv"
     (tmp_path / "update.json").write_text(json.dumps({"repo": "me/app"}), encoding="utf-8")
     assert update.resolve_repo("", tmp_path) == "me/app"
     assert update.resolve_repo("bad repo", tmp_path / "yok") == ""  # geçersiz biçim reddedilir
     assert Config().update_repo == ""
+
+
+def test_prerelease_builds_are_updates():
+    pre = rel("v1.2.0-b45", "TakipliOynat-Setup-1.2.0-b45.exe")
+    old = rel("v1.2.0-b40", "TakipliOynat-Setup-1.2.0-b40.exe")
+    fetch = lambda u: [old, pre]  # noqa: E731 - /releases listesi
+    assert update.check("o/r", "1.2.0", fetch=fetch, build=40)["latest"] == "1.2.0-b45"
+    assert update.check("o/r", "1.2.0", fetch=fetch, build=45)["state"] == "uptodate"
+    assert update.check("o/r", "1.2.0", fetch=fetch)["state"] == "available"  # kurulu derleme bilinmiyor
+    assert update.check("o/r", "1.2.0", fetch=lambda u: rel("v1.2.0"), build=45)["state"] == "available"
+    assert update.parse_full("v1.2.0") > update.parse_full("v1.2.0-b999")
+    assert update.current_build(Path("/yok")) == 0
 
 
 def test_check_states():

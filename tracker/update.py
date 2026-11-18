@@ -21,7 +21,10 @@ from urllib.parse import urlparse
 
 ASSET_RE = re.compile(r"^TakipliOynat-Setup-.+\.exe$", re.I)
 ALLOWED_HOSTS = ("github.com", "githubusercontent.com")
-API = "https://api.github.com/repos/{repo}/releases/latest"
+API = "https://api.github.com/repos/{repo}/releases?per_page=30"  # ön sürümler (main'den -bN) dahil
+DEFAULT_REPO = "topgun1111/mpv"
+FULL_RELEASE_BUILD = 10**6  # v1.2.0 (tam sürüm), aynı sürümün her -bN ön sürümünden yeni sayılır
+BUILD_RE = re.compile(r"-b(\d+)", re.I)
 REPO_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
 
@@ -36,8 +39,35 @@ def is_newer(latest: str, current: str) -> bool:
     return parse_version(latest) > parse_version(current)
 
 
+def parse_full(tag: str) -> tuple[int, int, int, int]:
+    """'v1.2.0-b45' → (1,2,0,45); 'v1.2.0' → (1,2,0,FULL_RELEASE_BUILD)."""
+    m = BUILD_RE.search(str(tag))
+    return (*parse_version(tag), int(m.group(1)) if m else FULL_RELEASE_BUILD)
+
+
+def newer_than(tag: str, current: str, build: int = 0) -> bool:
+    """tag, kurulu sürümden (X.Y.Z + derleme no) yeni mi? Derleme bilinmiyorsa (0) aynı sürümün tam
+    sürümü yeni sayılmaz; -bN ön sürümü sayılır."""
+    pv, cv = parse_version(tag), parse_version(current)
+    if pv != cv:
+        return pv > cv
+    b = parse_full(tag)[3]
+    if b == FULL_RELEASE_BUILD:
+        return build > 0
+    return b > build
+
+
+def current_build(app_root: Path | None = None) -> int:
+    """Kurulu derleme numarası: `update.json` içindeki "build" (CI yazar); yoksa 0."""
+    root = app_root or Path(__file__).resolve().parent.parent
+    try:
+        return int(json.loads((root / "update.json").read_text(encoding="utf-8")).get("build", 0))
+    except (OSError, ValueError, AttributeError, TypeError):
+        return 0
+
+
 def resolve_repo(cfg_repo: str = "", app_root: Path | None = None) -> str:
-    """config.json `update_repo` → yoksa `<uygulama>/update.json` → ''."""
+    """config.json `update_repo` → yoksa `<uygulama>/update.json` → yoksa DEFAULT_REPO."""
     repo = (cfg_repo or "").strip()
     if not repo:
         root = app_root or Path(__file__).resolve().parent.parent
@@ -45,7 +75,10 @@ def resolve_repo(cfg_repo: str = "", app_root: Path | None = None) -> str:
             repo = str(json.loads((root / "update.json").read_text(encoding="utf-8")).get("repo", ""))
         except (OSError, ValueError, AttributeError):
             repo = ""
-    return repo.strip() if REPO_RE.match(repo.strip()) else ""
+    repo = repo.strip()
+    if not repo:
+        return DEFAULT_REPO
+    return repo if REPO_RE.match(repo) else ""
 
 
 def safe_url(url: str) -> bool:
@@ -68,25 +101,37 @@ def _http_json(url: str, timeout: float = 10.0) -> dict:
         return json.loads(r.read().decode("utf-8"))
 
 
-def check(repo: str, current: str, fetch=_http_json) -> dict:
-    """{state: uptodate|available|error, current, latest?, name?, url?, size?, sha256?, notes?, message?}"""
+def check(repo: str, current: str, fetch=_http_json, build: int = 0) -> dict:
+    """{state: uptodate|available|error, current, latest?, name?, url?, size?, sha256?, notes?, message?}
+
+    Ön sürümler de aday: kurulum dosyası olan en yeni sürüm (X.Y.Z + derleme numarası) seçilir."""
     if not repo:
         return {"state": "error", "current": current,
                 "message": "güncelleme deposu ayarlı değil (config.json: update_repo = \"sahip/depo\")"}
     try:
-        rel = fetch(API.format(repo=repo))
+        data = fetch(API.format(repo=repo))
     except Exception as e:  # noqa: BLE001 - ağ/JSON/404: kullanıcıya düz mesaj
-        return {"state": "error", "current": current, "message": f"sürüm bilgisi alınamadı: {e}"}
-    latest = str(rel.get("tag_name", "")).lstrip("vV")
-    if not latest or not is_newer(latest, current):
-        return {"state": "uptodate", "current": current, "latest": latest or current}
+        return {"state": "error", "current": current,
+                "message": f"sürüm bilgisi alınamadı: {e} (depo özelse güncelleme çalışmaz)"}
+    rels = data if isinstance(data, list) else [data]
+    rels = [r for r in rels if isinstance(r, dict) and not r.get("draft") and r.get("tag_name")]
+    build = int(build or 0)
+    best = max(rels, key=lambda r: parse_full(r["tag_name"]), default=None)
+    if best is None or not newer_than(best["tag_name"], current, build):
+        latest = str(best["tag_name"]).lstrip("vV") if best else current
+        return {"state": "uptodate", "current": current, "latest": latest}
+    # en yeni sürümlerden, kurulum dosyası olan ilkini al
+    cands = sorted((r for r in rels if newer_than(r["tag_name"], current, build) and pick_asset(r)),
+                   key=lambda r: parse_full(r["tag_name"]), reverse=True)
+    if not cands:
+        tag = str(best["tag_name"]).lstrip("vV")
+        return {"state": "error", "current": current, "latest": tag,
+                "message": f"{tag} yayınlanmış ama kurulum dosyası (TakipliOynat-Setup-*.exe) yok"}
+    rel = cands[0]
     asset = pick_asset(rel)
-    if asset is None:
-        return {"state": "error", "current": current, "latest": latest,
-                "message": f"{latest} yayınlanmış ama kurulum dosyası (TakipliOynat-Setup-*.exe) yok"}
     digest = str(asset.get("digest") or "")
-    return {"state": "available", "current": current, "latest": latest, "name": asset["name"],
-            "url": asset["browser_download_url"], "size": int(asset.get("size") or 0),
+    return {"state": "available", "current": current, "latest": str(rel["tag_name"]).lstrip("vV"),
+            "name": asset["name"], "url": asset["browser_download_url"], "size": int(asset.get("size") or 0),
             "sha256": digest.split(":", 1)[1].lower() if digest.lower().startswith("sha256:") else "",
             "notes": str(rel.get("body") or "")[:600]}
 
@@ -122,12 +167,22 @@ def download(url: str, dest: Path, size: int = 0, sha256: str = "", progress=Non
 
 
 def launch_installer(path: Path) -> None:
-    """Sessiz kurulum, ayrı süreç: Inno Setup açık mpv/python'u kapatır, üstüne kurar."""
+    """Sessiz kurulum, ayrı süreç: Inno Setup açık mpv/python'u kapatır, üstüne kurar.
+    Program Files'a kurulduysa yönetici yetkisi gerekir (WinError 740) → ShellExecute ile UAC istenir."""
     flags = 0
     if sys.platform == "win32":
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-    subprocess.Popen([str(path), "/SILENT", "/NORESTART"], creationflags=flags,  # noqa: S603
-                     close_fds=True)
+    try:
+        subprocess.Popen([str(path), "/SILENT", "/NORESTART"], creationflags=flags,  # noqa: S603
+                         close_fds=True)
+    except OSError:
+        if sys.platform != "win32":
+            raise
+        import ctypes
+
+        rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", str(path), "/SILENT /NORESTART", None, 1)  # type: ignore[attr-defined]
+        if rc <= 32:
+            raise
 
 
 def install(info: dict, progress_file: Path | None = None, launch=launch_installer,
