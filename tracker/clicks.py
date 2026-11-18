@@ -26,6 +26,7 @@ LOADING_MSG = "track-loading"  # Python → Lua: modeller yükleniyor ("1") / ha
 OPTION_MSG = "track-option"  # Lua → Python (Tracker paneli): <anahtar> <+1|-1|0|toggle>
 GPU_MSG = "track-gpu"  # Lua → Python (panel): <auto|cpu|dml:N|cuda:N> kart seçimi
 GPU_DEFAULT_MSG = "track-gpu-default"  # Lua → Python: <set|clear> varsayılan kart
+SAM_MODEL_MSG = "track-sam-model"  # Lua → Python: edgetam | sam2_small
 CFG_GET_MSG = "track-cfg-get"  # Lua → Python: panel açıldı, ayar özetini yolla
 CFG_MSG = "track-cfg"  # Python → Lua: ayar özeti (JSON; settings.panel_snapshot)
 HUD_MSG = "track-hud"  # Python → Lua (script-message-to track track-hud <metin>)

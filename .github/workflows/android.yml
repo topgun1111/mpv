@@ -43,7 +43,7 @@ jobs:
       - name: Pose models into app assets (explicit list; AGPL-3.0, personal use)
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install ultralytics==8.3.40 onnx==1.17.0
+          pip install ultralytics==8.3.40 onnx==1.17.0 onnxscript==0.2.1
           d=android/app/src/${{ matrix.flavor }}/assets/models
           # pose build: both candidates (decide by measurement); sam build: the small one + the SAM models below
           if [ "${{ matrix.flavor }}" = "pose" ]; then models="yolov8s-pose yolo11m-pose"; else models="yolov8s-pose"; fi

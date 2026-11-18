@@ -18,6 +18,7 @@ from .clicks import (
     CFG_MSG,
     DOT_MSG,
     GPU_DEFAULT_MSG,
+    SAM_MODEL_MSG,
     GPU_MSG,
     HUD_MSG,
     OPTION_MSG,
@@ -280,6 +281,8 @@ class LiveController:
             return self._on_gpu_default(ev.get("args") or [])
         if name == GPU_MSG:
             return self._on_gpu(ev.get("args") or [])
+        if name == SAM_MODEL_MSG:
+            return self._on_sam_model(ev.get("args") or [])
         if name == STATUS_MSG:
             return Output(osd=status_text(self.cfg, self.target_id, self.point is not None))
         if name == SAVE_MSG:
@@ -301,6 +304,24 @@ class LiveController:
         self.restart_req = True
         self.cfg_dirty = True
         return Output(osd=f"Ekran kartı: {label} · modeller yeniden yükleniyor...")
+
+    def _on_sam_model(self, args: list) -> Output:
+        """PC SAM model picker: persist the chosen export family for SAM workflows."""
+        variant = str(args[1]) if len(args) > 1 else ""
+        if variant not in ("edgetam", "sam2_small"):
+            return Output(osd="Bilinmeyen SAM modeli")
+        if self.cfg.sam_model_variant == variant:
+            return Output(osd="SAM modeli zaten seçili")
+        self.cfg.sam_model_variant = variant
+        if self.cfg_path:
+            try:
+                self.cfg.save(self.cfg_path)
+            except OSError as e:
+                return Output(osd=f"SAM modeli kaydedilemedi: {e}")
+        self.cfg_dirty = True
+        label = "EdgeTAM" if variant == "edgetam" else "SAM 2.1 Small"
+        self.tlog.note(f"PC SAM modeli seçildi: {label}")
+        return Output(osd=f"SAM modeli seçildi: {label}")
 
     def _on_gpu_default(self, args: list) -> Output:
         """Panel «Varsayılan yap»/«Varsayılanı kaldır»: geçerli kart her açılışta kullanılır."""

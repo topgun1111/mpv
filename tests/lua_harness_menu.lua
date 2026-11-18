@@ -59,7 +59,7 @@ out("ENTER", tostring(M():find("Yakınlaştır", 1, true) == nil), tostring(reg.
 reg.bind.menu(); click(W / 2, H / 2)
 out("OUTSIDE", tostring(M():find("Video aç", 1, true) == nil))
 -- Otomatik gizleme (zamanlayıcı)
-move(hx(2), 5); reg.timers[#reg.timers]()
+move(hx(2), 5); reg.timers[1]()
 out("AUTOHIDE", tostring(M() == ""), tostring(track_over()))
 -- Tam ekrandan çıkınca çubuk geri gelir ve zamanlayıcı gizlemez
 reg.props.fullscreen = false

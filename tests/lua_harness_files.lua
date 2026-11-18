@@ -93,7 +93,7 @@ reg.bind.open(); answer("")
 out("CANCEL", tostring(#reg.cmds == 0), tostring(reg.async == nil))
 -- hata (status≠0) → OSD, yükleme yok
 reg.bind.open(); answer("", 1)
-out("FAIL", tostring(#reg.cmds == 0), reg.osd[#reg.osd] or "-")
+out("FAIL", tostring(#reg.cmds == 0), (reg.toast ~= "" and reg.toast or (reg.osd[#reg.osd] or "-")))
 
 -- Menüden: 2. seçilebilir öğe = Son açılanlar (liste PowerShell dizisi olarak gömülür)
 reg.cmds = {}
@@ -122,10 +122,10 @@ out("LOAD_VIEW", tostring(reg.set["video-zoom"]), tostring(reg.set["video-pan-x"
 -- bozuk dosya kabul edilmez
 local f = io.open(os.getenv("VIDEO") .. ".view.json", "wb"); f:write('{"version":1,"zoom":99,"pan_x":0,"pan_y":0}'); f:close()
 reg.set = {}; pick(6)
-out("LOAD_BAD", tostring(reg.set["video-zoom"] == nil), reg.osd[#reg.osd])
+out("LOAD_BAD", tostring(reg.set["video-zoom"] == nil), reg.toast ~= "" and reg.toast or (reg.osd[#reg.osd] or "-"))
 -- Takip açıkken yükleme reddedilir
 reg.bind.toggle(); reg.set = {}; pick(6)
-out("LOAD_BUSY", tostring(reg.set["video-zoom"] == nil), reg.osd[#reg.osd])
+out("LOAD_BUSY", tostring(reg.set["video-zoom"] == nil), reg.toast ~= "" and reg.toast or (reg.osd[#reg.osd] or "-"))
 reg.bind.toggle()
 
 -- Videoyu kapat (7.)
@@ -147,7 +147,7 @@ reg.props["mouse-pos"] = { x = 640, y = 400 }
 reg.obs["mouse-pos"](nil, { x = 640, y = 400 })
 local n0 = #reg.timers
 reg.bind.pick()
-out("SCAN_QUEUED", tostring(reg.spawn == nil), reg.osd[#reg.osd])
+out("SCAN_QUEUED", tostring(reg.spawn == nil), reg.toast ~= "" and reg.toast or (reg.osd[#reg.osd] or "-"))
 reg.obs["pause"](nil, false) -- kullanıcı Play'e basar
 local a = reg.spawn.args
 out("SCAN_SPAWN", tostring(reg.spawn.detached), a[1], table.concat({ a[2], a[3], a[4] }, " "), a[6], a[7],
@@ -160,7 +160,7 @@ out("SCAN_ONCE", tostring(reg.spawn == nil))
 
 -- E1: Dışa aktar (9.): görünüm dosyası yoksa uyarı; varsa detached `export` + ilerleme
 reg.spawn = nil; pick(9)
-out("EXPORT_NOVIEWS", tostring(reg.spawn == nil), reg.osd[#reg.osd])
+out("EXPORT_NOVIEWS", tostring(reg.spawn == nil), reg.toast ~= "" and reg.toast or (reg.osd[#reg.osd] or "-"))
 local vf = io.open(os.getenv("VIDEO") .. ".views.json", "wb"); vf:write('{"views":[[0,0,0,0]]}'); vf:close()
 pick(9)
 local e = reg.spawn.args
@@ -168,10 +168,10 @@ local want = os.getenv("VIDEO"):gsub("%.[^./\\]+$", "") .. ".takipli.mp4"
 out("EXPORT_SPAWN", tostring(reg.spawn.detached), e[5], e[6], tostring(e[7] == os.getenv("VIDEO")), tostring(e[9] == want))
 local ef = io.open(want .. ".export.json", "wb"); ef:write('{"state":"running","pct":55}'); ef:close()
 reg.timers[#reg.timers]()
-out("EXPORT_PROGRESS", reg.osd[#reg.osd])
+out("EXPORT_PROGRESS", reg.toast ~= "" and reg.toast or (reg.osd[#reg.osd] or "-"))
 ef = io.open(want .. ".export.json", "wb"); ef:write('{"state":"done","pct":100}'); ef:close()
 reg.timers[#reg.timers]()
-out("EXPORT_DONE", reg.osd[#reg.osd])
+out("EXPORT_DONE", reg.toast ~= "" and reg.toast or (reg.osd[#reg.osd] or "-"))
 os.remove(want .. ".export.json"); os.remove(os.getenv("VIDEO") .. ".views.json")
 
 -- Saf modül

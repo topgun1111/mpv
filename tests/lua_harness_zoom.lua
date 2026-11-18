@@ -60,7 +60,7 @@ out("KEY_IN", tostring(reg.set["video-zoom"]))
 zoom_is(1.0)
 out("OBS", tostring(has(Z(), "x2.0")))
 move(10, H - 10)
-reg.timers[#reg.timers]() -- panel otomatik gizlenir
+reg.timers[1]() -- panel otomatik gizlenir (ilk timer panel gizleme)
 out("STAYS", tostring(has(Z(), "x2.0")), tostring(over()))
 zoom_is(0)
 out("GONE", tostring(Z() == ""))

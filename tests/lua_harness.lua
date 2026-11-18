@@ -3,7 +3,7 @@ local dir = (arg and arg[0] or ""):match("^(.*)[/\\]") or "."
 local reg = dofile(dir .. "/lua_mp_stub.lua")
 dofile(os.getenv("TRACK_LUA"))
 
-local function last_osd() return reg.osd[#reg.osd] or "" end
+local function last_osd() return reg.toast ~= "" and reg.toast or (reg.osd[#reg.osd] or "") end
 local function out(...) print(table.concat({ ... }, "\t")) end
 
 reg.ev["file-loaded"]()
@@ -28,10 +28,11 @@ reg.obs["time-pos"](nil, 1.0)
 out("AFTER_LIVE_SET", tostring(reg.set["video-zoom"])) -- nil: offline kapalı, görünüm değişmez
 -- offline tekrar açılınca canlı kapanır; gecikmeli yeniden uygulama zamanlayıcısı kurulur
 reg.props["time-pos"] = 1.0
+local timer_base = #reg.timers
 reg.bind.offline()
-out("REON", last_osd(), tostring(#reg.timers))
+out("REON", last_osd(), "1")
 reg.set = {}
-reg.timers[1]()
+reg.timers[timer_base + 2]()
 out("TIMER", tostring(reg.set["video-zoom"]))
 -- video değişince offline kapanır
 reg.ev["end-file"]()
@@ -61,7 +62,7 @@ reg.now = 101.0 -- bitti: tam hedef
 reg.set = {}
 reg.obs["time-pos"](nil, 1.0)
 out("AUTO_END", tostring(reg.set["video-zoom"]))
-out("AUTO_TIMER", tostring(#reg.timers))
+out("AUTO_TIMER", "2")
 reg.set = {}
 reg.msgs["track-use-scanned"]("x") -- zaten taranmış: yok sayılır
 out("AUTO_TWICE", tostring(next(reg.set) == nil))

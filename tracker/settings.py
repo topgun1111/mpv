@@ -126,6 +126,22 @@ def panel_snapshot(cfg: Config) -> dict:
         v = getattr(cfg, s.attrs[0])
         out[k] = [round(v, 4), s.lo, s.hi, s.fmt(v)]
     out["flags"] = {k: bool(getattr(cfg, k)) for k in FLAGS}
+    # PC SAM model seçimi: beş ONNX grafiği birlikte bulunmalı; kısmi kurulum açıkça gösterilir.
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / "sam-models"
+    variants = {
+        "edgetam": ("EdgeTAM", root / "edgetam"),
+        "sam2_small": ("SAM 2.1 Small", root / "small"),
+    }
+    graphs = ("sam-encoder.onnx", "sam-decoder.onnx", "sam-decoder-trk.onnx", "sam-memenc.onnx", "sam-memattn.onnx")
+    sam_items = []
+    for key, (label, folder) in variants.items():
+        present = [name for name in graphs if (folder / name).is_file()]
+        sam_items.append({"id": key, "label": label, "directory": str(folder),
+                          "present": len(present), "total": len(graphs), "ready": len(present) == len(graphs),
+                          "missing": [name for name in graphs if name not in present]})
+    out["sam_model"] = {"cur": cfg.sam_model_variant if cfg.sam_model_variant in variants else "edgetam",
+                        "items": sam_items}
     try:  # ekran kartı listesi (panel «Ekran kartı» bölümü); alınamazsa bölüm «—» gösterir
         from . import gpu
 

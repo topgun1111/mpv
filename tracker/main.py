@@ -93,14 +93,14 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"])
     pb.add_argument("--frames", type=int, default=60, help="Ölçülecek kare sayısı (60)")
     sb = sub.add_parser("sam-bench", help="EdgeTAM/SAM 2.1 grafiklerini ölç: yükleme, ms, sağlayıcı, VRAM (S2)")
-    sb.add_argument("model_dir", help="sam-*.onnx dosyalarının klasörü (scripts/export_sam2.py çıktısı)")
+    sb.add_argument("model_dir", nargs="?", help="SAM klasörü (varsayılan: PC model seçimi)")
     sb.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"])
     sb.add_argument("--runs", type=int, default=20, help="Ölçülecek koşu sayısı (20)")
     sb.add_argument("--warmup", type=int, default=3, help="Isınma koşuları, ölçüme girmez (3)")
     sb.add_argument("--fp16", action="store_true", help="fp16 sürümlerini de ölç (gerekirse üret)")
     sb.add_argument("--out", help="JSON rapor yolu; yanına .md tablo satırları da yazılır")
     sf = sub.add_parser("sam-first", help="Bir görüntü + dikdörtgen -> ilk maske, kontur PNG (S3)")
-    sf.add_argument("model_dir", help="sam-encoder.onnx ve sam-decoder.onnx klasörü")
+    sf.add_argument("model_dir", nargs="?", help="SAM klasörü (varsayılan: PC model seçimi)")
     sf.add_argument("image", help="Görüntü dosyası (png/jpg)")
     sf.add_argument("--rect", required=True, help="x1,y1,x2,y2 (piksel; --norm ile 0-1 oranı)")
     sf.add_argument("--norm", action="store_true", help="--rect değerleri 0-1 oranı")
@@ -109,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Aday kuralı: en yüksek iou (best) ya da en küçük güvenilir (smallest)")
     sf.add_argument("--out", help="Kontur PNG yolu (varsayılan: <görüntü>_maske.png)")
     st = sub.add_parser("sam-track", help="Video + ilk kare dikdörtgeni -> SAM bellek takibi, kare kayıtları (S4)")
-    st.add_argument("model_dir", help="5 sam-*.onnx dosyasının klasörü")
+    st.add_argument("model_dir", nargs="?", help="SAM klasörü (varsayılan: PC model seçimi)")
     st.add_argument("video", help="Video dosyası")
     st.add_argument("--rect", required=True, help="İlk karede x1,y1,x2,y2 (piksel; --norm ile 0-1 oranı)")
     st.add_argument("--norm", action="store_true", help="--rect değerleri 0-1 oranı")
@@ -141,7 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--fill", type=float, help="Doluluk 0-1 (varsayılan: config.lower_fill = 0.70)")
     sc.add_argument("--out", help="Görünüm dosyası (varsayılan: <video>.views.json; VAROLANI EZER)")
     sr = sub.add_parser("sam-refine", help="<video>.sam.json -> geri SAM geçişiyle belirsiz aralıkları onar: <video>.sam.refined.json (S12)")
-    sr.add_argument("model_dir", help="5 sam-*.onnx dosyasının klasörü (--plan ile kullanılmaz)")
+    sr.add_argument("model_dir", nargs="?", help="SAM klasörü (varsayılan: PC model seçimi; --plan ile kullanılmaz)")
     sr.add_argument("sam_json", help="sam-track kaydı (<video>.sam.json); özgün dosya DEĞİŞMEZ")
     sr.add_argument("--video", help="Video (varsayılan: kayıttaki yol)")
     sr.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"])
@@ -152,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     sr.add_argument("--camera", action="store_true",
                     help="İyileştirilmiş kayıttan alt vücut kamerasını <video>.views.json'a yaz (VAROLANI EZER; S11)")
     sp = sub.add_parser("sam-preview", help="Dikdörtgen -> ilk maske konturu + birleşik dikdörtgen, onay önizlemesi (S6)")
-    sp.add_argument("model_dir", help="sam-encoder.onnx ve sam-decoder.onnx klasörü")
+    sp.add_argument("model_dir", nargs="?", help="SAM klasörü (varsayılan: PC model seçimi)")
     sp.add_argument("video", help="Video dosyası")
     sp.add_argument("--rect", required=True, help="x1,y1,x2,y2 (piksel; --norm ile 0-1 oranı). Yeniden çizmek = yeni --rect")
     sp.add_argument("--norm", action="store_true", help="--rect değerleri 0-1 oranı")
@@ -820,11 +820,17 @@ def providers_cmd(cfg: Config, args: argparse.Namespace) -> int:
     return 1 if rep.get("session_error") else 0
 
 
+def selected_sam_model_dir(cfg: Config) -> Path:
+    """Return the PC app's selected SAM export directory."""
+    variant = "small" if getattr(cfg, "sam_model_variant", "edgetam") == "sam2_small" else "edgetam"
+    return Path(__file__).resolve().parents[1] / "sam-models" / variant
+
+
 def sam_bench_cmd(cfg: Config, args: argparse.Namespace) -> int:
     """SAM grafik kıyası. Çıkış kodu 0: en az bir grafik ölçüldü; 1: hiçbiri ölçülemedi."""
     from . import sam_bench
 
-    rep = sam_bench.run_bench(args.model_dir, args.device or cfg.device, max(args.runs, 1),
+    rep = sam_bench.run_bench(args.model_dir or selected_sam_model_dir(cfg), args.device or cfg.device, max(args.runs, 1),
                               max(args.warmup, 0), args.fp16)
     print(sam_bench.format_report(rep))
     table = sam_bench.markdown_rows(rep)
@@ -845,7 +851,7 @@ def sam_first_cmd(cfg: Config, args: argparse.Namespace) -> int:
     img = se.read_image(args.image)
     h, w = img.shape[:2]
     rect = se.parse_rect(args.rect, w, h, args.norm)
-    eng = se.SamEngine(args.model_dir, args.device or cfg.device, rule=args.rule)
+    eng = se.SamEngine(args.model_dir or selected_sam_model_dir(cfg), args.device or cfg.device, rule=args.rule)
     ms: dict[str, float] = {}
     t0 = time.perf_counter()
     enc = eng.encode(img)
@@ -881,7 +887,7 @@ def sam_preview_cmd(cfg: Config, args: argparse.Namespace) -> int:
     finally:
         clip.close()
     out = args.out or sam_preview.preview_path(args.video)
-    res = se.SamEngine(args.model_dir, args.device or cfg.device, rule=args.rule).first_mask(frame, rect)
+    res = se.SamEngine(args.model_dir or selected_sam_model_dir(cfg), args.device or cfg.device, rule=args.rule).first_mask(frame, rect)
     if res is None:
         sam_preview.save(out, sam_preview.no_mask(se.to_norm_box(rect, clip.w, clip.h), t=t))
         print("Maske bulunamadı: dikdörtgeni nesnenin çevresine yeniden çizin (aynı komut, yeni --rect).", file=sys.stderr)
@@ -943,7 +949,7 @@ def sam_refine_cmd(cfg: Config, args: argparse.Namespace) -> int:
     video = args.video or doc["video"]["path"]
     if not Path(video).is_file():
         raise FileNotFoundError(f"video bulunamadı: {video} (--video ile verin)")
-    eng = se.SamEngine(args.model_dir, args.device or cfg.device, memory=True)
+    eng = se.SamEngine(args.model_dir or selected_sam_model_dir(cfg), args.device or cfg.device, memory=True)
     new, rep = bidir.refine_video(doc, video, eng, max_window=args.max_window, max_side=args.max_side,
                                   progress=lambda s: print(s, flush=True))
     print(rep.summary())
@@ -977,7 +983,7 @@ def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
         clip.close()
         raise
     base_mb = sam_bench.nvidia_smi_used_mb()  # modeller yüklenmeden önce: VRAM farkı için
-    eng = se.SamEngine(args.model_dir, args.device or cfg.device, rule=args.rule, memory=True)
+    eng = se.SamEngine(args.model_dir or selected_sam_model_dir(cfg), args.device or cfg.device, rule=args.rule, memory=True)
     prov = eng.providers()
     cuda = any(p["provider"] == _PROVIDER_NAMES["cuda"] for p in prov.values())
     vram = sam_bench.VramSampler(sam_bench.nvidia_smi_used_mb) if cuda else None

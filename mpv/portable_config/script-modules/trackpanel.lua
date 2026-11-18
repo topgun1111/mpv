@@ -182,7 +182,36 @@ function M.layout(W, H, st, top)
     add(rect("text", PAD + 2, gy + 12, 0, 0, { s = cfg and "Ekran kartı listesi boş geldi (hata günlüğüne bak: errlog)" or "Takip programı bağlı değil: Python (CMD) penceresi açık ve hatasız mı?", fs = 12, col = "dim", an = 4 }))
     gy = gy + 34
   end
-  local fy = gy + 4
+  -- ---- PC SAM model selection: seçili model SAM-Track iş akışlarında kullanılır.
+  local sy = gy + 8
+  add(rect("line", PAD, sy, DW - PAD * 2, 1))
+  sy = sy + 12
+  add(rect("label", PAD, sy, 0, 0, { s = "AI MODEL SELECTION · SAM" }))
+  add(rect("text", PAD + 260, sy + 6, 0, 0,
+    { s = "PC SAM iş akışları için model ailesi", fs = 11, col = "dim", an = 4 }))
+  sy = sy + 24
+  local sm = cfg and cfg.sam_model
+  local sw = math.floor((DW - PAD * 2 - 8) / 2)
+  local variants = { { "edgetam", "EdgeTAM" }, { "sam2_small", "SAM 2.1 Small" } }
+  for i, v in ipairs(variants) do
+    local col = i - 1
+    local item
+    if sm and type(sm.items) == "table" then
+      for _, candidate in ipairs(sm.items) do if candidate.id == v[1] then item = candidate end end
+    end
+    local ready = item and item.ready
+    local suffix = item and ("  " .. tostring(item.present) .. "/" .. tostring(item.total) .. " ONNX") or "  durum yok"
+    add(rect("chip", PAD + col * (sw + 8), sy, sw, 34,
+      { act = "sam_model", a = v[1], sel = sm and sm.cur == v[1],
+        s = v[2] .. suffix, disabled = not cfg }), true)
+    add(rect("text", PAD + col * (sw + 8) + 8, sy + 43, 0, 0,
+      { s = ready and "5/5 dosya hazır" or (item and "Eksik ONNX: " .. tostring(5 - item.present) or "Python bağlantısı bekleniyor"),
+        fs = 10, col = ready and "green" or "dim", an = 4 }))
+  end
+  sy = sy + 58
+  add(rect("text", PAD + 2, sy, 0, 0,
+    { s = "Seçim kaydedilir. Beş ONNX grafiği eksikse SAM izleme başlatılamaz.", fs = 10, col = "dim" }))
+  local fy = sy + 18
   local hw = math.floor((COLW - 8) / 2)
   add(rect("btn", x, fy, hw, 32, { act = "save", s = st.save or "Ayarları kaydet", variant = "primary" }), true)
   add(rect("btn", x + hw + 8, fy, hw, 32, { act = "defaults", s = "Varsayılanlar" }), true)

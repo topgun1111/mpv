@@ -1,7 +1,7 @@
 -- Ortak sahte `mp` (lua_harness*.lua kullanır). `reg` döndürür.
 TRACK_SHOW_MENU = false -- menü çubuğu kendi harness'inde (lua_harness_menu.lua) denenir
 local reg = { bind = {}, obs = {}, ev = {}, props = {}, set = {}, osd = {}, cmds = {}, timers = {},
-  msgs = {}, hud = {}, ov = {} } -- hud: tüm overlay güncellemeleri; ov[z]: katmanın son verisi
+  msgs = {}, hud = {}, ov = {}, toast = "" } -- hud: tüm overlay güncellemeleri; ov[z]: katmanın son verisi
 reg.props.path = os.getenv("VIDEO")
 local mp = {
   add_key_binding = function(_, name, fn) reg.bind[name] = fn end,
@@ -27,6 +27,7 @@ local mp = {
     function o:update()
       reg.hud[#reg.hud + 1] = self.data
       reg.ov[self.z or 0] = self.data
+      if (self.z or 0) == 100 then reg.toast = self.data end
     end
     return o
   end,

@@ -1148,8 +1148,9 @@ local function pan_move(pos)
   if (mp.get_property_number("video-zoom", 0) or 0) <= PAN_MIN_ZOOM then return end
   local why = pan_blocked_reason()
   if why then
+    local moved = (pos.x ~= pan.x0 or pos.y ~= pan.y0)
     pan.x, pan.y = pos.x, pos.y
-    if not pan.hinted and (pos.x ~= pan.x0 or pos.y ~= pan.y0) then pan.hinted = true; osd(why, 2) end
+    if not pan.hinted and moved then pan.hinted = true; osd(why, 2) end
     return
   end
   pan_apply(pos.x, pos.y)
@@ -1760,6 +1761,8 @@ if TRACK_SHOW_MENU ~= false then
             if a == "ui_hud" then hud.visible = not hud.visible; render_hud()
             else mp.commandv("script-message", "track-option", tostring(a), "toggle") end
           elseif act == "gpu_default" then mp.commandv("script-message", "track-gpu-default", tostring(a))
+          elseif act == "sam_model" then
+            mp.commandv("script-message", "track-sam-model", tostring(a))
           elseif act == "gpu" then
             -- Yanlışlıkla dokunuşla takip programı yeniden başlamasın: yeni karta ikinci dokunuşla geçilir
             local cur = tp_cfg and tp_cfg.gpu and tp_cfg.gpu.cur

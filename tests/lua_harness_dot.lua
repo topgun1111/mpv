@@ -25,10 +25,14 @@ reg.props["osd-dimensions"] = { w = 1000, h = 500, ml = 0, mr = 0, mt = 0, mb = 
 reg.obs["osd-dimensions"]()
 reg.props["video-params"] = { w = 1920, h = 1080 }
 reg.props["mouse-pos"] = { x = 250, y = 100, hover = true }
+local timer_base = #reg.timers
 reg.bind.pick() -- sağ tık (takip açık)
 out("PROV", dot())
-reg.timers[#reg.timers]() -- 2 sn: yanıt gelmedi → OSD uyarısı
-out("WARN", tostring(reg.osd[#reg.osd]:find("yanıt vermiyor", 1, true) ~= nil))
+for j = timer_base + 1, #reg.timers do
+  reg.timers[j]()
+  if (reg.toast or ""):find("yanıt vermiyor", 1, true) then break end
+end
+out("WARN", tostring((reg.toast or ""):find("yanıt vermiyor", 1, true) ~= nil))
 reg.msgs["track-dot"]("0.5", "0.5")
 out("CONFIRMED", dot())
 -- Gerçek mpv: zoom/pan'da osd-dimensions kenar boşlukları 0'a kıstırılır (video pencereyi
