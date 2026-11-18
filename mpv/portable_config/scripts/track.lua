@@ -119,13 +119,34 @@ local function show_toast(message, sec)
     local d = mp.get_property_native("osd-dimensions") or {}
     w, h = d.w or 1280, d.h or 720
   end
-  local scale = math.max(0.75, math.min(1.8, h / 720))
-  local fs = math.floor(25 * scale)
-  local y = math.floor(h - 92 * scale) -- above the bottom playback controls
-  local clean = tostring(message or ""):gsub("[{}\\\r]", " "):gsub("\n", "\\N")
+  -- Kontrol çubuğuyla (mpcbar.lua: ui_scale/layout) aynı ölçek: mesaj OYNAT düğmesinin hemen üstünde,
+  -- sol kenara hizalı durur (eskiden çubuğun arkasında kalabiliyordu).
+  local function clampn(v, lo, hi) return math.max(lo, math.min(hi, v)) end
+  local hd = clampn(mp.get_property_number("display-hidpi-scale", 1) or 1, 1, 3)
+  local bsc = h / 700
+  local boost = (bsc >= 1) and 1 or math.min(1 + (1 - bsc) * 0.5, 1.35)
+  local u = math.max(0.7, math.min(math.max(clampn(bsc, 0.9, 2.2), boost * hd), w / 300))
+  local bar_top = h - (math.floor(20 * u + 0.5) + math.floor(40 * u + 0.5)) -- seek çubuğunun üstü
+  local pad = math.floor(8 * u + 0.5)
+  local bord = math.max(math.floor(7 * u), 5) -- pembe arka plan = kalın kenarlık
+  local fs = math.floor(24 * u)
+  local x, y = pad + bord, bar_top - pad - bord
+  -- Satır sarma (\q2 sarmaz): kutu pencereye sığsın
+  local maxc = math.max(12, math.floor((w - 2 * (pad + bord)) / (fs * 0.56)))
+  local lines = {}
+  for para in (tostring(message or ""):gsub("[{}\\\r]", " ") .. "\n"):gmatch("(.-)\n") do
+    local cur = ""
+    for word in para:gmatch("%S+") do
+      if cur ~= "" and #cur + 1 + #word > maxc then lines[#lines + 1] = cur; cur = word
+      else cur = (cur == "") and word or (cur .. " " .. word) end
+    end
+    lines[#lines + 1] = cur
+  end
+  local clean = table.concat(lines, "\\N")
+  toast.ov.res_x, toast.ov.res_y = w, h
   toast.ov.data = string.format(
-    "{\\an2\\pos(%d,%d)\\q2\\fnTahoma\\fs%d\\b0\\bord7\\3c&H202020&\\shad1\\4c&H000000&\\1c&HFFFFFF&}%s",
-    math.floor(w / 2), y, fs, clean)
+    "{\\an1\\pos(%d,%d)\\q2\\fnTahoma\\fs%d\\b1\\bord%d\\3c&HB469FF&\\shad0\\1c&H1A1A1A&}%s",
+    x, y, fs, bord, clean)
   toast.ov:update()
   toast.timer = mp.add_timeout(math.max(0.8, tonumber(sec) or 2), function()
     if toast.ov then toast.ov.data = ""; toast.ov:update() end
