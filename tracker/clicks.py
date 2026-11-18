@@ -18,6 +18,8 @@ ADDMODE_MSG = "track-addmode"  # Lua → Python (T1): on|off; sağ tık hedef EK
 REMOVE_MSG = "track-remove"  # Lua → Python (T1): son eklenen hedefi çıkar
 PART_MSG = "track-part"  # Lua → Python (B3): track-part <parça|next|prev> (parts.CYCLE adları)
 DOT_MSG = "track-dot"  # Python → Lua: takip noktası (nx ny, video-normalize) ya da "off"
+SKEL_MSG = "track-skel"  # Python → Lua: kişi iskeletleri (normalize x,y,güven; "-" = yok)
+SKEL_SET_MSG = "track-skel-set"  # Lua → Python: iskelet çizimi aç/kapa (on|off)
 SOURCE_MSG = "track-source"  # Lua → Python (A2): kaynak modu auto|live|scanned
 USE_SCANNED_MSG = "track-use-scanned"  # Python → Lua (A2): taranmış ize geç <sebep>
 LOADING_MSG = "track-loading"  # Python → Lua: modeller yükleniyor ("1") / hazır ("0")

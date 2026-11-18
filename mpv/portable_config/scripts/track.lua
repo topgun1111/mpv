@@ -837,6 +837,100 @@ mp.observe_property("video-pan-x", "number", function() render_dot() end)
 mp.observe_property("video-pan-y", "number", function() render_dot() end)
 mp.observe_property("osd-dimensions", "native", function() render_dot() end)
 
+-- Çöp adam (iskelet): Python `track-skel <kişiler>` yollar (kişi `|`, nokta `;`, nokta `x,y,güven`;
+-- x,y video-normalize; "-" = yok). 17 COCO eklemi; güveni düşük noktalar çizilmez. `J` tuşu aç/kapa.
+local SKEL_Z = 2
+local SKEL_MIN_CONF = 0.35
+local SKEL_BONES = { { 5, 6 }, { 5, 7 }, { 7, 9 }, { 6, 8 }, { 8, 10 }, { 5, 11 }, { 6, 12 }, { 11, 12 },
+  { 11, 13 }, { 13, 15 }, { 12, 14 }, { 14, 16 }, { 0, 1 }, { 0, 2 }, { 1, 3 }, { 2, 4 } } -- 0 tabanlı
+local skel = { on = true, ov = nil, people = {} }
+
+local function render_skel()
+  if not skel.ov then
+    skel.ov = mp.create_osd_overlay("ass-events")
+    skel.ov.z = SKEL_Z
+  end
+  local d = osd_dims()
+  if not (skel.on and enabled and not (off and off.on) and #skel.people > 0
+      and d and d.w and d.w > 0 and d.h and d.h > 0) then
+    skel.ov.data = ""
+    skel.ov:update()
+    return
+  end
+  local bx0, by0, bw, bh = video_box(d)
+  local hw = math.max(d.h * 0.0035, 1.5) -- çizgi yarı kalınlığı
+  local jr = math.floor(math.max(d.h * 0.007, 3)) -- eklem noktası yarıçapı (tamsayı: %d)
+  local function inside(x, y) return x >= 0 and x <= d.w and y >= 0 and y <= d.h end
+  local bones, joints = {}, {}
+  for _, person in ipairs(skel.people) do
+    local pts = {}
+    for i = 1, 17 do
+      local k = person[i]
+      if k and k[3] >= SKEL_MIN_CONF then pts[i] = { bx0 + k[1] * bw, by0 + k[2] * bh } end
+    end
+    for _, b in ipairs(SKEL_BONES) do
+      local a, c = pts[b[1] + 1], pts[b[2] + 1]
+      if a and c and (inside(a[1], a[2]) or inside(c[1], c[2])) then
+        local dx, dy = c[1] - a[1], c[2] - a[2]
+        local len = math.sqrt(dx * dx + dy * dy)
+        if len > 0.5 then
+          local nx, ny = -dy / len * hw, dx / len * hw
+          bones[#bones + 1] = string.format("m %d %d l %d %d %d %d %d %d",
+            math.floor(a[1] + nx), math.floor(a[2] + ny), math.floor(c[1] + nx), math.floor(c[2] + ny),
+            math.floor(c[1] - nx), math.floor(c[2] - ny), math.floor(a[1] - nx), math.floor(a[2] - ny))
+        end
+      end
+    end
+    for i = 1, 17 do
+      local p = pts[i]
+      if p and inside(p[1], p[2]) then
+        local x, y = math.floor(p[1]), math.floor(p[2])
+        joints[#joints + 1] = string.format("m %d %d l %d %d %d %d %d %d",
+          x - jr, y - jr, x + jr, y - jr, x + jr, y + jr, x - jr, y + jr)
+      end
+    end
+  end
+  local ev = {}
+  if #bones > 0 then
+    ev[#ev + 1] = string.format("{\\an7\\pos(0,0)\\bord1\\3c&H000000&\\shad0\\1c&H80FF00&\\p1}%s{\\p0}",
+      table.concat(bones, " "))
+  end
+  if #joints > 0 then
+    ev[#ev + 1] = string.format("{\\an7\\pos(0,0)\\bord1\\3c&H000000&\\shad0\\1c&H00DCFF&\\p1}%s{\\p0}",
+      table.concat(joints, " "))
+  end
+  skel.ov.res_x, skel.ov.res_y = d.w, d.h
+  skel.ov.data = table.concat(ev, "\n")
+  skel.ov:update()
+end
+
+mp.register_script_message("track-skel", function(msg)
+  local people = {}
+  if msg and msg ~= "-" then
+    for person in tostring(msg):gmatch("[^|]+") do
+      local pts = {}
+      for pt in person:gmatch("[^;]+") do
+        local x, y, c = pt:match("^([%-%d%.]+),([%-%d%.]+),([%-%d%.]+)$")
+        pts[#pts + 1] = { tonumber(x) or 0, tonumber(y) or 0, tonumber(c) or 0 }
+      end
+      if #pts >= 17 then people[#people + 1] = pts end
+    end
+  end
+  skel.people = people
+  render_skel()
+end)
+mp.add_key_binding(nil, "skeleton", function()
+  skel.on = not skel.on
+  mp.commandv("script-message", "track-skel-set", skel.on and "on" or "off")
+  if not skel.on then skel.people = {} end
+  render_skel()
+  osd(skel.on and "iskelet AÇIK (J)" or "iskelet KAPALI (J)", 2)
+end)
+mp.observe_property("video-pan-x", "number", function() render_skel() end)
+mp.observe_property("video-pan-y", "number", function() render_skel() end)
+mp.observe_property("video-zoom", "number", function() render_skel() end)
+mp.observe_property("osd-dimensions", "native", function() render_skel() end)
+
 -- S6: SAM önizleme. `<video>.sam.preview.json` (Python: `sam-preview` / `sam-track --preview`) okunur:
 -- maske konturu + birleşik dikdörtgen + durum/güven (+ S7: anatomik/görünen alt vücut kutuları). Yalnız ÇİZER; mantık Python'da. `P` açar/kapatır,
 -- açıkken 0.5 sn'de bir dosyayı yeniler. Sağ tık/sürükleme davranışına dokunmaz.

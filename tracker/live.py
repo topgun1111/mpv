@@ -27,6 +27,8 @@ from .clicks import (
     RESET_MSG,
     SAVE_MSG,
     SETTING_MSG,
+    SKEL_MSG,
+    SKEL_SET_MSG,
     SOURCE_MSG,
     STATUS_MSG,
     TOGGLE_MSG,
@@ -172,6 +174,7 @@ class LiveController:
             cfg.alpha_pos, cfg.alpha_zoom, cfg.dead_zone_pos, cfg.dead_zone_zoom
         )
         self.enabled = False
+        self.skel_on = True  # iskelet (Vücut modunda varsayılan açık; Lua `J` tuşu)
         self.cfg_dirty = False  # Tracker paneli: ayar özeti Lua'ya yeniden gönderilmeli
         self.source = "auto"  # A2: auto | live | scanned (Lua menüsü `track-source` yollar)
         self.target_id: int | None = None
@@ -242,6 +245,9 @@ class LiveController:
             if not on:
                 self._reset_tracking()
                 return Output(view=View())
+            return Output()
+        if name == SKEL_SET_MSG:
+            self.skel_on = (ev.get("args") or [None, "on"])[1:2] == ["on"]
             return Output()
         if name == SOURCE_MSG:
             a = (ev.get("args") or [None, "auto"])[1:2]
@@ -814,6 +820,16 @@ def video_meta(mpv) -> dict:
     return meta
 
 
+def skeleton_message(poses, fw: int, fh: int) -> str:
+    """Kişi iskeletleri -> Lua'ya tek dize: kişiler `|`, noktalar `;`, nokta `x,y,güven`
+    (x,y video-normalize, güven 2 hane). Kişi yoksa \"-\"."""
+    people = []
+    for p in poses:
+        pts = [f"{float(x) / fw:.4f},{float(y) / fh:.4f},{float(c):.2f}" for x, y, c in p.kpts]
+        people.append(";".join(pts))
+    return "|".join(people) if people else "-"
+
+
 def run_live(
     mpv,
     events: queue.Queue,
@@ -915,6 +931,40 @@ def run_live(
         except MpvCommandError as e:
             log(f"ayar özeti gönderilemedi: {e}")
 
+    skel = {"last": "-", "t": -1e9, "fail": 0}  # "-" = Lua tarafında çizim yok
+
+    def skel_wanted() -> bool:
+        # Vücut modunda (parça ön ayarı seçili) varsayılan AÇIK; Lua `J` tuşu kapatır/açar
+        return ctl.skel_on and ctl.pose is not None and ctl.part != "auto"
+
+    def skel_send(msg: str) -> None:
+        if msg == skel["last"]:
+            return
+        skel["last"] = msg
+        try:
+            mpv.command("script-message-to", "track", SKEL_MSG, msg)
+        except MpvCommandError as e:
+            log(f"iskelet gönderilemedi: {e}")
+
+    def sync_skel(frame) -> None:
+        # Çöp adam: 17 COCO eklemi, ~8 kare/sn (ek model çalıştırması; hata takibi düşürmez)
+        if not skel_wanted():
+            skel_send("-")
+            return
+        if skel["fail"] >= 3 or clock() - skel["t"] < 0.12:
+            return
+        skel["t"] = clock()
+        try:
+            fh, fw = frame.shape[:2]
+            msg = skeleton_message(ctl.pose.estimate(frame), fw, fh)
+        except Exception as e:  # noqa: BLE001 - iskelet yalnız görsel; asla izlemeyi durdurmasın
+            skel["fail"] += 1
+            log(f"iskelet hesaplanamadı: {e}")
+            errlog.record("iskelet", e)
+            return
+        skel["fail"] = 0
+        skel_send(msg)
+
     def emit(out: Output) -> None:
         nonlocal last_view
         if out.osd:
@@ -934,6 +984,8 @@ def run_live(
                 log(f"görünüm uygulanamadı: {e}")
                 tl.fail(tracklog.F_VIEW, e)
                 errlog.record("görünüm", e)
+        if not skel_wanted():  # mod/tuş değişti: çizim hemen silinsin
+            skel_send("-")
         sync_hud()
         sync_dot()
         sync_cfg()
@@ -976,6 +1028,7 @@ def run_live(
                 continue
             tl.ok(tracklog.F_FRAME)
             emit(ctl.step(frame, float(t)))
+            sync_skel(frame)
             tl.frame(clock() - t0)
             n += 1
             lag_sum += clock() - t0
