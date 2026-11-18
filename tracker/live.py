@@ -165,6 +165,7 @@ class LiveController:
         self.part = "auto"  # B3: parts.CYCLE adı; "auto" = tıklanan eklem (eski davranış)
         self._part_req = False  # oyuncu (ByteTrack) hedefi var, parçaya geçiş sonraki karede
         self.cfg_path = cfg_path  # `track-save` ayarları buraya yazar
+        self.save_result: str | None = None  # "ok" | "err": panele bir kez bildirilir
         self._id_mark = 0  # hedef son görüldüğünde izlerin en büyük ID'si (ID'ler artan)
         self.flt = box_filter or BoxFilter(cfg.kf_accel, cfg.kf_meas)
         self.smoother = smoother or ViewSmoother(
@@ -399,15 +400,23 @@ class LiveController:
         self.cfg_dirty = False
         import json
 
-        return json.dumps(panel_snapshot(self.cfg), separators=(",", ":"))
+        snap = panel_snapshot(self.cfg)
+        if self.save_result is not None:  # «Ayarları kaydet» sonucu: panel düğmesinde göster
+            snap["save"] = self.save_result
+            self.save_result = None
+        return json.dumps(snap, separators=(",", ":"))
 
     def _on_save(self) -> Output:
+        # Sonuç hem OSD'ye hem panele gider (panel açıkken OSD kartın arkasında kalabiliyor)
         if not self.cfg_path:
+            self.save_result, self.cfg_dirty = "err", True
             return Output(osd="Kaydedilemedi: config yolu yok")
         try:
             self.cfg.save(self.cfg_path)
         except OSError as e:
+            self.save_result, self.cfg_dirty = "err", True
             return Output(osd=f"Kaydedilemedi: {e}")
+        self.save_result, self.cfg_dirty = "ok", True
         return Output(osd=f"Ayarlar kaydedildi: {self.cfg_path}")
 
     def hud_text(self) -> str:

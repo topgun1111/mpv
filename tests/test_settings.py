@@ -283,3 +283,16 @@ def test_headless_live_logs_to_desktop(tmp_path, monkeypatch):
         assert "başladı" in txt and "deneme çıktısı" in txt
     finally:
         sys.stdout.close()
+
+
+def test_save_result_reaches_panel_snapshot_once(tmp_path):
+    import json
+
+    c = LiveController(FakePipeline([[]]), _cfg(), cfg_path=str(tmp_path / "c.json"))
+    c.handle_event(_msg("track-save"))
+    assert json.loads(c.cfg_message())["save"] == "ok"
+    c.cfg_dirty = True
+    assert "save" not in json.loads(c.cfg_message())  # tek seferlik
+    bad = LiveController(FakePipeline([[]]), _cfg(), cfg_path=str(tmp_path))
+    bad.handle_event(_msg("track-save"))
+    assert json.loads(bad.cfg_message())["save"] == "err"

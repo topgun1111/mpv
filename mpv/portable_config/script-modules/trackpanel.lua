@@ -184,7 +184,7 @@ function M.layout(W, H, st, top)
   end
   local fy = gy + 4
   local hw = math.floor((COLW - 8) / 2)
-  add(rect("btn", x, fy, hw, 32, { act = "save", s = "Ayarları kaydet", variant = "primary" }), true)
+  add(rect("btn", x, fy, hw, 32, { act = "save", s = st.save or "Ayarları kaydet", variant = "primary" }), true)
   add(rect("btn", x + hw + 8, fy, hw, 32, { act = "defaults", s = "Varsayılanlar" }), true)
   local DH = fy + 32 + PAD
 

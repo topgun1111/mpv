@@ -14,6 +14,7 @@ local enabled = false
 -- point = yalnız tık; rect = yalnız alan; body = vücut parçası (G / panel). Parça değişince mod uyar (set_part).
 local MODES = { auto = "Otomatik", point = "Nokta", rect = "Dikdörtgen", body = "Vücut" }
 local mode = "auto"
+local tp_save, tp_save_show, tp_save_timer, tp_save_clear -- «Ayarları kaydet» geri bildirimi
 local tpanel, tp_hot, tp_cfg = nil, false, nil -- panel nesnesi, imleç panel üstünde mi, Python ayar özeti
 local render_tp -- ileri bildirim (panel yeniden çizimi)
 local locked = false -- Python: bir hedef kilitli mi (track-hud'un 2. argümanı); zoom +/- ne yapacağını buna göre seçer
@@ -1501,10 +1502,16 @@ if TRACK_SHOW_MENU ~= false then
           end
         end
       end
+      tp_save_show = function(text, secs)
+        tp_save = text
+        if tp_save_clear then tp_save_clear:kill() end
+        tp_save_clear = mp.add_timeout(secs or 2.5, function() tp_save = nil; if tpanel:is_open() then render_tp() end end)
+        if tpanel:is_open() then render_tp() end
+      end
       tpanel = TP.new({
         state = function()
           return { enabled = enabled, mode = mode, part = part, source = source, add_mode = add_mode,
-            offline = off.on, hud = hud.visible, cfg = tp_cfg }
+            offline = off.on, hud = hud.visible, cfg = tp_cfg, save = tp_save }
         end,
         run = function(act, a, b)
           if act == "mode" then set_mode(a)
@@ -1522,7 +1529,12 @@ if TRACK_SHOW_MENU ~= false then
             else mp.commandv("script-message", "track-option", tostring(a), "toggle") end
           elseif act == "gpu_default" then mp.commandv("script-message", "track-gpu-default", tostring(a))
           elseif act == "gpu" then mp.commandv("script-message", "track-gpu", tostring(a)) -- Python: kaydet + yeniden başlat
-          elseif act == "save" then mp.commandv("script-message", "track-save")
+          elseif act == "save" then
+            tp_save_show("Kaydediliyor…")
+            if tp_save_timer then tp_save_timer:kill() end
+            -- Python yanıtı gelmezse (takip programı bağlı değil) bunu düğmede göster
+            tp_save_timer = mp.add_timeout(2, function() tp_save_show("Yanıt yok: takip bağlı mı?", 3) end)
+            mp.commandv("script-message", "track-save")
           elseif act == "defaults" then mp.commandv("script-message", "track-setting", "all", "0") end
           if render_tp then render_tp() end
         end,
@@ -1552,6 +1564,10 @@ if TRACK_SHOW_MENU ~= false then
         local t = json and utils.parse_json(json)
         if type(t) == "table" then
           tp_cfg = t
+          if t.save then
+            if tp_save_timer then tp_save_timer:kill() end
+            tp_save_show(t.save == "ok" and "Kaydedildi ✓" or "Kaydedilemedi ✗")
+          end
           if tpanel:is_open() then render_tp() end
         end
       end)
