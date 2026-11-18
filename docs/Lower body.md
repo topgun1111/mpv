@@ -4,7 +4,7 @@ Companion to `docs/PROJECT_SPEC.md` (the roadmap) and `docs/IMPLEMENTATION_AUDIT
 Project: Takipli Oynat, PC build (Windows, mpv + Python). Hardware: RTX 3050 Laptop 6 GB, Ryzen 5 5600, 16 GB RAM. Offline-first.
 Free Claude account, weekdays: **15 sessions (0–14)**, one per weekday, about three weeks.
 
-**Status: Sessions 0-11 done in code (2026-11-17/18); Sessions 1-11 still need your PC runs (see `TEST_RESULTS.md`, `DECISIONS.md` "SAM graphs", "SAM engine", "SAM memory loop", "TrackGate", "Lower-body region", "Posture", "Tracking state machine", "Re-entry with Re-ID" and "Lower-body camera"). Next: Session 12.**
+**Status: Sessions 0-12 done in code (2026-11-17/18); Sessions 1-12 still need your PC runs (see `TEST_RESULTS.md`, `DECISIONS.md` "SAM graphs", "SAM engine", "SAM memory loop", "TrackGate", "Lower-body region", "Posture", "Tracking state machine", "Re-entry with Re-ID" and "Lower-body camera"). Session 13 and 14 are done too (14 = plan, tables and DoD check in `TEST_RESULTS.md` "Session 14"). Next: your clip runs, then F1-F5.**
 
 ---
 
@@ -61,9 +61,9 @@ Token savers:
 | 9 | Tracking state machine (7 states) | 7 | **Code done**, your PC run pending | Transitions tested |
 | 10 | Re-entry: existing Re-ID + future frames | 7 | **Code done**, your PC run pending | Ambiguous re-entry flagged |
 | 11 | Camera: 70% occupancy, no foot zoom pumping | 8 | **Code done**, your PC run pending | Stable apparent size |
-| 12 | Bidirectional refinement (backward SAM pass) | 9 | | Uncertain intervals repaired |
-| 13 | Export: NVENC + fallback, validation, optional stabilization | 10 | | Valid file, audio and timing kept |
-| 14 | Real-clip validation + Definition of done | 12 | | Checklist recorded |
+| 12 | Bidirectional refinement (backward SAM pass) | 9 | **Code done**, your PC run pending | Uncertain intervals repaired |
+| 13 | Export: NVENC + fallback, validation, optional stabilization | 10 | **Code done**, your GPU run pending | Valid file, audio and timing kept |
+| 14 | Real-clip validation + Definition of done | 12 | **Done** (docs only), your clip runs pending | Checklist recorded |
 
 Milestones: **M1** sessions 0–2 (GPU, graphs) · **M2** 3–10 (reliable tracker) · **M3** 11 (camera) · **M4** 12–14 (refine, export, validate).
 Spare day recommended after session 4 (the new SAM engine is the largest new code) and after session 11.
@@ -470,7 +470,9 @@ keep zoom within a small tolerance. Never zoom into the desk.
 
 ---
 
-### Session 12: Bidirectional refinement (Part 9)
+### Session 12: Bidirectional refinement (Part 9). CODE DONE
+
+Delivered: `tracker/bidir.py` + `python -m tracker sam-refine MODEL_DIR X.sam.json [--video] [--device] [--max-window N] [--max-side N] [--out] [--plan] [--camera]`: `<video>.sam.json` -> `<video>.sam.refined.json` (original untouched; optional `refine` block), backward `track_video` from the first reliable frame after each uncertain interval, closed/open/mismatch rules, 55 tests, decisions in `DECISIONS.md` ("Bidirectional refinement"). Your part: `sam-refine --plan`, then the real run on a clip with an occlusion and a leave/re-enter, paste the summary into `TEST_RESULTS.md`. The original prompt is kept below for reference.
 
 Files: `tracker/sam_engine.py`, `tracker/offline.py` (zero-phase smoothing, gap fill), records.
 

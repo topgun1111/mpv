@@ -249,6 +249,26 @@ python -m tracker export klip.mp4                              # renders the cro
 
 The camera line prints the median occupancy (expect about 0.70 on frames that fed the zoom), the zoom range (log2) and the fastest zoom change per second (about 0.4 or less while tracking; the zoom-out and the ease-in before a return can be faster, up to about 1). Check in the export: a wiggling or crossed foot does not change the size, sitting down / standing up changes it smoothly, a desk mask does not zoom in, an occlusion holds the framing and a return eases in. If the zoom still pumps, raise `lower_window_s` or `lower_zoom_tol`; if it reacts too slowly to a real change, lower the persistence in `camera.PERSIST_S`.
 
+## Bidirectional refinement (Session 12)
+
+- **Separate file, original untouched.** `sam-refine` writes `<video>.sam.refined.json` (same kind/version/fields, so `load_doc`, `sam-camera` and the existing camera read it) with an optional `refine` block: intervals (`a`,`b`,`p`,`q`, window `lo`, closure), per-frame verdict/why/IoU and the ORIGINAL tracked/accepted/box, counts. A refined file cannot be refined again. `posture`, `lower` and `reentry` blocks are copied unchanged (no pose model runs in this session).
+- **Uncertain frame** = not (tracked, accepted, clean, conf >= 0.6, state TRACKED/REACQUIRED when the `state` block exists, not desk-flagged, not a single-frame spike). Interior reliable runs shorter than 3 frames between two uncertain runs merge them (a 1-2 frame flicker is not an anchor); clip-edge runs stay anchors.
+- **Backward pass** = the existing `track_video` over the reversed window, prompted with the forward box of the first reliable frame after the interval (the forward masks are not stored). Fresh `MemoryBank` and `TrackGate` per interval. Bounded: at most `--max-window` (150) frames, shrunk to 1024 px, decoded once per interval and dropped; intervals are independent, so VRAM equals the forward pass. If the interval is longer than the window only the part next to the anchor is refined (`window_cap`).
+- **Rules.** `closed` (backward chain reaches the reliable frame p before the interval without a break and agrees with it, IoU >= 0.5): lost/rejected/desk/spike frames take the backward box; a forward-tracked frame is replaced only if backward confidence is 0.15 higher. `open` (chain breaks or window ends first): only frames contiguous from the anchor that are `clean` for the backward track are taken; forward-tracked frames are never replaced. `mismatch` (chain reaches p but disagrees with the reliable forward box): the backward track drifted, nothing in the interval is repaired. Forward-tracked and backward-agreeing frames are `confirmed` (forward box kept). Everything else is `unresolved` and stays exactly as forward wrote it. High-confidence frames are never rewritten.
+- **Identity is not decided here.** Both directions are SAM, so agreement is no identity evidence. Frames the S9/S10 machine refused (`other_person`, `ambiguous_reentry`, or in a lost state while SAM tracked something) stay `unresolved: identity`, and the backward chain is cut at them (older frames `identity_cut`). OUT_OF_FRAME and timeout-MANUAL frames need a closed interval (`absent_open` otherwise).
+- **What the camera sees.** Repaired frames get state PARTIALLY_OCCLUDED, reason `refined`, `hold` 0, `clean` 0 and the anchor's `w`,`h`: the hold and zoom-out are skipped and the pan follows, but the zoom is not fed from them (S11 feeds zoom only from TRACKED/REACQUIRED, and the posture framing is not recomputed for repaired frames). Confirmed CANDIDATE frames get the same state (hold released); REACQUIRED stays reserved to the Re-ID. Confirmed TRACKED/PARTIAL frames keep their state. `counts`, `gate` and `state.counts` are recomputed.
+- **Not done.** No existing zero-phase smoothing/gap fill change (`offline.py` untouched; the S11 camera has its own smoothing); no pose/posture recomputation on repaired frames; no live mode; `sam-track` does not call the refinement (run `sam-refine` after it).
+
+Run on your PC (needs a `.sam.json`, ideally from a `--posture --reid` run):
+
+```powershell
+python -m tracker sam-refine models\sam-edgetam klip.mp4.sam.json --plan                 # no GPU: which intervals, window sizes
+python -m tracker sam-refine models\sam-edgetam klip.mp4.sam.json --device dml --camera  # backward pass + camera from the refined record
+python -m tracker export klip.mp4                                                         # renders the crop from klip.mp4.views.json
+```
+
+`--plan` needs no GPU and shows each interval with its anchor and window size. The run prints one line per interval (closed/open/mismatch, repaired/confirmed/unresolved) and a summary with the reasons of the unresolved frames. If many intervals are `mismatch` or `no_backward`, backward SAM does not hold on your footage: tell me before touching constants.
+
 ## How to decide (Session 1 and 2)
 
 1. In the DirectML environment: `python -m tracker providers --device dml --model models\yolox_s.onnx` and `python -m tracker pose-bench VIDEO --model models\yolov8s-pose.onnx --device dml`.
@@ -262,3 +282,11 @@ The camera line prints the median occupancy (expect about 0.70 on frames that fe
 - One task per Claude session; stop at a clean checkpoint.
 - Offline-first. Live tracking is not a requirement.
 - Primary target = one combined region for both legs and both feet; left/right limbs are tracked internally as evidence.
+
+## Export: NVENC, NVDEC, stabilization, validation (S13 / S13b)
+
+- **Encoder.** `auto` uses NVENC only if a trial encode works, otherwise libx264. If NVENC fails while encoding, one restart with libx264 (`fallback`); forced `nvenc` fails loudly. NVENC is never claimed to work until the user runs it.
+- **Decode.** Default `cpu` (cv2). `auto`/`nvdec` read frames through an ffmpeg `-hwaccel cuda` pipe; still sequential, no frame dropped or repeated. Auto falls back to cpu, forced nvdec errors.
+- **Stabilization (optional, off).** Reuses `gmc.CameraMotion`. Only high-frequency shake is removed (moving average, 1 s); slow pans stay. Correction is clamped and one constant zoom hides the borders; the follow-camera crop is composed in the same `warpAffine`, so the subject stays centred.
+- **Validation.** Runs after every export (ffprobe, cv2 fallback). Errors (wrong size/frame count/fps/duration, missing audio, pts gaps, dts order) give exit code 4 but keep the file; warnings (VFR source, audio codec/duration/start) only print.
+- **Audio.** `-shortest` cut 1-2 video frames when audio was present. With a known source duration the audio is limited on the input side (`-t`) instead; the video is never shortened. Without a duration the old command stays (parity with `recorder/export.py`).

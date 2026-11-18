@@ -1,7 +1,7 @@
 # PROGRESS
 
-Current session: 12
-Next smallest task: bidirectional refinement, backward SAM pass (see `docs/Lower body.md`, Session 12). Still open on your side: the Session 11 `sam-camera` / `sam-track --camera` run on a clip (foot wiggle, crossed legs, sit/stand, a desk occlusion, a leave/re-enter) and a look at the exported crop, the Session 10 `sam-track --preview --posture --reid` run (leave/re-enter, a stranger walking in, two similar people) on a clip, the Session 9 `sam-track --preview --posture` run (states + `P`-key label) on a clip with desk occlusion and a leave/re-enter, the Session 8 `sam-track --preview --posture` run + `P`-key check, the Session 7 `sam-track --preview --pose` run + `P`-key check, the Session 1 provider diagnostics, the Session 2 export + `sam-bench` runs, the Session 3 `sam-first` run, the Session 4/5 `sam-track` runs (with and without `--no-gate`) and the Session 6 `sam-preview` + `P`-key check in mpv on a 30 s clip (all need the exported graphs).
+Current session: 14 (done; all planned sessions written)
+Next smallest task: put clips in `klipler\`, double-click `launcher\Dogrula.bat` (automatic run, `autotest.py`), read `validation\<time>\report.md`. Manual reference: your real-clip runs from `docs/TEST_RESULTS.md` "Session 14" (3 clips, fill tables 2a-2c). Then follow-up sessions F1 (first real run + fixes), F2 (mpv selection + one command), F3 (memory hygiene), F4 (reselect flow), F5 (tuning); order and reasons in the same section, "Top 5 problems".
 
 ## Sessions
 
@@ -17,11 +17,69 @@ Next smallest task: bidirectional refinement, backward SAM pass (see `docs/Lower
 - [x] 9. Tracking state machine (7 states) (code done 2026-11-18; your `sam-track --preview --posture` run + mpv `P` check pending)
 - [x] 10. Re-entry with existing Re-ID + future-frame verification (code done 2026-11-18; your `sam-track --preview --posture --reid` run + mpv `P` check pending)
 - [x] 11. Camera: 70% occupancy, no zoom pumping from foot movement (code done 2026-11-18; your `sam-track --posture --camera` run + exported crop check pending)
-- [ ] 12. Bidirectional refinement (backward SAM pass)
-- [ ] 13. Export: NVENC + fallback, validation, optional stabilization
-- [ ] 14. Real-clip validation and Definition of done
+- [x] 12. Bidirectional refinement (backward SAM pass) (code done 2026-11-18; your `sam-refine` run on a clip pending)
+- [x] 13. Export: NVENC + fallback, validation, optional stabilization (S13a NVENC 2026-11-18; S13b runtime fallback, NVDEC, stabilization, validation 2026-11-18; your GPU run pending)
+- [x] 14. Real-clip validation and Definition of done (plan, tables and DoD check written 2026-11-18; your clip runs pending. DoD: 1 failed, 1 verified (synthetic), 12 unverified)
 
 ## Latest checkpoint
+
+SESSION CHECKPOINT
+
+Phase: M4 (refine, export, validate)
+Task: Session 14, real-clip validation and Definition of done (no features)
+Files inspected: docs/{Lower body,PROGRESS,TEST_RESULTS,KNOWN_ISSUES,IMPLEMENTATION_AUDIT}.md, handover.md (head + tail), tracker/main.py (CLI help of bench, sam-bench, sam-track, sam-refine, sam-camera, offline, export), tracker/{export_check,offline (views format)}.py, mpv/portable_config/scripts/track.lua (SAM and selection parts), tests (counts per file), models/manifest.json. `docs/PROJECT_SPEC.md` is not in the upload: the Definition-of-done list was taken from the reminder in `docs/Lower body.md`
+Files changed: docs/TEST_RESULTS.md (new "Session 14" section), docs/KNOWN_ISSUES.md (36-39), docs/PROGRESS.md, docs/Lower body.md (status), handover.md (entry). No code changed
+
+What changed: (1) test plan: 3 clips (seated at desk, sit then walk, leave and re-enter, plus a stranger take) with exact commands in the right order (old-tracker baseline export first because `sam-camera`/`sam-refine --camera` overwrite `views.json`), (2) tables 2a-2c for you to fill, (3) Definition-of-done check, 14 items with evidence, (4) top 5 problems and follow-ups F1-F5.
+
+Tests/commands run: `python3 -I -m pytest -q -p no:cacheprovider --ignore=tests/test_lua_menu.py`, `ruff check .`, `python -m tracker.export_check`, a synthetic 8 s clip with audio through `python -m tracker export` (plain and `--stabilize --decode auto`), all in the Linux sandbox (CPU, no GPU)
+Test results: 863 passed, 1 skipped; ruff 3 old findings (2 E501 in `tests/test_export_nvenc.py`, I001 in `tracker/bidir.py`); export 200 frames in and out with audio, `doğrulama: tamam` both times; NVDEC failed here (no libcuda) and fell back to CPU decode as designed; `nvenc_works: false` in the sandbox
+Known failures: DoD item 1 (one rectangle in mpv does not reach SAM; CLI `--rect` only)
+
+Unverified assumptions: everything that needs a real graph, real clip, GPU or Windows (12 of 14 DoD items); that the command order in the plan runs without a contract error on the real graphs (`sam-bench` first); `bench` and `offline --select-rect` baseline flags were read from `--help`, not run on a video; the DoD list is the copy in `Lower body.md`, not `PROJECT_SPEC.md`
+
+Next smallest task: your three clip runs, then F1
+Exact command to resume: `python -m tracker sam-bench models\sam-edgetam --device dml --out sam-bench-dml.json`; if it passes, the `sam-track` line for clip A in `docs/TEST_RESULTS.md` section 1
+
+SESSION CHECKPOINT
+
+Phase: M4 (refine, export, validate)
+Task: Session 13 leftovers (S13b): runtime NVENC fallback, optional NVDEC, optional stabilization, export validation
+Files inspected: docs/{Lower body,PROGRESS,KNOWN_ISSUES}.md, handover.md (S13a), tracker/{export,gmc,main,config,offline.view_at}.py, tests/{test_export,test_export_nvenc,test_gmc,test_packaging,test_recorder}.py, scripts/fetch_ffmpeg.ps1, installer.iss
+Files changed: tracker/export.py, tracker/export_check.py (new), tracker/stabilize.py (new), tracker/config.py (`export_decode`, `export_validate`, `stabilize`, `stabilize_s`), tracker/main.py (`export --decode/--stabilize/--stabilize-s/--no-validate`, validation output, exit 4), scripts/fetch_ffmpeg.ps1 (ffprobe + listed encoders in BUILD_INFO.txt), tests/{test_stabilize,test_export_check,test_export_s13b}.py (new), tests/test_export_nvenc.py (1 assertion), docs/*, handover.md
+
+What changed: (1) `auto` encoder: if NVENC fails while encoding, the export restarts once with libx264 (`fallback` in the result); forced `nvenc` raises `EncoderError`. (2) `--decode cpu|auto|nvdec` (default cpu): `NvdecReader` = ffmpeg `-hwaccel cuda` pipe, sequential, `-fps_mode passthrough`; auto falls back to cv2, forced nvdec raises. (3) `--stabilize`: `stabilize.py` reuses `gmc.CameraMotion` (no duplicate estimator): analysis pass, path smoothed by a centred moving average (`stabilize_s`, 1 s), correction `inv(Ws) @ W` clamped (6 % shift, 2.5 deg), one constant margin zoom (max 1.20) hides borders, one `warpAffine` per frame composed with the follow-camera crop (view centre mapped through the correction). (4) `export_check.validate_files` after every export (size, frame count, fps, duration, audio stream/codec/duration/start, pts gaps, dts order, source VFR) via ffprobe, cv2 fallback; `--no-validate` skips. (5) BUG FOUND BY THE VALIDATION: with audio, `-shortest` dropped the last 1-2 video frames (20 -> 18 in the test). With a known duration the audio is now limited on the input side (`-t`) and `-shortest` is not used; without a duration the old command is kept (parity test with `recorder/export.py`, which still has the old behaviour). (6) `python -m tracker.export_check` prints which encoders/hwaccels a ffmpeg build lists and whether the NVENC trial encode works.
+
+Tests/commands run: `python -m pytest -q -p no:cacheprovider --ignore=tests/test_lua_menu.py` (pytest, Python 3.x, CPU, ffmpeg with listed-but-not-working NVENC), `ruff check .`
+Test results: 863 passed, 1 skipped (new: 8 stabilize, 17 export_check, 11 export_s13b incl. runtime NVENC fallback, forced NVENC error, NVDEC fake reader/auto/forced, stabilization end to end with audio, frame-loss regression). ruff: the new and changed files are clean; the 4 findings left are old (3 E501 in tests/test_export_nvenc.py and tracker/export.py:74 earlier, I001 in tracker/bidir.py)
+Known failures: none seen
+
+Unverified assumptions: NVENC/NVDEC were NOT run on a real GPU (this machine has none: NVENC is listed but its trial encode fails, which is the case the fallback covers); the BtbN win64 GPL build's encoder list is only reported in `BUILD_INFO.txt` by CI, not seen here; `-fps_mode passthrough` needs ffmpeg >= 5.1; stabilization constants (1 s, 6 %, 2.5 deg, margin 1.20) are first guesses, never tried on a real clip; the stabilized crop was only checked on a synthetic shake; `recorder/export.py` still uses `-shortest` (same frame loss, out of scope)
+
+Next smallest task: Session 14
+Exact command to resume: new chat, paste Master instruction + Session 14 prompt from `docs/Lower body.md`; first run `python -m tracker.export_check`, then `python -m tracker export klip.mp4 --stabilize --decode auto` and read the printed `doğrulama` lines
+
+Previous checkpoint (Session 12):
+
+SESSION CHECKPOINT
+
+Phase: M4 (refine, export, validate)
+Task: Session 12, bidirectional refinement (backward SAM pass)
+Files inspected: docs/{Lower body,PROGRESS,DECISIONS,TEST_RESULTS,KNOWN_ISSUES}.md, handover.md (first 30 lines + S11 tail), tracker/{sam_track,sam_engine,trackstate,trackgate,camera,main,cache}.py, offline.VideoSource, tests/{test_sam_track,test_camera}.py (helpers), pyproject.toml
+Files changed: tracker/bidir.py (new), tracker/main.py (`sam-refine`), tests/test_bidir.py (new), pyproject.toml (E501 for the 2 new files), docs/*, handover.md
+
+What changed: `sam-refine` finds uncertain intervals in a `<video>.sam.json` (lost, gate-rejected, partial, candidate, desk-flagged, single-frame spike; short reliable runs between them merge), re-prompts SAM at the first reliable frame after each interval with its forward box and walks BACKWARD with the existing `track_video` (reversed frames, fresh bank and gate, window <= `--max-window` 150 frames, frames shrunk to 1024 px, freed per interval). Forward and backward are compared per frame: `closed` (backward reaches the reliable frame before the interval and agrees, IoU >= 0.5) repairs everything in the interval; `open` repairs only frames contiguous from the anchor that the backward track itself calls clean; `mismatch` at the earlier anchor repairs nothing. Forward-tracked frames are `confirmed` when both agree and are replaced only in a closed interval with +0.15 confidence. S9/S10 identity frames (`other_person`, `ambiguous_reentry`, tracked-while-lost) are never touched and cut the backward chain; OUT_OF_FRAME / timeout frames need a closed interval. Reliable frames stay byte-identical. Repaired frames become PARTIALLY_OCCLUDED/`refined`/no hold (camera pans, zoom not fed). Output `<video>.sam.refined.json` + optional `refine` block (per-frame verdict and original values); a backward crash leaves only that interval unresolved (exit 1).
+
+Tests/commands run: `tests/test_bidir.py` (55 new) and the whole `tests/` (minus `test_lua_menu.py`) through a stand-in runner (Python 3.12, CPU; real pytest and ruff are not installable offline here); 28 mutation checks on the new module
+Test results: new file 55 passed. Whole suite through the stand-in: 760 passed, 54 failed-or-errored, the same 54 that fail on the untouched uploaded zip (705 passed there), so no regression seen; the 54 are stand-in limits. Every rule (mismatch, identity, identity cut, clean-only open repair, agreement, margin, closed-only for absence, window cap, chain break, deep copy, hold release, candidate-only state change, short-run merge, spike, desk, state use, recount, signature, reverse order, shrink, double refine) makes at least one test fail when removed. Real `python -m pytest -q -p no:cacheprovider` and `ruff check .` NOT run (manual check: no unused imports, no trailing whitespace; import order matches the repo)
+Known failures: none seen in the new code
+
+Unverified assumptions: re-prompting SAM with the forward box gives the same object on the real graphs; backward tracking works as well as forward on EdgeTAM; all thresholds (0.6, 0.5, 0.15, 3-frame anchor, 150-frame window, spike 0.6) are first guesses; frame times of a window decode match the forward samples within 0.6 step on a real video; the real window RAM (about 150 x 1.7 MB) and VRAM stay bounded; nothing ran on the real graphs or a real clip
+
+Next smallest task: Session 13
+Exact command to resume: new chat, paste Master instruction + Session 13 prompt from `docs/Lower body.md`; first run `python -m tracker sam-refine models\sam-edgetam klip.mp4.sam.json --plan`, then without `--plan` (`docs/DECISIONS.md`, "Bidirectional refinement")
+
+Previous checkpoint (Session 11):
 
 SESSION CHECKPOINT
 

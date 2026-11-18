@@ -106,6 +106,147 @@ Any moment the zoom pumped or the feet were cut off, and which constant you chan
 
 Linux scratch copy (CPU, Python 3.12, no pytest/ruff installable offline): `tests/test_camera.py` 35 passed through a stand-in runner; the whole `tests/` (minus `test_lua_menu.py`) 693 passed / 57 failed-or-errored, the same 57 that fail on the untouched upload (659 passed / 57 there; the 57 are stand-in limits). Mutation checks: removing the start threshold, the persistence, the trimming, the desk filter, the PARTIALLY_OCCLUDED exclusion, the hold, the re-entry ramp or the rate limit each makes at least one new test fail. Real `python -m pytest -q -p no:cacheprovider` and `ruff check .` NOT run.
 
+## Bidirectional refinement, Session 12 (your PC)
+
+```text
+python -m tracker sam-refine models\sam-edgetam klip.mp4.sam.json --plan
+(paste: the interval list)
+python -m tracker sam-refine models\sam-edgetam klip.mp4.sam.json --device dml --camera
+(paste: one line per interval + the summary line + the camera line)
+```
+
+Look at: intervals closed vs open vs mismatch; unresolved reasons (`identity` and `identity_cut` are expected around a stranger; many `no_backward` or `closure_mismatch` mean backward SAM does not hold); frames repaired in a desk occlusion; time and peak VRAM compared with the forward run: ...
+
+Linux scratch copy (CPU, Python 3.12, no pytest/ruff installable offline): `tests/test_bidir.py` 55 passed through a stand-in runner; the whole `tests/` (minus `test_lua_menu.py`) 760 passed / 54 failed-or-errored, the same 54 that fail on the untouched upload (705 passed / 54 there; the 54 are stand-in limits). 28 mutation checks on `bidir.py`: each removed rule makes at least one test fail. Real `python -m pytest -q -p no:cacheprovider` and `ruff check .` NOT run.
+
+## Session 14: real-clip validation (your PC)
+
+No features were added. This section is the test plan, the tables you fill in, and the Definition-of-done check. Nothing below the "Linux scratch copy" line was run on a real clip, a real graph or a GPU.
+
+### 0. Linux scratch copy (CPU, 2026-11-18, real tools)
+
+- `python3 -I -m pytest -q -p no:cacheprovider --ignore=tests/test_lua_menu.py`: **863 passed, 1 skipped** in 15.5 s (pytest 9.1.1).
+- `ruff check .` (0.16.9): **3 findings, all old**: E501 at `tests/test_export_nvenc.py:15` and `:61`, I001 at `tracker/bidir.py:36` (`--fix` can sort it). None from Session 13 or 14.
+- `python -m tracker.export_check` (sandbox ffmpeg): lists `libx264`, `h264_nvenc`, `hevc_nvenc`, `av1_nvenc`, `h264_qsv`; `nvenc_works: false` (no GPU, trial encode fails); hwaccel `cuda` listed. Listed is not working.
+- Synthetic export, 8 s / 25 fps / 640x360 testsrc + 440 Hz sine, views `[[0,0,0,0],[4,0.8,0.05,0.1],[8,0.8,0.05,0.1]]`:
+  - `export klip.mp4 --encoder auto` -> `200 kare, 640x360, ses dahil, libx264, 1 sn`, `doğrulama: tamam`.
+  - `export klip.mp4 --stabilize --decode auto` -> NVDEC failed (`Cannot load libcuda.so.1`), warning printed, fell back to CPU decode, `200 kare, ses dahil, 2 sn`, `doğrulama: tamam`.
+  - 200 frames in, 200 out, audio kept: the Session 13 frame-loss fix holds on this clip. It proves nothing about NVENC, NVDEC or a real moving shot.
+
+### 1a. Automatic run (replaces typing the commands in section 1)
+
+Put the clips in `klipler\` and double-click `launcher\Dogrula.bat` (or `python -m tracker.autotest --clips klipler --device dml`). It runs preflight (`providers`, `export_check`, `sam-bench`), then per clip: old-tracker baseline, `sam-track` with all flags, `sam-refine --plan`, `sam-refine --camera`, `export`, `export --stabilize`; samples GPU memory (nvidia-smi, or Windows `typeperf`, whole card) and checks the produced files: tracked ratio, expected states, 70 % occupancy, zoom pumping (reversals per minute) and zoom rate limit, refine frame counts, export validation. Report: `validation\<time>\report.md` + `report.json` + one log per step; exit code 1 on any failure. The box is taken automatically from the first frame (lower half of the person box, preview PNG saved for a quick look) unless `X.mp4.test.json` gives `rect`, `start` and `expect` (`min_tracked`, `states_include`, `states_exclude`). Only the failure path and the pure checks were run here (873 tests); the happy path needs the real graphs. The observations in table 2b (what you *see*) stay manual.
+
+### 1. Test plan (3 clips, about 60-90 s each, 1080p or 720p as you normally record)
+
+| Clip | Scene | What it must show |
+|---|---|---|
+| A `seated.mp4` | Frontal, seated behind a desk, 60 s: feet wiggle, legs crossed once, one foot stretched out | Desk never in the target, no zoom pumping, 70 % occupancy |
+| B `sitwalk.mp4` | Sits 20 s, stands up, walks across the room, sits down again | Sit<->stand transitions, walking, posture word, camera follows |
+| C `leave.mp4` | Seated, a desk occlusion (someone passes in front), subject leaves the frame, returns after 10-20 s; second take: another person walks in first | Temporary occlusion, exit and re-entry, wrong-person rejection |
+
+Rectangle: in the first frame, draw one box around both legs and both feet. Read X1,Y1,X2,Y2 (pixels) from a screenshot of frame 0; `--start SN` if the box is drawn later.
+
+**Once, before the clips** (paste outputs into section 2):
+
+```text
+python -m pytest -q -p no:cacheprovider
+ruff check .
+python -m tracker.export_check
+python -m tracker providers --device dml
+python -m tracker sam-bench models\sam-edgetam --device dml --out sam-bench-dml.json
+(CUDA venv) python -m tracker sam-bench models\sam-edgetam --device cuda --out sam-bench-cuda.json
+```
+
+If `sam-bench` fails, stop: nothing after it can run (see problem 1 in `KNOWN_ISSUES.md`).
+
+**Per clip** (replace `X` with the clip name; keep each step's console text):
+
+```text
+rem 0. Old tracker as the baseline (person target from the rectangle; the CLI has no legs preset), exported BEFORE the SAM views exist
+python -m tracker bench X.mp4 --device dml --max-seconds 60 --out X.bench.json
+python -m tracker offline X.mp4 --pose --device dml --select-rect SN NX1 NY1 NX2 NY2
+python -m tracker export X.mp4 --out X_base.mp4
+
+rem 1. SAM forward pass: everything on, 10 fps sampling
+python -m tracker sam-track models\sam-edgetam X.mp4 --rect X1,Y1,X2,Y2 --max-seconds 90 --device dml --preview --posture --reid --camera
+rem    open X.mp4 in mpv, press P, watch the overlay once; note errors in table 2b
+
+rem 2. Backward refinement
+python -m tracker sam-refine models\sam-edgetam X.mp4.sam.json --plan
+python -m tracker sam-refine models\sam-edgetam X.mp4.sam.json --device dml --camera
+
+rem 3. Export (replace x264 with nvenc only after export_check shows nvenc_works true)
+python -m tracker export X.mp4 --out X_sam.mp4
+python -m tracker export X.mp4 --stabilize --decode auto --out X_sam_stab.mp4
+```
+
+Step 0 must run first: `sam-camera` / `sam-refine --camera` REPLACE `X.mp4.views.json`. Look at `X_base.mp4` against `X_sam.mp4` side by side. Run clip C twice (with and without the stranger).
+
+### 2. Results tables (fill in; real numbers only)
+
+**2a. Measurements**
+
+| Clip | Command | Frames | Tracked / lost | fps | Peak VRAM MB | `durum:` line | `re-ID:` line | `kamera:` (occupancy, zoom range, fastest change) | `sam-refine` summary | `doğrulama:` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A | sam-track | | | | | | n/a | | | |
+| A | sam-refine / export | | | | | | | | | |
+| B | sam-track | | | | | | n/a | | | |
+| B | sam-refine / export | | | | | | | | | |
+| C | sam-track | | | | | | | | | |
+| C | sam-refine / export | | | | | | | | | |
+| C + stranger | sam-track | | | | | | | | | |
+
+**2b. Observations (what you saw in mpv `P` and in the exported file)**
+
+| Clip | Moment (time) | Expected | Seen | Which constant or module |
+|---|---|---|---|---|
+| A | desk in front of the legs | mask outline stays on the legs, cyan box does not grow onto the desk | | |
+| A | foot wiggle / crossed legs / stretched foot | zoom unchanged | | |
+| B | sit -> stand, stand -> sit | posture word flips once each, zoom changes smoothly | | |
+| B | walking | cyan box follows both legs and feet | | |
+| C | someone passes in front | PARTIALLY_OCCLUDED or TEMPORARILY_LOST, view held, then back | | |
+| C | subject leaves and returns | OUT_OF_FRAME -> CANDIDATE -> REACQUIRED (Re-ID), eased-in zoom | | |
+| C + stranger | stranger arrives first | `other_person`, camera does not follow them | | |
+| all | export | audio in sync, same duration and frame count as the source | | |
+
+**2c. GPU memory** (Windows Task Manager, "Dedicated GPU memory", read while `sam-track` and `sam-refine` run; DirectML has no `nvidia-smi` number): forward peak ___ MB, backward peak ___ MB, limit 6144 MB.
+
+### 3. Definition of done (docs/PROJECT_SPEC.md is not in the upload; the list is the reminder in `Lower body.md`)
+
+Status words: **verified** = proven by a run here or by you on a real clip; **unverified** = code and synthetic tests exist, no real run; **failed** = known not met. Today nothing is verified on a real clip.
+
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 1 | User can select both legs and feet using one rectangle | **failed** (as stated) | One box works only as `sam-track --rect X1,Y1,X2,Y2` / `sam-preview` (CLI, pixels). mpv right-drag starts `offline --select-rect` (old tracker, `track.lua:1251`), not SAM; `track.lua` only draws `sam.preview.json`. The `legs`/`feet` presets exist (`parts.py`) for the old tracker |
+| 2 | AI tracks the combined region | unverified | `sam_track.py` + `lowerbody.py` framing; `test_sam_track` 48, `test_lowerbody` 27, fake graphs. Real EdgeTAM graphs never exported or run (KNOWN_ISSUES 10, 13) |
+| 3 | Individual limbs tracked internally | unverified | Per-leg evidence visible/moved/hidden/left_frame, swap repair (`lowerbody.py`, `posture.py`; 27 + 32 tests, synthetic keypoints). Real YOLOv8-pose behind a desk untested |
+| 4 | Desk occlusion does not destroy the region | unverified | Desk-mask rejection, hidden-thigh hold 20 s, TrackGate (`posture.py` `DESK_*`, `trackgate.py`; tests incl. "mask jumps onto a desk box"). Thresholds are guesses; a rejected desk mask still stays in SAM memory (KI 17) |
+| 5 | Sitting-to-standing transitions work | unverified | `PostureModel` hysteresis + dwell, `test_posture` sit/stand sequences. Frontal camera assumed |
+| 6 | Walking movement is tracked | unverified | Standing/walking region + foot-lead cap (`test_lowerbody`, `test_posture`); no real walking clip |
+| 7 | Temporary occlusion is handled | unverified | `trackstate.py` 7 states, hold flag, `test_trackstate` 31, `test_camera` hold/ease-in |
+| 8 | Same person reacquired after leaving, when evidence permits | unverified | `reentry.py` accept 3 / reject 2 / uncertain 3 s, `test_reentry` 29 with a fake embedder. OSNet x0.25 ImageNet weights on a seated upper-body crop untested (KI 22) |
+| 9 | Camera keeps a configurable apparent size | unverified | `lower_fill` 0.70, `kamera:` line, `test_camera` 35. The global `target_fill` stays 0.30 (KI 7, intended) |
+| 10 | Foot movements do not cause zoom pumping | unverified | 2 s trimmed mean, start threshold, persistence, rate limit; foot-wiggle, leg-cross, stretched-foot tests. A foot excursion longer than the persistence does change zoom by design (KI 27) |
+| 11 | Camera motion is smooth | unverified | Rate limit 0.25 log2/s, pan smoothing; never rendered on a real export (KI 29) |
+| 12 | Offline refinement improves uncertain intervals | unverified | `bidir.py` closed/open/mismatch rules, 55 tests + 28 mutation checks. "Improves" can only be judged on a real clip; backward SAM on EdgeTAM untested (KI 31, 32) |
+| 13 | Export preserves audio and timing | **verified** on the synthetic clip only | 200 -> 200 frames, audio kept, `doğrulama: tamam` (section 0); `test_export_s13b` 11 + `test_export_check` ran with the sandbox ffmpeg. NVENC and NVDEC never ran on a GPU; `recorder/export.py` still has the `-shortest` frame loss |
+| 14 | GPU memory usage remains controlled | unverified | By construction: refine window <= 150 frames at 1024 px, fresh bank per interval, bank slots capped. Nothing measured: `sam-bench` never run, DirectML gives no VRAM number |
+
+Summary: 1 failed, 1 verified (synthetic scope), 12 unverified.
+
+### 4. Top 5 problems and follow-up sessions
+
+| # | Problem | Why it matters | Follow-up |
+|---|---|---|---|
+| 1 | The whole SAM chain has never touched a real graph, a real clip or the GPU (graphs not exported, memory-graph contract and `export_sam2.py` RoPE rewrite untested, VRAM unmeasured) | Every status above stays "unverified" until this runs; the first run will probably expose a contract mismatch | **F1**: export graphs in CI, run the plan above, fix only what breaks, paste real numbers here |
+| 2 | One rectangle in mpv does not reach SAM, and the result is five manual commands that overwrite `views.json` | Item 1 fails; the chain is too fragile for daily use | **F2**: mpv right-drag -> `sam-track --rect`, one `lower-body` command (track, refine, camera, export), no silent overwrite of an `offline-view` result |
+| 3 | Wrong-person risk: a rejected stranger can still enter SAM's memory; if the state says TRACKED while SAM sits on the stranger the camera follows them (KI 17, 24, 30) | A camera that follows the wrong person is worse than a static one | **F3**: memory hygiene (drop or quarantine rejected frames), identity check on every tracked frame |
+| 4 | `MANUAL_RESELECT_REQUIRED` is only a label: nothing pauses, asks, or lets the user redraw; `reset()` has no UI caller (KI 21) | After a long loss the result stays wrong until a rerun | **F4**: reselect flow (redraw rectangle at time T, resume from there) |
+| 5 | About 40 constants are first guesses (posture, state machine, Re-ID thresholds, camera), and OSNet x0.25 is ImageNet-trained, not Re-ID-trained | Defaults will misbehave on the first real clips; with a frontal-camera assumption | **F5**: tune from the table in section 2b, one constant group per commit, keep every change in `DECISIONS.md`; consider a Re-ID-trained model if the stranger test fails |
+
+Smaller items to fold into F1-F5: 3 old ruff findings (`ruff check . --fix` handles `bidir.py`); `recorder/export.py` `-shortest`; `handover.md` test count is stale (now 863 + 1 skipped).
+
 ## Provider diagnostics (your PC, paste outputs here)
 
 ### DirectML environment

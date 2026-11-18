@@ -138,6 +138,17 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("sam_json", help="sam-track kaydı (<video>.sam.json)")
     sc.add_argument("--fill", type=float, help="Doluluk 0-1 (varsayılan: config.lower_fill = 0.70)")
     sc.add_argument("--out", help="Görünüm dosyası (varsayılan: <video>.views.json; VAROLANI EZER)")
+    sr = sub.add_parser("sam-refine", help="<video>.sam.json -> geri SAM geçişiyle belirsiz aralıkları onar: <video>.sam.refined.json (S12)")
+    sr.add_argument("model_dir", help="5 sam-*.onnx dosyasının klasörü (--plan ile kullanılmaz)")
+    sr.add_argument("sam_json", help="sam-track kaydı (<video>.sam.json); özgün dosya DEĞİŞMEZ")
+    sr.add_argument("--video", help="Video (varsayılan: kayıttaki yol)")
+    sr.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"])
+    sr.add_argument("--max-window", type=int, default=150, help="Geri geçiş penceresi, kare (150; RAM/VRAM sabit kalır)")
+    sr.add_argument("--max-side", type=int, default=1024, help="Bellekteki karenin uzun kenarı, piksel (1024)")
+    sr.add_argument("--out", help="İyileştirilmiş kayıt (varsayılan: <video>.sam.refined.json)")
+    sr.add_argument("--plan", action="store_true", help="Yalnız hangi aralıkların işleneceğini yaz (model/GPU gerekmez)")
+    sr.add_argument("--camera", action="store_true",
+                    help="İyileştirilmiş kayıttan alt vücut kamerasını <video>.views.json'a yaz (VAROLANI EZER; S11)")
     sp = sub.add_parser("sam-preview", help="Dikdörtgen -> ilk maske konturu + birleşik dikdörtgen, onay önizlemesi (S6)")
     sp.add_argument("model_dir", help="sam-encoder.onnx ve sam-decoder.onnx klasörü")
     sp.add_argument("video", help="Video dosyası")
@@ -161,7 +172,16 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--out", help="Çıktı (varsayılan: <video>.takipli.mp4)")
     ex.add_argument("--ffmpeg", help="ffmpeg yolu (varsayılan: TAKIPLI_FFMPEG, ffmpeg\\, PATH)")
     ex.add_argument("--no-audio", action="store_true", help="Sesi ekleme")
-    ex.add_argument("--crf", type=int, default=18, help="x264 kalitesi (düşük = iyi; 18)")
+    ex.add_argument("--crf", type=int, default=18, help="x264/NVENC kalitesi (düşük = iyi; 18)")
+    ex.add_argument("--encoder", choices=["auto", "nvenc", "x264"],
+                    help="Kodlayıcı (varsayılan: ayardaki export_encoder = auto: NVENC varsa o, yoksa x264)")
+    ex.add_argument("--decode", choices=["cpu", "auto", "nvdec"],
+                    help="Çözücü (varsayılan: ayardaki export_decode = cpu; auto: NVDEC dene)")
+    ex.add_argument("--stabilize", action="store_true", default=None,
+                    help="Sabitle (gmc.py kestirimi; titremeyi alır, ek analiz geçişi)")
+    ex.add_argument("--stabilize-s", type=float, dest="stabilize_s",
+                    help="Sabitleme yumuşatma penceresi sn (varsayılan 1.0)")
+    ex.add_argument("--no-validate", action="store_true", help="Çıktı doğrulamasını atla")
     up = sub.add_parser("update", help="Güncelleme: check (JSON yazdırır) | install (indir + kur)")
     up.add_argument("action", choices=["check", "install"])
     up.add_argument("--progress", help="install: ilerleme JSON dosyası")
@@ -360,14 +380,28 @@ def run_export_cmd(cfg: Config, args: argparse.Namespace) -> int:
     views = load_views(args.views or f"{args.video}.views.json", video=args.video)
     out = args.out or default_out(args.video)
     t0 = time.monotonic()
+    if args.stabilize_s:
+        cfg.stabilize_s = args.stabilize_s
     r = export_video(args.video, views, out, cfg, ffmpeg=args.ffmpeg, audio=not args.no_audio,
-                     crf=args.crf)
+                     crf=args.crf, encoder=args.encoder, decode=args.decode,
+                     stabilize=args.stabilize, validate=False if args.no_validate else None)
     if r.get("cancelled"):
         print("dışa aktarma iptal edildi")
         return 3
     dt = time.monotonic() - t0
     print(f"kaydedildi: {r['out']} ({r['frames']} kare, {r['size'][0]}x{r['size'][1]}, "
-          f"{'ses dahil' if r['audio'] else 'sessiz'}, {dt:.0f} sn)")
+          f"{'ses dahil' if r['audio'] else 'sessiz'}, {r.get('encoder', '?')}, {dt:.0f} sn)")
+    if r.get("fallback"):
+        print(f"not: {r['fallback']} (çalışma anı hatası)")
+    v = r.get("validation")
+    if v:
+        for m in v["warnings"]:
+            print(f"doğrulama uyarı: {m}")
+        for m in v["errors"]:
+            print(f"doğrulama HATA: {m}", file=sys.stderr)
+        print("doğrulama: " + ("tamam" if v["ok"] else "BAŞARISIZ"))
+        if not v["ok"]:
+            return 4
     return 0
 
 
@@ -794,6 +828,39 @@ def sam_camera_cmd(cfg: Config, args: argparse.Namespace) -> int:
     return 0 if cam.views else 1
 
 
+def sam_refine_cmd(cfg: Config, args: argparse.Namespace) -> int:
+    """`.sam.json` -> `.sam.refined.json` (S12): geri SAM geçişi yalnız belirsiz aralıklarda. Çıkış 0: yazıldı / yapılacak iş yok;
+    1: hata (bir aralıkta geri geçiş çöktüyse kayıt yine yazılır, o aralık çözülmedi kalır)."""
+    from . import bidir, camera, sam_track
+    from . import sam_engine as se
+
+    doc = sam_track.load_doc(args.sam_json)
+    if args.max_window < 2:
+        raise ValueError("--max-window en az 2 olmalı")
+    if args.plan:
+        lines = bidir.plan_lines(doc, args.max_window)
+        print(f"{len(lines)} belirsiz aralık" + (":" if lines else " (hepsi güvenilir)"))
+        for ln in lines:
+            print(ln)
+        return 0
+    video = args.video or doc["video"]["path"]
+    if not Path(video).is_file():
+        raise FileNotFoundError(f"video bulunamadı: {video} (--video ile verin)")
+    eng = se.SamEngine(args.model_dir, args.device or cfg.device, memory=True)
+    new, rep = bidir.refine_video(doc, video, eng, max_window=args.max_window, max_side=args.max_side,
+                                  progress=lambda s: print(s, flush=True))
+    print(rep.summary())
+    for e in rep.errors:
+        print(f"  HATA ({e})", file=sys.stderr)
+    out = sam_track.save_doc(args.out or bidir.refined_path(args.sam_json), new)
+    print(f"İyileştirilmiş kayıt: {out} (özgün kayıt değişmedi)")
+    if args.camera:
+        cam, src = camera.views_from_doc(new, cfg)
+        vp = camera.save_views(new, cam, camera.views_path_for(args.sam_json), src)
+        print(f"bölge kaynağı: {src} · hedef doluluk {cfg.lower_fill:.2f}\n  {cam.summary()}\nGörünümler: {vp}")
+    return 1 if rep.errors else 0  # hata olan aralıklar çözülmedi kaldı; kayıt yine de yazıldı
+
+
 def sam_track_cmd(cfg: Config, args: argparse.Namespace) -> int:
     """Video boyunca SAM bellek takibi (S4). Çıkış kodu 0: kayıt üretildi; 1: ilk karede maske yok / hata."""
     import time
@@ -1064,6 +1131,14 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return sam_camera_cmd(cfg, args)
         except (FileNotFoundError, ValueError, KeyError, OSError) as e:
+            print(f"HATA: {e}", file=sys.stderr)
+            return 1
+    if args.cmd == "sam-refine":  # mpv bağlantısı gerekmez
+        try:
+            return sam_refine_cmd(cfg, args)
+        except KeyboardInterrupt:
+            return 130
+        except (FileNotFoundError, ValueError, KeyError, ImportError, OSError, RuntimeError) as e:
             print(f"HATA: {e}", file=sys.stderr)
             return 1
     if args.cmd == "sam-track":  # mpv bağlantısı gerekmez

@@ -9,3 +9,5 @@ build/
 *.pt
 track.json
 .venv/
+validation/
+klipler/

@@ -107,6 +107,11 @@ class Config:
     lower_zoom_tol: float = 0.12  # S11: zoom başlatma eşiği (log2; duruşa göre 0.8-1.5 katı): hedefle fark bundan azsa zoom oynamaz
     lower_zoom_rate: float = 0.25  # S11: en çok yakınlaşma hızı (log2/sn); uzaklaşma 1.5 katı hızlı olabilir
     lower_window_s: float = 2.0  # S11: zoom hedefi bu pencerede kırpılmış ortalamayla süzülür (ayak kıpırtısı, çaprazlama)
+    export_encoder: str = "auto"  # S13a: dışa aktarma kodlayıcısı: auto (NVENC varsa) | nvenc | x264
+    export_decode: str = "cpu"  # S13b: dışa aktarma çözücüsü: cpu | auto (NVDEC dene) | nvdec (zorla)
+    export_validate: bool = True  # S13b: dışa aktarma sonrası süre/kare/fps/ses/zaman damgası denetimi
+    stabilize: bool = False  # S13b: dışa aktarmada sabitleme (gmc.py kestirimi; varsayılan kapalı)
+    stabilize_s: float = 1.0  # S13b: sabitleme yol yumuşatma penceresi (sn)
     lower_reacq_s: float = 1.0  # S11: kısa kayıptan dönüşte yeni görünüme geçiş süresi (dönüşten önce başlar)
 
     def __post_init__(self) -> None:

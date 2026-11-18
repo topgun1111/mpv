@@ -25,13 +25,22 @@ Expand-Archive $zip -DestinationPath $tmp -Force
 $exe = Get-ChildItem $tmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1
 if (-not $exe) { throw "ffmpeg.exe arsivde bulunamadi" }
 Copy-Item $exe.FullName (Join-Path $Target "ffmpeg.exe") -Force
+# S13b: ffprobe disa aktarma dogrulamasi icin (yoksa dogrulama cv2 ile sinirli kalir; derlemeyi durdurmaz)
+$probe = Get-ChildItem $tmp -Recurse -Filter ffprobe.exe | Select-Object -First 1
+if ($probe) { Copy-Item $probe.FullName (Join-Path $Target "ffprobe.exe") -Force } else { Write-Host "UYARI: ffprobe.exe arsivde yok" }
 $lic = Get-ChildItem $tmp -Recurse -Filter LICENSE.txt | Select-Object -First 1
 if ($lic) { Copy-Item $lic.FullName (Join-Path $Target "FFMPEG_LICENSE.txt") -Force }
 # libx264 gercekten var mi (LGPL derlemesi yanlislikla gelirse disa aktarma sessizce yedege duser)
 $enc = & (Join-Path $Target "ffmpeg.exe") -hide_banner -encoders 2>&1 | Out-String
 if ($enc -notmatch "libx264") { throw "ffmpeg derlemesinde libx264 yok (GPL derlemesi gerekli)" }
+# S13b: bu derlemenin LISTELEDIGI kodlayici/hwaccel'ler (liste NVENC'in calistigini gostermez; GPU'da denenmeden iddia edilmez)
+$listed = ($enc -split "`n" | Where-Object { $_ -match "libx264 |h264_nvenc|hevc_nvenc|av1_nvenc|h264_amf|h264_qsv" } | ForEach-Object { $_.Trim() })
+$hw = (& (Join-Path $Target "ffmpeg.exe") -hide_banner -hwaccels 2>&1 | Out-String).Trim() -replace "\s+", " "
 @(
   "ffmpeg derlemesi: BtbN/FFmpeg-Builds (GPL, win64)",
+  "Listelenen kodlayicilar: $($listed -join ' | ')",
+  "Listelenen hwaccel: $hw",
+  "ffprobe: $(Test-Path (Join-Path $Target 'ffprobe.exe'))",
   "Kaynak/derleme: https://github.com/BtbN/FFmpeg-Builds",
   "ffmpeg kaynak kodu: https://ffmpeg.org/download.html (x264: https://www.videolan.org/developers/x264.html)",
   "Arsiv adresi: $Url",
