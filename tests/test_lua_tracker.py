@@ -15,7 +15,9 @@ HARNESS = Path(__file__).with_name("lua_harness_tracker.lua")
 
 CFG = ("return { fill={0.3,0.1,0.8,'%30'}, speed={0.15,0.03,0.6,'0.15'}, lead={0.15,0,0.6,'0.15 sn'},"
        " hold={1,0,5,'1.00 sn'}, zoomout={2,0,6,'2.0 sn'}, memory={1.5,0,5,'1.5 sn'}, pbox={0.06,0.02,0.2,'%6'},"
-       " pscore={0.45,0.2,0.9,'0.45'}, kpconf={0.35,0.1,0.8,'0.35'}, flags={kp_filter=true} }")
+       " pscore={0.45,0.2,0.9,'0.45'}, kpconf={0.35,0.1,0.8,'0.35'}, flags={kp_filter=true},"
+       " gpu={cur='auto', default='cpu', items={{id='auto',label='Otomatik'},"
+       "{id='dml:1',label='NVIDIA GeForce RTX 3060 · 12 GB · DirectML'},{id='cpu',label='CPU'}}} }")
 
 
 @pytest.mark.skipif(LUA is None, reason="lua/texlua yok")
@@ -32,6 +34,10 @@ def test_tracker_panel_flow(tmp_path):
     assert d["STEP1"] == ["script-message track-setting fill 1"]  # temel ayar: Ctrl+ tuşlarıyla aynı yol
     assert d["STEP2"] == ["script-message track-option pbox -1"]  # ek ayar: yeni mesaj
     assert d["FLAG"] == ["script-message track-option kp_filter toggle"]
+    assert d["GPU"] == ["script-message track-gpu dml:1"]  # kart seçimi: Python kaydeder + yeniden başlatır
+    assert d["GPULABEL"] == ["true", "true"] and d["FIT"] == ["true", "true"]  # liste çizilir, kart pencereye sığar
+    assert d["GPUDEF"] == ["script-message track-gpu-default set"]
+    assert d["CLIP"] == ["Çok uzu…", "kısa"]
     assert d["SAVE"] == ["script-message track-save"] and d["DEF"] == ["script-message track-setting all 0"]
     assert d["ARROWS"] == ["true"] and d["ARROWOFF"] == ["true", "true"]  # oklar yalnız panel üstündeyken
     assert d["RECTGATE"] == ["true", "true"] and d["POINTGATE"] == ["true", "true"]

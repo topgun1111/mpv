@@ -194,7 +194,7 @@ def test_lua_hud_and_setting_keys(tmp_path):
     assert by["OFFLINE"][1].endswith("Takip: offline ID 3")
     # sol üst bilgi bloğu: model satırı + Lua'nın zoom satırı, Ctrl+H ile gizlenir
     assert "\\fs14" in by["INFO"][1] and "Model: yolox_s.onnx · DirectML" in by["INFO"][1]
-    assert by["INFO"][1].endswith("Zoom: x1.00") and by["INFOZOOM"][1].endswith("Zoom: x2.00")
+    assert "Zoom: x1.00" in by["INFO"][1] and "Zoom: x2.00" in by["INFOZOOM"][1]
     assert by["INFOHIDDEN"][1] == ""
     assert by["DBL"][1] == "cycle pause"  # çift tık: duraklat/oynat
 

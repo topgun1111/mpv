@@ -10,16 +10,28 @@ MAX_BYTES = 1_000_000
 get_video: Callable[[], object] | None = None  # run_live: mpv'deki geçerli video yolu
 
 
-def _path() -> Path | None:
+def desktop_dir() -> Path | None:
     home = Path.home()
     for d in (home / "Desktop", home / "OneDrive" / "Desktop", home / "Masaüstü"):
         if d.is_dir():
-            return d / "TakipHata" / "takip_hata.log"
+            return d
     return None
 
 
+def _path() -> Path | None:
+    d = desktop_dir()
+    return d / "TakipHata" / "takip_hata.log" if d else None
+
+
 def record(where: str, exc: BaseException | str | None = None) -> None:
-    """Hiçbir zaman hata fırlatmaz: günlük yazılamıyorsa sessizce geçer."""
+    """Hiçbir zaman hata fırlatmaz: günlük yazılamıyorsa sessizce geçer.
+    Aktif video günlüğü (tracklog) varsa hata oraya da özellik hatası olarak işlenir."""
+    try:
+        from . import tracklog
+
+        tracklog.forward(where, exc)
+    except Exception:  # noqa: BLE001, S110
+        pass
     try:
         p = _path()
         if p is None:

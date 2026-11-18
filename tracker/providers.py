@@ -17,6 +17,7 @@ from typing import Any
 from .detector import (
     _PROVIDER_NAMES,
     auto_order,
+    ort_providers,
     preload_cuda,
     resolve_model_path,
     select_providers,
@@ -96,7 +97,7 @@ def _try_session(rep: dict[str, Any], ort: Any, path: Path) -> None:
         opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
     t0 = time.perf_counter()
     try:
-        sess = ort.InferenceSession(str(path), sess_options=opts, providers=sel)
+        sess = ort.InferenceSession(str(path), sess_options=opts, providers=ort_providers(sel))
     except Exception as e:
         rep["session_error"] = f"{type(e).__name__}: {e}"
         return

@@ -126,4 +126,10 @@ def panel_snapshot(cfg: Config) -> dict:
         v = getattr(cfg, s.attrs[0])
         out[k] = [round(v, 4), s.lo, s.hi, s.fmt(v)]
     out["flags"] = {k: bool(getattr(cfg, k)) for k in FLAGS}
+    try:  # ekran kartı listesi (panel «Ekran kartı» bölümü); alınamazsa bölüm «—» gösterir
+        from . import gpu
+
+        out["gpu"] = gpu.snapshot(cfg)
+    except Exception:  # noqa: BLE001, S110
+        pass
     return out

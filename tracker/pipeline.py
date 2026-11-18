@@ -1,6 +1,7 @@
 """Detector + ByteTracker birleşimi: kare başına step(frame)."""
 from __future__ import annotations
 
+from . import tracklog
 from .bytetrack import ByteTracker, Track
 
 
@@ -26,13 +27,18 @@ class Pipeline:
         if self.gmc is not None:
             try:
                 motion = self.gmc.step(frame_bgr, self.tracker.boxes)
-            except Exception:  # kamera kestirimi asla izlemeyi düşürmesin
+                (tracklog.active().ok if getattr(self.gmc, "ok", True) else tracklog.active().idle)(
+                    tracklog.F_CAM)
+            except Exception as e:  # kamera kestirimi asla izlemeyi düşürmesin
+                tracklog.active().fail(tracklog.F_CAM, e)
                 motion = None
         if self.cuts is not None:
             try:
                 cam_ok = getattr(self.gmc, "ok", None) if self.gmc is not None else None
                 self.cut = self.cuts.step(frame_bgr, cam_ok)
-            except Exception:  # algılama asla izlemeyi düşürmesin
+                tracklog.active().ok(tracklog.F_CUT)
+            except Exception as e:  # algılama asla izlemeyi düşürmesin
+                tracklog.active().fail(tracklog.F_CUT, e)
                 self.cut = False
             if self.cut:
                 self.on_cut()

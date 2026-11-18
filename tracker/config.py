@@ -28,6 +28,8 @@ class Config:
     det_iou: float = 0.45
     det_size: int = 640
     device: str = "auto"  # auto | dml | cuda | cpu
+    default_gpu: str = ""  # varsayılan kart kimliği (auto|cpu|dml:N|cuda:N); boş = device/gpu kullanılır. Panel: «Varsayılan yap»
+    gpu: int = -1  # device=dml: DXGI kart sırası; device=cuda: NVIDIA sırası; -1 = sistem varsayılanı (panel: Ekran kartı)
     provider_order: str = "dml,cuda"  # device=auto sırası (CPU hep son). CUDA önce: "cuda,dml"
     live_det_conf: float = 0.1  # canlı mod: ByteTrack düşük skor aşaması için (low_thr ile aynı)
     live_fps: float = 10.0  # canlı mod en fazla işleme hızı (screenshot-raw IPC'de ağır)

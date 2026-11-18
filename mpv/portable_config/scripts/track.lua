@@ -1520,6 +1520,8 @@ if TRACK_SHOW_MENU ~= false then
           elseif act == "flag" then
             if a == "ui_hud" then hud.visible = not hud.visible; render_hud()
             else mp.commandv("script-message", "track-option", tostring(a), "toggle") end
+          elseif act == "gpu_default" then mp.commandv("script-message", "track-gpu-default", tostring(a))
+          elseif act == "gpu" then mp.commandv("script-message", "track-gpu", tostring(a)) -- Python: kaydet + yeniden başlat
           elseif act == "save" then mp.commandv("script-message", "track-save")
           elseif act == "defaults" then mp.commandv("script-message", "track-setting", "all", "0") end
           if render_tp then render_tp() end

@@ -24,6 +24,7 @@ from typing import Any
 
 import numpy as np
 
+from . import tracklog
 from .geometry import BBox
 
 PERSON_CLASS = 0  # COCO
@@ -292,6 +293,25 @@ def auto_order() -> tuple[str, ...]:
     return parse_order(env) if env else _AUTO_ORDER
 
 
+_GPU: int = -1  # seçili ekran kartı sırası (device dml/cuda iken); -1 = varsayılan
+
+
+def set_gpu(index: int | None) -> int:
+    """Seçili kart sırasını ayarla (`gpu.py`); sonraki oturumlar `device_id` ile açılır."""
+    global _GPU
+    _GPU = -1 if index is None else int(index)
+    return _GPU
+
+
+def ort_providers(providers: list[str]) -> list[Any]:
+    """ONNX Runtime'a verilecek liste: kart seçiliyse DirectML/CUDA girişleri `(ad, {device_id})`.
+    Seçim yoksa düz ad listesi (eski davranış)."""
+    if _GPU < 0:
+        return list(providers)
+    gpu_eps = (_PROVIDER_NAMES["dml"], _PROVIDER_NAMES["cuda"])
+    return [(p, {"device_id": _GPU}) if p in gpu_eps else p for p in providers]
+
+
 def preload_cuda(ort: Any) -> str:
     """CUDA/cuDNN DLL'lerini önceden yükle (onnxruntime-gpu >= 1.21): 'ok' | 'yok' | 'hata: ...'.
 
@@ -400,7 +420,10 @@ class Detector:
         if _PROVIDER_NAMES["dml"] in providers:  # DirectML önerisi
             opts.enable_mem_pattern = False
             opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-        return ort.InferenceSession(str(path), sess_options=opts, providers=providers)
+        sess = ort.InferenceSession(str(path), sess_options=opts,
+                                    providers=ort_providers(providers))
+        tracklog.model_opened(path, providers, sess)
+        return sess
 
     @property
     def providers(self) -> list[str]:

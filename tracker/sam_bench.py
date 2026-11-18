@@ -27,8 +27,15 @@ from typing import Any
 
 import numpy as np
 
+from . import tracklog
 from .bench import _pct
-from .detector import _PROVIDER_NAMES, preload_cuda, resolve_model_path, select_providers
+from .detector import (
+    _PROVIDER_NAMES,
+    ort_providers,
+    preload_cuda,
+    resolve_model_path,
+    select_providers,
+)
 from .providers import installed_ort_packages
 
 GRAPHS = ("sam-encoder", "sam-decoder", "sam-decoder-trk", "sam-memenc", "sam-memattn")
@@ -135,7 +142,9 @@ def open_session(path: Path, device: str, ort: Any = None) -> tuple[Any, list[st
     if _PROVIDER_NAMES["dml"] in sel:
         opts.enable_mem_pattern = False
         opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-    return ort.InferenceSession(str(path), sess_options=opts, providers=sel), sel
+    sess = ort.InferenceSession(str(path), sess_options=opts, providers=ort_providers(sel))
+    tracklog.model_opened(path, sel, sess)
+    return sess, sel
 
 
 def _onnx_fp16(src: Path, dst: Path) -> None:

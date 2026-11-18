@@ -11,12 +11,14 @@ import threading
 import time
 from dataclasses import dataclass
 
-from . import errlog
+from . import errlog, gpu, tracklog
 from .clicks import (
     ADDMODE_MSG,
     CFG_GET_MSG,
     CFG_MSG,
     DOT_MSG,
+    GPU_DEFAULT_MSG,
+    GPU_MSG,
     HUD_MSG,
     OPTION_MSG,
     PART_MSG,
@@ -97,6 +99,12 @@ def _default_point_factory(frame, px: float, py: float, cfg: Config, box=None):
                              min_score=cfg.point_min_score)
 
 
+def _feature_of(pt) -> str:
+    """Günlük özelliği: eklem/parça izleyici ya da nesne (görüntü şablonu) izleyici."""
+    return (tracklog.F_KEYPOINT if type(pt).__name__ in ("KeypointTracker", "PartTracker")
+            else tracklog.F_POINT)
+
+
 def _box_gap(t, px: float, py: float) -> float:
     """Noktanın kutuya uzaklığı (px); içindeyse 0."""
     b = t.bbox
@@ -141,7 +149,10 @@ class LiveController:
         pose=None,
         wholebody=None,
         cuts=None,
+        tlog=None,
     ):
+        self.tlog = tlog if tlog is not None else tracklog.NULL  # video başına takip günlüğü
+        self.restart_req = False  # ekran kartı değişti: run_live çıkar, program yeniden başlar
         self.cuts = cuts  # cuts.CutDetector | None (G4): her işlenen karede çekim kesmesi ara
         self.cut_count = 0
         self.pose = pose  # PoseEstimator | None: sağ tık eklem yakınındaysa eklem takibi
@@ -184,7 +195,9 @@ class LiveController:
     def _clear_lost(self) -> None:
         self._lost, self._lost_t0, self._lost_from, self._zooming_out = 0, None, None, False
 
-    def _reset_tracking(self) -> None:
+    def _reset_tracking(self, reason: str = "sıfırlandı") -> None:
+        if self.has_target:
+            self.tlog.target_end(reason)
         self.pipeline.reset()
         self.smoother.reset()
         self.flt.reset()
@@ -201,6 +214,8 @@ class LiveController:
     def _release(self) -> Output:
         """Hedefi bırak: görünüm 1x'e döner; takip açık kalır, yeni tıklama hedef seçer."""
         had = self.has_target
+        if had:
+            self.tlog.target_end("bırakıldı")
         self.target_id = None
         self.point = None
         self._clear_lost()
@@ -254,11 +269,47 @@ class LiveController:
             return self._remove_target(None)
         if name == PART_MSG:
             return self._on_part(ev.get("args") or [])
+        if name == GPU_DEFAULT_MSG:
+            return self._on_gpu_default(ev.get("args") or [])
+        if name == GPU_MSG:
+            return self._on_gpu(ev.get("args") or [])
         if name == STATUS_MSG:
             return Output(osd=status_text(self.cfg, self.target_id, self.point is not None))
         if name == SAVE_MSG:
             return self._on_save()
         return Output()
+
+    def _on_gpu(self, args: list) -> Output:
+        """Tracker paneli → «Ekran kartı»: seçimi config'e yazar, takip programı yeniden başlar
+        (modeller açılışta yüklendiğinden kart ancak yeniden yüklemeyle değişir)."""
+        cid = str(args[1]) if len(args) > 1 else ""
+        if cid == gpu.current_id(self.cfg):
+            return Output(osd="Ekran kartı zaten seçili")
+        valid = gpu.choices()
+        label = next((c.label for c in valid if c.id == cid), cid)
+        if not gpu.apply_choice(self.cfg, cid, valid):
+            return Output(osd=f"Bilinmeyen ekran kartı seçimi: {cid}")
+        # Yalnız bu oturum: kalıcı olan «Varsayılan yap». Yeni süreç `--gpu` ile bu kartı alır.
+        self.tlog.note(f"ekran kartı seçildi: {label} [{cid}] → takip programı yeniden başlıyor")
+        self.restart_req = True
+        self.cfg_dirty = True
+        return Output(osd=f"Ekran kartı: {label} · modeller yeniden yükleniyor...")
+
+    def _on_gpu_default(self, args: list) -> Output:
+        """Panel «Varsayılan yap»/«Varsayılanı kaldır»: geçerli kart her açılışta kullanılır."""
+        clear = len(args) > 1 and str(args[1]) == "clear"
+        if not self.cfg_path:
+            return Output(osd="Varsayılan kaydedilemedi: config yolu yok")
+        cid = gpu.current_id(self.cfg)
+        self.cfg.default_gpu = "" if clear else cid
+        try:
+            self.cfg.save(self.cfg_path)
+        except OSError as e:
+            return Output(osd=f"Varsayılan kaydedilemedi: {e}")
+        self.cfg_dirty = True
+        self.tlog.note("varsayılan ekran kartı: " + ("kaldırıldı" if clear else cid))
+        return Output(osd="Varsayılan ekran kartı kaldırıldı" if clear
+                      else f"Varsayılan ekran kartı: {cid}")
 
     def _remove_target(self, i: int | None) -> Output:
         """T1: kümeden bir hedefi çıkar (i=None: sonuncu). Tek hedef kalırsa küme açılır."""
@@ -410,6 +461,7 @@ class LiveController:
         if self.cuts is not None and self._last_t is not None:
             try:
                 cut = bool(self.cuts.step(frame))
+                self.tlog.ok(tracklog.F_CUT)
             except Exception as e:  # algılama asla izlemeyi düşürmesin
                 errlog.record("sahne kesimi", e)
                 cut = False
@@ -433,6 +485,7 @@ class LiveController:
         yeni kimliklerle Re-ID'den ya da kayıp akışından bulunur; nesne/eklem izleyiciler
         `on_cut` ile yeniden bulma moduna alınır."""
         self.cut_count += 1
+        self.tlog.note(f"çekim kesmesi algılandı (#{self.cut_count}): izler bırakıldı")
         on_cut = getattr(self.pipeline, "on_cut", None)
         if on_cut is not None:
             on_cut()
@@ -446,7 +499,8 @@ class LiveController:
         if prev is not None and (t < prev - 0.05 or t - prev > self.cfg.seek_jump):
             had = self.has_target
             click = self._click
-            self._reset_tracking()
+            self.tlog.note(f"oynatma atlaması: {prev:.1f} sn → {t:.1f} sn")
+            self._reset_tracking("atlama")
             self._click = click
             if self.cuts is not None:
                 self.cuts.reset()
@@ -463,6 +517,8 @@ class LiveController:
             return self._step_point(frame, t, None)
         tracks = self.pipeline.step(frame)
         self.last_tracks = tracks
+        if getattr(self.pipeline, "detector", None) is not None:
+            (self.tlog.ok if tracks else self.tlog.idle)(tracklog.F_DETECT)
         osd = None
         if self._click is not None:
             click, self._click = self._click, None
@@ -470,6 +526,7 @@ class LiveController:
             picked = pick_track(tracks, click.px * fw / click.vw, click.py * fh / click.vh, tol)
             if picked is None:
                 osd = "Burada kişi yok"  # mevcut hedef (varsa) korunur
+                self.tlog.note(f"tıklanan noktada kişi yok ({len(tracks)} kişi var)", "UYARI")
             elif picked.id == self.target_id:  # hedefin üstüne tekrar tıklama: bırak
                 out = self._release()
                 return Output(view=out.view, osd=out.osd)
@@ -485,6 +542,7 @@ class LiveController:
                 if self.reid:
                     self.reid.reset()  # galeri eski kişiye aitti
                 osd = f"Hedef: ID {picked.id}"
+                self.tlog.target_start(f"kişi ID {picked.id}", t)
         if self.target_id is None:
             if self.point is not None:  # oyuncu bulunamadı: nesne takibi kesilmesin
                 return self._step_point(frame, t, osd)
@@ -504,6 +562,7 @@ class LiveController:
         if self._zooming_out:  # zoom-out sırasında bulundu: bulunduğumuz görünümden devam
             self.smoother.seed(self._view)
         self._clear_lost()
+        self.tlog.tracked(t)
         vis = getattr(self.point, "visible", True) if self.point is not None else True
         self.flt.update(bbox.scaled(1 / fw, 1 / fh), t)  # kare boyutuna göre normalize
         # Artı işareti: kare alınıp işlenene kadar nesne ilerledi → hız * gecikme kadar ileri çiz
@@ -566,6 +625,7 @@ class LiveController:
                 ts = TargetSet(ts, fill=self.cfg.target_fill, min_zoom=self.cfg.set_min_zoom,
                                hyst=self.cfg.set_hyst)
             ts.add(pt)
+            self.tlog.note(f"hedef eklendi: {getattr(pt, 'label', 'nesne')} ({len(ts) + 1} hedef)")
             self.point = ts
             self._clear_lost()
             self.flt.reset()
@@ -581,6 +641,7 @@ class LiveController:
         if self.reid:
             self.reid.reset()
         self.point = pt
+        self.tlog.target_start(f"{_feature_of(pt)}: {getattr(pt, 'label', 'nesne')}", t)
         self._clear_lost()
         self.flt.reset()
         return self._follow(pt.bbox, fw, fh, t, "Hedef: " + getattr(pt, "label", "nesne"))
@@ -593,6 +654,7 @@ class LiveController:
                 from .point import CameraComp
 
                 cam = CameraComp(frame)
+                self.tlog.ok(tracklog.F_CAM)
             except Exception as e:  # cv2 yok: kamera telafisiz sürer
                 errlog.record("kamera telafisi", e)
                 cam = None
@@ -615,6 +677,7 @@ class LiveController:
         except Exception as e:  # model/kare hatası: eski nesne takibine düş
             errlog.record("poz tahmini", e)
             return None
+        (self.tlog.ok if poses else self.tlog.idle)(tracklog.F_POSE)
         if self.wb is not None:  # O2: yalnız tıklanan kişiyi 133 noktaya genişlet
             poses = [self.wb.refine(frame, p) if p.bbox.contains(px, py) else p for p in poses]
         hit = nearest_keypoint(poses, px, py, self.cfg.kp_tol, self.cfg.kp_min_conf,
@@ -650,6 +713,7 @@ class LiveController:
         except Exception as e:  # model/kare hatası: eski takibe düş
             errlog.record("poz tahmini", e)
             return None
+        (self.tlog.ok if poses else self.tlog.idle)(tracklog.F_POSE)
         hits = [p for p in poses if p.bbox.contains(px, py)]
         def area(p):
             return (p.bbox.x2 - p.bbox.x1) * (p.bbox.y2 - p.bbox.y1)
@@ -679,6 +743,7 @@ class LiveController:
         if self.reid:
             self.reid.reset()
         self.point = pt
+        self.tlog.target_start(f"{tracklog.F_KEYPOINT}: {pt.label}", t)
         self._clear_lost()
         self.flt.reset()
         return self._follow(pt.bbox, fw, fh, t, "Hedef: " + pt.label)
@@ -686,8 +751,11 @@ class LiveController:
     def _step_point(self, frame, t: float, osd: str | None) -> Output:
         fh, fw = frame.shape[:2]
         box = self.point.update(frame)
+        feat = _feature_of(self.point)
         if box is None:
+            self.tlog.idle(feat)
             return self._on_lost(t, osd)
+        self.tlog.ok(feat)
         return self._follow(box, fw, fh, t, osd)
 
     def _try_reid(self, frame, t: float, tracks, osd: str | None):
@@ -699,6 +767,8 @@ class LiveController:
         if cand is None:
             return None, osd
         self.target_id = cand.id
+        self.tlog.ok(tracklog.F_REID)
+        self.tlog.note(f"Re-ID: hedef yeni ID {cand.id} ile yeniden bulundu")
         self.flt.reset()  # konum sıçradı: eski hız/konum geçersiz
         return cand, f"Hedef yeniden bulundu: ID {cand.id}"
 
@@ -707,6 +777,7 @@ class LiveController:
         1x'e kademeli zoom-out; hedef geri gelirse (aynı ID) takip kaldığı yerden sürer.
         Süre video zamanıyla ölçülür (duraklatma/atlama gerçek süreyi şişirmez)."""
         self._lost += 1
+        self.tlog.lost(t)
         if self._lost_t0 is None:
             self._lost_t0, self._lost_from = t, self._view
             osd = osd or "Hedef kayboldu"
@@ -718,6 +789,20 @@ class LiveController:
         assert self._lost_from is not None
         self._view = ease_view(self._lost_from, View(), el / dur if dur > 0 else 1.0)
         return Output(view=self._view, osd=osd)
+
+
+def video_meta(mpv) -> dict:
+    """Günlük başlığı için mpv'den video bilgisi (her alan en iyi çaba)."""
+    meta: dict = {}
+    for label, prop in (("Genişlik", "video-params/w"), ("Yükseklik", "video-params/h"),
+                        ("Kare hızı", "container-fps"), ("Süre (sn)", "duration"),
+                        ("Video kodeği", "video-format"), ("Donanım çözme", "hwdec-current"),
+                        ("Dosya boyutu (bayt)", "file-size")):
+        try:
+            meta[label] = mpv.get_property(prop)
+        except Exception:  # noqa: BLE001, S112
+            continue
+    return meta
 
 
 def run_live(
@@ -738,11 +823,34 @@ def run_live(
     info: list[str] | None = None,
     wholebody=None,
     cuts=None,
-) -> None:
-    """info: sol üst bilgi bloğundaki sabit satırlar (model/cihaz...). None = blok gönderilmez."""
+    tlog=None,
+) -> bool | None:
+    """True: ekran kartı değişti, çağıran takip programını yeniden başlatmalı.
+    info: sol üst bilgi bloğundaki sabit satırlar (model/cihaz...). None = blok gönderilmez."""
     errlog.get_video = lambda: mpv.get_property("path")
     ctl = LiveController(pipeline, cfg, reid=reid, cfg_path=cfg_path, pose=pose,
-                         wholebody=wholebody, cuts=cuts)
+                         wholebody=wholebody, cuts=cuts, tlog=tlog)
+    tl = tlog if tlog is not None else tracklog.NULL
+    vid = {"path": None, "chk": -1e9}
+
+    def check_video() -> None:
+        """Takip açıkken ~1 sn'de bir video değişti mi bak (her video kendi günlüğü)."""
+        if tlog is None or clock() - vid["chk"] < 1.0:
+            return
+        vid["chk"] = clock()
+        try:
+            p = mpv.get_property("path")
+        except MpvCommandError:
+            p = None
+        if p == vid["path"]:
+            return
+        vid["path"] = p
+        if p:
+            if ctl.has_target:  # video değişti: eski hedef bitti
+                ctl._reset_tracking("video değişti")
+            tlog.open_video(str(p), video_meta(mpv))
+        else:
+            tlog.close_video("video kapandı")
     last_hud: tuple[str, bool, str] = ("", False, "")
     perf: tuple[float, float] | None = None  # (kare/sn, gecikme ms): ~1 sn'lik pencere
     pf_n, pf_lag, pf_t = 0, 0.0, clock()
@@ -802,6 +910,7 @@ def run_live(
         nonlocal last_view
         if out.osd:
             log(out.osd)
+            tl.note("OSD: " + out.osd.replace("\n", " | "))
             try:
                 mpv.command("show-text", out.osd, 1500)
             except MpvCommandError as e:  # OSD hatası döngüyü durdurmasın
@@ -811,8 +920,10 @@ def run_live(
             try:
                 mpv.set_view(out.view)
                 last_view = out.view
+                tl.ok(tracklog.F_VIEW)
             except MpvCommandError as e:  # mpv reddetti: sonraki karede yeniden dene
                 log(f"görünüm uygulanamadı: {e}")
+                tl.fail(tracklog.F_VIEW, e)
                 errlog.record("görünüm", e)
         sync_hud()
         sync_dot()
@@ -834,18 +945,29 @@ def run_live(
                     log("mpv bağlantısı kapandı.")
                     return
                 emit(ctl.handle_event(ev))
+            if ctl.restart_req:  # ekran kartı değişti: modeller yeniden yüklenmeli
+                log("ekran kartı değişti: takip programı yeniden başlatılıyor.")
+                return True
             if not ctl.enabled:
                 continue
+            check_video()
             try:
                 t = mpv.get_property("time-pos")
                 if t is None or not ctl.needs_frame(float(t)):
                     sleep(0.05)
                     continue
-                frame = grab(mpv)
             except MpvCommandError:  # video yok / property unavailable
                 sleep(0.2)
                 continue
+            try:
+                frame = grab(mpv)
+            except MpvCommandError as e:
+                tl.fail(tracklog.F_FRAME, e)
+                sleep(0.2)
+                continue
+            tl.ok(tracklog.F_FRAME)
             emit(ctl.step(frame, float(t)))
+            tl.frame(clock() - t0)
             n += 1
             lag_sum += clock() - t0
             # A2: canlı kötüyse (ve taranmış iz hazır + aynı hedefse) taranmış ize geç
@@ -865,6 +987,8 @@ def run_live(
                         sw_last = clock()
                         qual.reset()
                         log(f"taranmış ize geçiliyor ({why})")
+                        tl.ok(tracklog.F_SCANNED)
+                        tl.note(f"canlı takip yetersiz ({why}): taranmış ize geçildi", "UYARI")
                         try:
                             mpv.command("script-message-to", "track", USE_SCANNED_MSG, why)
                         except MpvCommandError as e:
@@ -886,3 +1010,5 @@ def run_live(
     except MpvIpcError as e:
         log(f"mpv bağlantısı kesildi: {e}")
         errlog.record("mpv bağlantısı", e)
+    finally:
+        tl.close_video("takip programı kapandı")

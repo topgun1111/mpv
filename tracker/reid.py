@@ -16,8 +16,9 @@ from typing import Any
 import cv2
 import numpy as np
 
+from . import tracklog
 from .config import Config
-from .detector import resolve_model_path, select_providers
+from .detector import ort_providers, resolve_model_path, select_providers
 from .geometry import BBox
 
 MEAN = np.array([0.485, 0.456, 0.406], np.float32)
@@ -76,7 +77,9 @@ class Embedder:
         import onnxruntime as ort
 
         providers = select_providers(ort.get_available_providers(), device)
-        return ort.InferenceSession(str(path), providers=providers)
+        sess = ort.InferenceSession(str(path), providers=ort_providers(providers))
+        tracklog.model_opened(path, providers, sess)
+        return sess
 
     def embed(self, frame: np.ndarray, boxes: list[BBox]) -> np.ndarray:
         """(len(boxes), D) L2-normalize; kırpılamayan kutu için sıfır satırı (benzerlik 0)."""

@@ -12,7 +12,8 @@ from typing import Any
 import cv2
 import numpy as np
 
-from .detector import resolve_model_path, select_providers
+from . import tracklog
+from .detector import ort_providers, resolve_model_path, select_providers
 from .geometry import BBox
 from .reid import crop_person
 from .team import torso
@@ -42,8 +43,10 @@ class NumberReader:
                 "ONNX sınıflandırıcıyı 'models/' klasörüne koy (bkz. tracker/number.py).")
         import onnxruntime as ort
 
-        return ort.InferenceSession(str(path), providers=select_providers(
-            ort.get_available_providers(), device))
+        providers = select_providers(ort.get_available_providers(), device)
+        sess = ort.InferenceSession(str(path), providers=ort_providers(providers))
+        tracklog.model_opened(path, providers, sess)
+        return sess
 
     def _prep(self, crop: np.ndarray) -> np.ndarray | None:
         t = torso(crop, 0.12, 0.55, 0.10, 0.90)

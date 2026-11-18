@@ -47,6 +47,11 @@ out("CHIP", tostring(cmds():find("track-part left_leg", 1, true) ~= nil))
 click(find("step", "fill", 1)); out("STEP1", cmds())
 click(find("step", "pbox", -1)); out("STEP2", cmds())
 click(find("flag", "kp_filter")); out("FLAG", cmds())
+click(find("gpu", "dml:1")); out("GPU", cmds())
+out("GPULABEL", tostring(P():find("NVIDIA", 1, true) ~= nil), tostring(P():find("EKRAN KARTI", 1, true) ~= nil))
+do local _, _, L = find("save"); out("FIT", tostring(L.card.y + L.card.h <= H), tostring(L.s > 0.5)) end
+out("CLIP", TP.clip("Çok uzun ekran kartı adı", 8), TP.clip("kısa", 8))
+click(find("gpu_default")); out("GPUDEF", cmds())
 click(find("save")); out("SAVE", cmds())
 click(find("defaults")); out("DEF", cmds())
 -- Panel üstündeyken oklar yakalanır; dışına çıkınca bırakılır

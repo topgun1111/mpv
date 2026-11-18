@@ -5,7 +5,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, errlog
+from . import __version__, errlog, tracklog
 from .clicks import RESET_MSG, message_name, parse_click
 from .config import Config
 from .geometry import View, pan_for_center
@@ -34,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     lv = sub.add_parser("live", help="Canlı mod: mpv karelerini oku, takip et, zoom/pan uygula")
     lv.add_argument("--model", help="ONNX model yolu (varsayılan: config.model_path)")
     lv.add_argument("--device", choices=["auto", "dml", "cuda", "cpu"], help="Çalışma cihazı")
+    lv.add_argument("--gpu", help="Ekran kartı kimliği (auto|cpu|dml:N|cuda:N); varsayılanı geçer")
     lv.add_argument("--fps", type=float, help="En fazla işleme hızı (varsayılan: config.live_fps)")
     lv.add_argument("--reid", action="store_true",
                     help="Re-ID: hedef ID değişirse görünüme göre yeniden bağla (OSNet gerekir)")
@@ -355,6 +356,7 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
                                      pose=pest, progress=progress, sig=sig)
         if sc.cancelled:
             print(f"tarama durduruldu ({len(samples)} örnek); --resume ile sürdür")
+            tracklog.active().note(f"tarama durduruldu ({len(samples)} örnek)", "UYARI")
             return 3
         if sc.target:
             args.target_id = sc.target["id"]
@@ -362,9 +364,13 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
                 args.part = str(sc.target["part"])
         elif sel:
             print(f"UYARI: {sc.error or 'hedef çözülemedi'}; izler listeleniyor", file=sys.stderr)
+            tracklog.active().fail("hedef çözümleme", sc.error or "hedef çözülemedi")
     else:
         samples, size = run_detection(src, pipe, progress, total, bank=bank, team=tbank,
                                       pose=pest)
+    tracklog.active().note(f"{len(samples)} örnek tarandı (video {size[0]}x{size[1]}, "
+                           f"{src.duration:.0f} sn, {fps:g} örnek/sn)")
+    tracklog.active().ok("tarama")
     doc = make_doc(args.video, size, src.src_fps, src.duration, fps, samples,
                    emb=bank.result() if bank else None,
                    team=tbank.result() if tbank else None, pose=pest is not None, sig=sig)
@@ -391,14 +397,20 @@ def run_export_cmd(cfg: Config, args: argparse.Namespace) -> int:
     dt = time.monotonic() - t0
     print(f"kaydedildi: {r['out']} ({r['frames']} kare, {r['size'][0]}x{r['size'][1]}, "
           f"{'ses dahil' if r['audio'] else 'sessiz'}, {r.get('encoder', '?')}, {dt:.0f} sn)")
+    tracklog.active().ok("dışa aktarma")
+    tracklog.active().note(f"kaydedildi: {r['out']} ({r['frames']} kare, {r.get('encoder', '?')}, "
+                           f"{dt:.0f} sn)")
     if r.get("fallback"):
         print(f"not: {r['fallback']} (çalışma anı hatası)")
+        tracklog.active().note(f"kodlayıcı yedeğe düştü: {r['fallback']}", "UYARI")
     v = r.get("validation")
     if v:
         for m in v["warnings"]:
             print(f"doğrulama uyarı: {m}")
+            tracklog.active().note(f"doğrulama: {m}", "UYARI")
         for m in v["errors"]:
             print(f"doğrulama HATA: {m}", file=sys.stderr)
+            tracklog.active().fail("dışa aktarma doğrulama", m)
         print("doğrulama: " + ("tamam" if v["ok"] else "BAŞARISIZ"))
         if not v["ok"]:
             return 4
@@ -447,6 +459,43 @@ def run_update_cmd(cfg: Config, args: argparse.Namespace) -> int:
     return 0 if res["state"] == "launched" else 1
 
 
+def _logged(name: str, cfg: Config, args: argparse.Namespace, fn) -> int:
+    """Tarama/dışa aktarma: videonun TakipLog dosyasına başlangıç, hata ve sonuç yazar."""
+    with tracklog.operation(getattr(args, "video", None), name, cfg) as tl:
+        rc = fn(cfg, args)
+        if rc not in (0, 130):
+            tl.fail(name, f"çıkış kodu {rc}")
+        return rc
+
+
+def _respawn_live(args: argparse.Namespace, cfg: Config) -> None:
+    """Ekran kartı seçimi değişti: aynı argümanlarla yeni takip programı başlat (config'ten yeni kartı okur);
+    eski süreç çıkar, kilit dosyası sahipliği yenisine geçer."""
+    import subprocess
+
+    argv, skip = [], False
+    for a in getattr(args, "argv", []):  # eski --gpu atılır; yenisi geçerli seçimden eklenir
+        if skip:
+            skip = False
+        elif a == "--gpu":
+            skip = True
+        elif not a.startswith("--gpu="):
+            argv.append(a)
+    from .gpu import current_id
+
+    cmd = [sys.executable, "-m", "tracker", *argv, "--gpu", current_id(cfg)]
+    kw: dict = {"stdin": subprocess.DEVNULL, "close_fds": True}
+    if sys.platform == "win32":
+        headless = getattr(args, "headless", False)
+        kw["creationflags"] = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                               | (subprocess.CREATE_NO_WINDOW if headless else subprocess.CREATE_NEW_CONSOLE))
+    else:
+        kw["start_new_session"] = True
+    if getattr(args, "headless", False):
+        kw["stdout"] = kw["stderr"] = subprocess.DEVNULL
+    subprocess.Popen(cmd, **kw)  # noqa: S603 (kendi arayüzümüz)
+
+
 def _notify_loading(ipc_path: str, on: bool) -> None:
     """Lua'ya "modeller yükleniyor"/"hazır" bildir (en iyi çaba; hata izlemeyi etkilemez)."""
     from .clicks import LOADING_MSG
@@ -472,8 +521,15 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     if (args.team or args.number) and not args.reid:
         print("--team/--number için --reid de gerekir")
         return 2
+    from . import gpu as gpumod
     from .detector import resolve_model_path
 
+    dev = args.device or cfg.device
+    tlog = tracklog.TrackLog(proc="canlı", version=__version__,
+                             device_text=gpumod.config_text(cfg, dev))
+    if getattr(args, "gpu_warn", None):
+        tlog.startup("UYARI", args.gpu_warn)
+    tracklog.activate(tlog)  # model açılışları ve hatalar video açılana kadar başlığa birikir
     explicit_reid = bool(args.reid)
     do_reid, do_team, do_number = live_reid_plan(
         cfg, args, resolve_model_path(args.reid_model or cfg.reid_model).is_file(),
@@ -531,6 +587,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
         info = [model_line("Model", cfg.pose_model if pose_det else args.model or cfg.model_path,
                            det.session, f"{det.model_type}, {det.size[1]}x{det.size[0]}")]
         pipeline = Pipeline(det, ByteTracker(low_thr=cfg.live_det_conf), gmc=make_gmc(cfg))
+    info.insert(0, "Ekran kartı: " + gpumod.config_text(cfg, dev).split(" [")[0])
     reid = None
     if args.reid and not explicit_reid and isinstance(pipeline, NullPipeline):
         args.reid = args.team = args.number = False  # otomatik Re-ID: person modeli yoksa kapalı
@@ -570,6 +627,8 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
                                  device=args.device or cfg.device)
             print(f"Vücut parçası takibi açık: provider={pose.session.get_providers()[0]}")
             info.append(model_line("Poz", cfg.pose_model, pose.session))
+        elif pose is None:
+            tlog.startup("UYARI", f"poz modeli dosyası yok ({cfg.pose_model}): eklem/parça takibi KAPALI")
     except Exception as e:  # eklem takibi isteğe bağlı: yoksa/bozuksa eski davranış
         errlog.record("pose modeli yükleme", e)
         print(f"UYARI: pose modeli yüklenemedi ({e}); eklem takibi kapalı.", file=sys.stderr)
@@ -587,6 +646,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
             elif cfg.wholebody == "on":
                 print(f"UYARI: {cfg.wholebody_model} yok; el/yüz/ayak parmağı takibi kapalı.",
                       file=sys.stderr)
+                tlog.startup("UYARI", f"tüm-vücut modeli dosyası yok ({cfg.wholebody_model})")
         except Exception as e:  # isteğe bağlı: yoksa/bozuksa 17 noktalı davranış
             errlog.record("tüm-vücut modeli yükleme", e)
             print(f"UYARI: tüm-vücut modeli yüklenemedi ({e}); yalnız 17 nokta.", file=sys.stderr)
@@ -598,15 +658,22 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     # Konsolsuz (pythonw) çalışırken log'a 5 sn'de bir hız/gecikme/hedef satırı yaz
     stats = args.stats or (5.0 if getattr(args, "headless", False) else 0.0)
     _notify_loading(cfg.ipc_path, False)
+    tlog.startup("OK" if not isinstance(pipeline, NullPipeline) else "UYARI",
+                 "kişi tespiti: " + ("hazır" if not isinstance(pipeline, NullPipeline)
+                                      else "model yok, yalnız nesne takibi çalışır"))
+    restart = False
     try:
         with MpvIpc(cfg.ipc_path, keep_events=False) as mpv:  # komut bağlantısı olay biriktirmez
-            run_live(mpv, events, pipeline, cfg, stats_every=stats, reid=reid,
-                     cfg_path=args.cfg_path, pose=pose, info=info, stop=stop, wholebody=wb,
-                     cuts=make_cuts(cfg))
+            restart = bool(run_live(mpv, events, pipeline, cfg, stats_every=stats, reid=reid,
+                                    cfg_path=args.cfg_path, pose=pose, info=info, stop=stop,
+                                    wholebody=wb, cuts=make_cuts(cfg), tlog=tlog))
     finally:
         stop.set()
         listener.stop()
         inst.release()
+        tracklog.activate(None)
+    if restart:  # panelden ekran kartı değişti: yeni kart için modeller baştan yüklenir
+        _respawn_live(args, cfg)
     return 0
 
 
@@ -1087,11 +1154,18 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     cfg = Config.load(args.config) if args.config and Path(args.config).is_file() else Config()
     args.cfg_path = args.config or "tracker_config.json"  # canlı `track-save` hedefi
+    args.argv = list(argv) if argv is not None else sys.argv[1:]  # ekran kartı değişince yeniden başlatma
     try:  # S1: device=auto sırası (varsayılan dml,cuda; TAKIPLI_PROVIDER_ORDER geçer)
         if args.cmd not in ("ping", "view", "listen"):  # numpy'siz çalışırlar; detector numpy ister
-            from .detector import set_auto_order
+            from .detector import set_auto_order, set_gpu
 
+            if getattr(args, "gpu", None) or cfg.default_gpu:  # S2b: varsayılan/seçili kart
+                from . import gpu as gpumod
+
+                args.gpu_warn = gpumod.resolve_startup(cfg, getattr(args, "gpu", None))
             set_auto_order(cfg.provider_order)
+            dev = getattr(args, "device", None) or cfg.device  # S2: kart seçimi yalnız dml/cuda'da geçerli
+            set_gpu(cfg.gpu if dev in ("dml", "cuda") else -1)
     except ValueError as e:
         print(f"HATA: {e}", file=sys.stderr)
         return 1
@@ -1177,7 +1251,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "export":
         _log_if_headless(args.cfg_path, "takipli-aktarma-log.txt")
         try:
-            return run_export_cmd(cfg, args)
+            return _logged("dışa aktarma", cfg, args, run_export_cmd)
         except KeyboardInterrupt:
             return 130
         except (FileNotFoundError, ValueError, RuntimeError, OSError) as e:
@@ -1188,6 +1262,7 @@ def main(argv: list[str] | None = None) -> int:
             fn = run_offline_cmd if args.cmd == "offline" else run_offline_view_cmd
             if args.cmd == "offline":  # mpv'nin arka planda başlattığı tarama konsolsuzdur
                 _log_if_headless(args.cfg_path, "takipli-tarama-log.txt")
+                return _logged("tarama", cfg, args, fn)
             return fn(cfg, args)
         except KeyboardInterrupt:
             return 130

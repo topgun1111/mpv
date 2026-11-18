@@ -38,6 +38,18 @@ M.FLAGS = {
 }
 M.SOURCES = { { "auto", "Otomatik" }, { "live", "Canlı" }, { "scanned", "Taranmış iz" } }
 
+-- UTF-8 güvenli kısaltma (mpv'nin Lua'sı 5.1 olabilir: utf8 kütüphanesi yok)
+local function clip(s, n)
+  local out, c = {}, 0
+  for ch in s:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+    c = c + 1
+    if c > n then out[#out] = "…"; break end
+    out[#out + 1] = ch
+  end
+  return table.concat(out)
+end
+M.clip = clip
+
 local function nchars(s)
   local n = 0
   for _ in s:gmatch("[^\128-\191]") do n = n + 1 end
@@ -145,7 +157,32 @@ function M.layout(W, H, st, top)
       { act = "flag", a = f[1], on = on and true or false, s = f[2], disabled = (f[1] ~= "ui_hud" and not cfg) }), true)
   end
   y = y + 3 * 30 + 6
-  local fy = math.max(y, left_end) + 4
+  -- ---- Ekran kartı (tam genişlik): seçim config'e yazılır, takip programı yeni kartla yeniden başlar
+  local gy = math.max(y, left_end) + 2
+  add(rect("line", PAD, gy, DW - PAD * 2, 1))
+  gy = gy + 12
+  add(rect("label", PAD, gy, 0, 0, { s = "EKRAN KARTI" }))
+  add(rect("text", PAD + 118, gy + 6, 0, 0, { s = "Seçim bu oturum için; kalıcı yapmak için «Varsayılan yap»", fs = 11, col = "dim", an = 4 }))
+  local g = cfg and cfg.gpu
+  if g and type(g.items) == "table" and #g.items > 0 then
+    local isdef = (g.default ~= nil and g.default ~= "" and g.default == g.cur)
+    add(rect("btn", DW - PAD - 150, gy - 5, 150, 24,
+      { act = "gpu_default", a = isdef and "clear" or "set", on = isdef, s = isdef and "Varsayılanı kaldır" or "Varsayılan yap" }), true)
+  end
+  gy = gy + 22
+  if g and type(g.items) == "table" and #g.items > 0 then
+    local gw = math.floor((DW - PAD * 2 - 8) / 2)
+    for i, it in ipairs(g.items) do
+      local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
+      add(rect("chip", PAD + col * (gw + 8), gy + row * 34, gw, 28,
+        { act = "gpu", a = it.id, sel = (g.cur == it.id), s = clip(it.label or it.id, 58) }), true)
+    end
+    gy = gy + math.ceil(#g.items / 2) * 34
+  else
+    add(rect("text", PAD + 2, gy + 12, 0, 0, { s = "Ekran kartı listesi alınamadı (takip programı bağlı mı?)", fs = 12, col = "dim", an = 4 }))
+    gy = gy + 34
+  end
+  local fy = gy + 4
   local hw = math.floor((COLW - 8) / 2)
   add(rect("btn", x, fy, hw, 32, { act = "save", s = "Ayarları kaydet", variant = "primary" }), true)
   add(rect("btn", x + hw + 8, fy, hw, 32, { act = "defaults", s = "Varsayılanlar" }), true)
