@@ -1528,7 +1528,17 @@ if TRACK_SHOW_MENU ~= false then
             if a == "ui_hud" then hud.visible = not hud.visible; render_hud()
             else mp.commandv("script-message", "track-option", tostring(a), "toggle") end
           elseif act == "gpu_default" then mp.commandv("script-message", "track-gpu-default", tostring(a))
-          elseif act == "gpu" then mp.commandv("script-message", "track-gpu", tostring(a)) -- Python: kaydet + yeniden başlat
+          elseif act == "gpu" then
+            -- Yanlışlıkla dokunuşla takip programı yeniden başlamasın: yeni karta ikinci dokunuşla geçilir
+            local cur = tp_cfg and tp_cfg.gpu and tp_cfg.gpu.cur
+            local now = mp.get_time()
+            if a == cur or (tp_keys.gpu_arm == a and now - (tp_keys.gpu_arm_t or 0) < 4) then
+              tp_keys.gpu_arm = nil
+              mp.commandv("script-message", "track-gpu", tostring(a)) -- Python: kaydet + yeniden başlat
+            else
+              tp_keys.gpu_arm, tp_keys.gpu_arm_t = a, now
+              tp_save_show("Kartı değiştirmek için tekrar dokun", 3)
+            end
           elseif act == "save" then
             tp_save_show("Kaydediliyor…")
             if tp_save_timer then tp_save_timer:kill() end

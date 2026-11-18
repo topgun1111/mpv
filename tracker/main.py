@@ -487,8 +487,10 @@ def _respawn_live(args: argparse.Namespace, cfg: Config) -> None:
     kw: dict = {"stdin": subprocess.DEVNULL, "close_fds": True}
     if sys.platform == "win32":
         headless = getattr(args, "headless", False)
-        kw["creationflags"] = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-                               | (subprocess.CREATE_NO_WINDOW if headless else subprocess.CREATE_NEW_CONSOLE))
+        # DETACHED_PROCESS ile CREATE_NEW_CONSOLE birlikte verilemez (WinError 87).
+        kw["creationflags"] = (subprocess.CREATE_NEW_PROCESS_GROUP
+                               | (subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW if headless
+                                  else subprocess.CREATE_NEW_CONSOLE))
     else:
         kw["start_new_session"] = True
     if getattr(args, "headless", False):
