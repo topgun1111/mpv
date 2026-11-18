@@ -680,7 +680,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
                 restart = bool(run_live(mpv, events, pipeline, cfg, stats_every=stats, reid=reid,
                                         cfg_path=args.cfg_path, pose=pose, info=info, stop=stop,
                                         wholebody=wb, cuts=make_cuts(cfg), tlog=tlog))
-            if restart or stop.is_set():
+            if restart or stop.is_set() or args.wait <= 0:  # --wait yoksa (test/elle çalıştırma) eski davranış: çık
                 break
             # mpv kapandı/IPC koptu: modeller yüklü kalır, yeni mpv açılınca otomatik yeniden bağlan.
             from .ipc import wait_for_ipc
