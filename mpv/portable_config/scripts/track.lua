@@ -775,9 +775,19 @@ end
 -- Python açılışta modelleri yüklerken (birkaç sn–dakika) `track-loading 1`, bitince `0` yollar;
 -- bu sürede sağ tık kuyruğa alınır, "yanıt vermiyor" uyarısı çıkmaz.
 local loading = false
+-- Python gerçekten yanıt verene kadar "hazır" sayılmaz (bağlanıyor -> yükleniyor -> hazır).
+local tracker_ready = false
+local tp_save_pending = false
+local tracker_on_ready = nil -- Tracker paneli kurulunca atanır; bekleyen kaydı gönderir
+local function tracker_set_ready()
+  if tracker_ready then return end
+  tracker_ready = true
+  if tracker_on_ready then tracker_on_ready() end
+end
 mp.register_script_message("track-loading", function(v)
   loading = (v == "1")
-  if loading then osd("modeller yükleniyor… (tıklamalar kuyruğa alınır)", 4) end
+  if loading then osd("modeller yükleniyor… (tıklamalar kuyruğa alınır)", 4)
+  else tracker_set_ready() end
 end)
 
 mp.register_script_message("track-dot", function(nx, ny)
@@ -1629,11 +1639,22 @@ if TRACK_SHOW_MENU ~= false then
               tp_save_show("Kartı değiştirmek için tekrar dokun", 3)
             end
           elseif act == "save" then
-            tp_save_show("Kaydediliyor…")
             if tp_save_timer then tp_save_timer:kill() end
-            -- Python yanıtı gelmezse (takip programı bağlı değil) bunu düğmede göster
-            tp_save_timer = mp.add_timeout(2, function() tp_save_show("Yanıt yok: takip bağlı mı?", 3) end)
-            mp.commandv("script-message", "track-save")
+            if tracker_ready then
+              tp_save_show("Kaydediliyor…")
+              -- Python yanıtı gelmezse (takip programı bağlı değil) bunu düğmede göster
+              tp_save_timer = mp.add_timeout(2, function() tp_save_show("Yanıt yok: takip bağlı mı?", 3) end)
+              mp.commandv("script-message", "track-save")
+            else
+              -- Python henüz bağlanmadı/modelleri yüklüyor: yanlış "Yanıt yok" gösterme, hazır olunca kaydet.
+              tp_save_pending = true
+              tp_save_show(loading and "Modeller yükleniyor… hazır olunca kaydedilecek" or "Takip bağlanıyor…", 120)
+              mp.commandv("script-message", "track-cfg-get") -- yoklama: yanıt gelince hazır sayılır
+              tp_save_timer = mp.add_timeout(60, function()
+                tp_save_pending = false
+                tp_save_show("Yanıt yok: takip bağlı mı?", 4)
+              end)
+            end
           elseif act == "defaults" then mp.commandv("script-message", "track-setting", "all", "0") end
           if render_tp then render_tp() end
         end,
@@ -1663,6 +1684,7 @@ if TRACK_SHOW_MENU ~= false then
         local t = json and utils.parse_json(json)
         if type(t) == "table" then
           tp_cfg = t
+          tracker_set_ready() -- Python yanıt verdi: iletişim doğrulandı
           if t.save then
             if tp_save_timer then tp_save_timer:kill() end
             tp_save_show(t.save == "ok" and "Kaydedildi ✓" or "Kaydedilemedi ✗")
@@ -1673,6 +1695,16 @@ if TRACK_SHOW_MENU ~= false then
       mp.observe_property("osd-dimensions", "native", function()
         if tpanel:is_open() then render_tp() end
       end)
+    end
+    tracker_on_ready = function()
+      if tp_save_pending then
+        tp_save_pending = false
+        if tp_save_timer then tp_save_timer:kill() end
+        tp_save_show("Kaydediliyor…")
+        tp_save_timer = mp.add_timeout(2, function() tp_save_show("Yanıt yok: takip bağlı mı?", 3) end)
+        mp.commandv("script-message", "track-save")
+      end
+      if tpanel:is_open() then mp.commandv("script-message", "track-cfg-get") end
     end
     mp.add_key_binding(nil, "tracker", function() toggle_tp() end) -- L: Tracker panelini aç/kapat
     -- Open settings on application startup; close the panel to select a target in the video.

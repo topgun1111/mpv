@@ -10,6 +10,7 @@ if not exist "%ROOT%\mpv\mpv.exe" (
   pause
   exit /b 1
 )
+rem 1) Python hazirligi + surecin baslatilmasi (IPC beklenmez). 2) mpv hemen acilir; Python baglantiyi kendisi kurar.
 call "%ROOT%\launcher\StartTracker.bat"
 if errorlevel 1 (
   echo.

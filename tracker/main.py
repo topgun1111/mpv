@@ -515,9 +515,13 @@ def _notify_loading(ipc_path: str, on: bool) -> None:
         pass
 
 
+RECONNECT_WAIT = 1800.0  # mpv kapandıktan sonra yeni mpv için beklenecek en uzun süre (sn)
+
+
 def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     """Ağır bağımlılıklar yalnızca bu komutta içe aktarılır."""
     import queue
+    import time
     import threading
 
     from .bytetrack import ByteTracker
@@ -671,10 +675,27 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
                                       else "model yok, yalnız nesne takibi çalışır"))
     restart = False
     try:
-        with MpvIpc(cfg.ipc_path, keep_events=False) as mpv:  # komut bağlantısı olay biriktirmez
-            restart = bool(run_live(mpv, events, pipeline, cfg, stats_every=stats, reid=reid,
-                                    cfg_path=args.cfg_path, pose=pose, info=info, stop=stop,
-                                    wholebody=wb, cuts=make_cuts(cfg), tlog=tlog))
+        while True:
+            with MpvIpc(cfg.ipc_path, keep_events=False) as mpv:  # komut bağlantısı olay biriktirmez
+                restart = bool(run_live(mpv, events, pipeline, cfg, stats_every=stats, reid=reid,
+                                        cfg_path=args.cfg_path, pose=pose, info=info, stop=stop,
+                                        wholebody=wb, cuts=make_cuts(cfg), tlog=tlog))
+            if restart or stop.is_set():
+                break
+            # mpv kapandı/IPC koptu: modeller yüklü kalır, yeni mpv açılınca otomatik yeniden bağlan.
+            from .ipc import wait_for_ipc
+
+            listener.stop()
+            print(f"mpv bağlantısı koptu; yeniden bağlanmak için bekleniyor "
+                  f"(en çok {RECONNECT_WAIT:g} sn)...")
+            time.sleep(1.0)  # eski mpv'nin IPC kanalını kapatması için kısa bekleme
+            if stop.is_set() or not wait_for_ipc(cfg.ipc_path, RECONNECT_WAIT):
+                print("mpv yeniden açılmadı; takip servisi kapanıyor.")
+                break
+            events = queue.Queue()
+            listener = EventListener(cfg.ipc_path, events)
+            listener.start()
+            print("mpv'ye yeniden bağlanıldı.")
     finally:
         stop.set()
         listener.stop()

@@ -43,9 +43,11 @@ rem DirectML varsa kullanilir; yoksa CPU provider ile devam eder.
 if errorlevel 1 echo [UYARI] DirectML bulunamadi; CPU kullanilabilir.
 
 rem Servis zaten calisiyorsa ikinci kopyayi acma.
-"%PY%" -m tracker ping >nul 2>nul
-if not errorlevel 1 (
-  echo [OK] Takip servisi zaten calisiyor.
+rem NOT: "tracker ping" burada KULLANILMAZ; ping mpv IPC ister, mpv ise henuz acilmadi (kilitlenme).
+rem Bunun yerine bu kurulum klasorune ait calisan "tracker live" sureci aranir (yalniz okuma; hicbir surec sonlandirilmaz).
+call :count_tracker
+if not "%TRK_COUNT%"=="0" (
+  echo [OK] Takip servisi zaten calisiyor ^(%TRK_COUNT% surec^); yenisi baslatilmayacak.
   exit /b 0
 )
 
@@ -63,17 +65,24 @@ if exist "%CFG%" (
   start "Takip (Python)" cmd /d /k ""%PY%" -m tracker live --wait 120"
 )
 
-rem IPC hazir olana kadar bekle.
+rem Python SURECININ baslatildigini dogrula (IPC'nin hazir olmasi BEKLENMEZ).
+rem Python, mpv acilana kadar kendi icinde bekler ve baglantiyi kendisi kurar.
 set "N=0"
-:wait_ping
-timeout /t 2 /nobreak >nul
-"%PY%" -m tracker ping >nul 2>nul
-if not errorlevel 1 (
-  echo [OK] Python takip servisi hazir.
+:wait_started
+timeout /t 1 /nobreak >nul
+call :count_tracker
+if not "%TRK_COUNT%"=="0" (
+  echo [OK] Python takip servisi baslatildi; mpv'ye baglanmasi bekleniyor.
   exit /b 0
 )
 set /a N+=1
-if %N% LSS 20 goto wait_ping
-echo [HATA] Python takip servisi 40 saniye icinde hazir olmadi.
+if %N% LSS 10 goto wait_started
+echo [HATA] Python takip sureci baslatilamadi.
 echo Takip (Python) penceresindeki hata mesajlarini kontrol edin.
 exit /b 1
+
+rem Bu kurulum klasorune ait "python -m tracker ... live" islemlerini sayar -> TRK_COUNT. Hicbir sureci sonlandirmaz.
+:count_tracker
+set "TRK_COUNT=0"
+for /f "usebackq delims=" %%C in (`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'Name=''python.exe''' | Where-Object { $_.CommandLine -like ('*'+$env:ROOT+'*') -and $_.CommandLine -like '*-m tracker*live*' } | Measure-Object).Count" 2^>nul`) do set "TRK_COUNT=%%C"
+exit /b 0
