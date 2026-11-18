@@ -1667,7 +1667,9 @@ do
       local p = root .. "/python/" .. name
       if utils.file_info(p) then py = p break end
     end
-    if py then
+    if py and os.getenv("TAKIP_PY_STARTED") then
+      mp.msg.info("takip programı elle/başlatıcıyla zaten başlatılmış (TAKIP_PY_STARTED)")
+    elseif py then
       local appdata = os.getenv("APPDATA") or root
       local cfg = appdata .. "/TakipliOynat/config.json"
       mp.command_native({ name = "subprocess", playback_only = false, detached = true,
