@@ -190,6 +190,8 @@ def test_run_live_opens_log_per_video_and_closes(tmp_path):
         def command(self, *a):
             if a[0] == "show-text":
                 self.texts.append(a[1])
+            elif a[:3] == ("script-message-to", "track", "track-toast"):
+                self.texts.append(a[3])
 
         def set_view(self, v):
             pass

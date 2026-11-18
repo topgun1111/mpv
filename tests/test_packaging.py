@@ -72,7 +72,11 @@ def test_launchers_use_embedded_python_and_wait_for_mpv():
     live = (ROOT / "launcher" / "Baslat.bat").read_text(encoding="utf-8")
     assert "mpv\\mpv.exe" in live  # takip programını track.lua kendisi başlatır
     lua = (ROOT / "mpv" / "portable_config" / "scripts" / "track.lua").read_text(encoding="utf-8")
-    assert "pythonw.exe" in lua and '"live", "--wait"' in lua and "APPDATA" in lua
+    assert "StartTracker.bat" in lua and "TAKIP_PY_STARTED" in lua  # ortak başlatıcı, çift başlatma yok
+    st = (ROOT / "launcher" / "StartTracker.bat").read_text(encoding="utf-8")
+    assert "live --wait" in st and "APPDATA" in st
+    code = [ln for ln in st.splitlines() if not ln.lstrip().lower().startswith("rem")]
+    assert not any("tracker ping" in ln for ln in code)  # ping mpv IPC ister: mpv'den önce kilitlenme
     off = (ROOT / "launcher" / "Offline.bat").read_text(encoding="utf-8")
     assert "offline-view" in off and "--target-id" in off and "%~1.track.json" in off
     for t in (off,):

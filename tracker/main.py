@@ -521,8 +521,8 @@ RECONNECT_WAIT = 1800.0  # mpv kapandıktan sonra yeni mpv için beklenecek en u
 def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
     """Ağır bağımlılıklar yalnızca bu komutta içe aktarılır."""
     import queue
-    import time
     import threading
+    import time
 
     from .bytetrack import ByteTracker
     from .detector import Detector
