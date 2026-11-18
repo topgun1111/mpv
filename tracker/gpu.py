@@ -128,8 +128,14 @@ def adapters(refresh: bool = False) -> list[Adapter]:
     for fn in (_enum_dxgi, _enum_powershell):
         try:
             found = fn()
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             found = []
+            try:
+                from . import errlog
+
+                errlog.record("ekran kartı tarama (" + fn.__name__ + ")", e)
+            except Exception:  # noqa: BLE001, S110
+                pass
         if found:
             break
     _cache = found
@@ -222,9 +228,20 @@ def config_text(cfg: Any, device: str | None = None) -> str:
 
 
 def snapshot(cfg: Any) -> dict:
-    """Tracker paneli (`track-cfg` JSON): geçerli seçim + liste."""
+    """Tracker paneli (`track-cfg` JSON): geçerli seçim + liste. Asla hata fırlatmaz: kart listesi
+    alınamazsa en azından Otomatik + İşlemci döner (panel «alınamadı» yerine seçim gösterir)."""
     cur = current_id(cfg)
     d = getattr(cfg, "default_gpu", "")
-    items = [{"id": c.id, "label": c.label + ("  ★ varsayılan" if c.id == d else "")}
-             for c in choices()]
+    try:
+        found = choices()
+    except Exception as e:  # noqa: BLE001
+        try:
+            from . import errlog
+
+            errlog.record("ekran kartı listesi", e)
+        except Exception:  # noqa: BLE001, S110
+            pass
+        found = [Choice("auto", "Otomatik (en iyi kullanılabilir)", "auto", -1),
+                 Choice("cpu", "İşlemci (CPU) · GPU kullanma", "cpu", -1)]
+    items = [{"id": c.id, "label": c.label + ("  ★ varsayılan" if c.id == d else "")} for c in found]
     return {"cur": cur, "default": d, "items": items}

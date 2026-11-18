@@ -130,6 +130,11 @@ def panel_snapshot(cfg: Config) -> dict:
         from . import gpu
 
         out["gpu"] = gpu.snapshot(cfg)
-    except Exception:  # noqa: BLE001, S110
-        pass
+    except Exception as e:  # noqa: BLE001
+        try:
+            from . import errlog
+
+            errlog.record("panel ekran kartı", e)
+        except Exception:  # noqa: BLE001, S110
+            pass
     return out

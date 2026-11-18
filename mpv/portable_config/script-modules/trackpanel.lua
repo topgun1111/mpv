@@ -179,7 +179,7 @@ function M.layout(W, H, st, top)
     end
     gy = gy + math.ceil(#g.items / 2) * 34
   else
-    add(rect("text", PAD + 2, gy + 12, 0, 0, { s = "Ekran kartı listesi alınamadı (takip programı bağlı mı?)", fs = 12, col = "dim", an = 4 }))
+    add(rect("text", PAD + 2, gy + 12, 0, 0, { s = cfg and "Ekran kartı listesi boş geldi (hata günlüğüne bak: errlog)" or "Takip programı bağlı değil: Python (CMD) penceresi açık ve hatasız mı?", fs = 12, col = "dim", an = 4 }))
     gy = gy + 34
   end
   local fy = gy + 4
