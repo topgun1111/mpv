@@ -61,8 +61,21 @@ object SamEngine {
     /** What the last memory/prompt scan used (providers + ms per component); for the benchmark screen. */
     @Volatile var lastRun: String = ""
 
-    fun hasModels(ctx: Context): Boolean = ModelStore.list(ctx).let { ENC in it && DEC in it }
-    fun hasMemory(ctx: Context): Boolean = ModelStore.list(ctx).let { l -> COMPONENTS.all { it in l } }
+    private val variants = listOf("edgetam", "small")
+    fun availableVariants(ctx: Context): List<String> = variants.filter { v ->
+        val files = ModelStore.listSam(ctx, v); ENC in files && DEC in files
+    }
+    fun selectedVariant(ctx: Context): String {
+        val available = availableVariants(ctx)
+        val saved = ctx.getSharedPreferences("sam", Context.MODE_PRIVATE).getString("variant", "edgetam")
+        return saved?.takeIf { it in available } ?: available.firstOrNull() ?: "edgetam"
+    }
+    fun setSelectedVariant(ctx: Context, variant: String) {
+        require(variant in availableVariants(ctx)) { "SAM variant is not installed: $variant" }
+        ctx.getSharedPreferences("sam", Context.MODE_PRIVATE).edit().putString("variant", variant).apply()
+    }
+    fun hasModels(ctx: Context): Boolean = availableVariants(ctx).isNotEmpty()
+    fun hasMemory(ctx: Context): Boolean = ModelStore.listSam(ctx, selectedVariant(ctx)).let { l -> COMPONENTS.all { it in l } }
 
     fun npuEnabled(ctx: Context): Boolean = ctx.getSharedPreferences("sam", Context.MODE_PRIVATE).getBoolean("npu", true)
     fun setNpuEnabled(ctx: Context, on: Boolean) { ctx.getSharedPreferences("sam", Context.MODE_PRIVATE).edit().putBoolean("npu", on).apply() }
@@ -102,7 +115,8 @@ object SamEngine {
 
     private fun open(ctx: Context, memory: Boolean): Models {
         val npu = npuEnabled(ctx)
-        fun m(n: String) = Qnn.open(ctx, n, THREADS, npu)
+        val variant = selectedVariant(ctx)
+        fun m(n: String) = Qnn.open(ctx, n, THREADS, npu, variant)
         return Models(OrtEnvironment.getEnvironment(), m(ENC), m(DEC), if (memory) m(DEC_TRK) else null, if (memory) m(MEMENC) else null, if (memory) m(MEMATTN) else null)
     }
 
@@ -392,7 +406,7 @@ object SamEngine {
                         steps += walk((p downTo 0).toList()).filterKeys { it != p }
                         if (memory) steps += reverseFill(s, files, ts, steps, ms, gate)
                         val n = max(1, files.size)
-                        lastRun = (if (memory) "EdgeTAM memory tracker: " else "EdgeTAM prompt tracker: ") + s.summary(ms.mapValues { it.value / n }, files.size) + (if (memory) " | " + gate.summary() else "")
+                        lastRun = (if (memory) "${selectedVariant(ctx)} memory tracker: " else "${selectedVariant(ctx)} prompt tracker: ") + s.summary(ms.mapValues { it.value / n }, files.size) + (if (memory) " | " + gate.summary() else "")
                         return steps
                     }
                 }
@@ -430,10 +444,11 @@ object SamEngine {
     /** Runs the encoder ONCE on the shown frame (CPU: no long NPU compile while the user waits); every tap then only runs the small decoder. */
     suspend fun encodeFrame(ctx: Context, bmp: Bitmap): SamFrameCache? = withContext(Dispatchers.Default) {
         if (!hasModels(ctx)) return@withContext null
+        val variant = selectedVariant(ctx)
         val env = OrtEnvironment.getEnvironment()
         val imgT = tensor(env, chw(bmp), 1, 3, S.toLong(), S.toLong())
         try {
-            Qnn.open(ctx, ENC, THREADS, false).use { enc ->
+            Qnn.open(ctx, ENC, THREADS, false, variant).use { enc ->
                 enc.run(mapOf("image" to imgT)).use { r ->
                     val h0 = r.get("high_res_feats_0").get() as OnnxTensor
                     val h1 = r.get("high_res_feats_1").get() as OnnxTensor
@@ -447,12 +462,13 @@ object SamEngine {
     /** The object under a tap (same prompt and candidate rule as the scan's first frame, so what is highlighted is what gets followed). */
     suspend fun segmentAt(ctx: Context, cache: SamFrameCache, x: Double, y: Double): SamMask? = withContext(Dispatchers.Default) {
         if (!hasModels(ctx)) return@withContext null
+        val variant = selectedVariant(ctx)
         val env = OrtEnvironment.getEnvironment()
         val em = tensor(env, cache.embed, *cache.embedShape)
         val h0 = tensor(env, cache.hr0, *cache.hr0Shape)
         val h1 = tensor(env, cache.hr1, *cache.hr1Shape)
         try {
-            Qnn.open(ctx, DEC, THREADS, false).use { dec ->
+            Qnn.open(ctx, DEC, THREADS, false, variant).use { dec ->
                 val (c, l) = prompt3(null, x, y)
                 val d = decode(env, dec, em, h0, h1, c, l)
                 val cands = (0 until d.n).map { analyse(d.masks, it, d.iou[it].toDouble()) }
@@ -501,18 +517,19 @@ object SamEngine {
     /** Times every present graph on CPU and on the NPU (random inputs of the right shape; the encoder gets `bmp`) and compares the encoder+decoder result of both providers on `bmp`. */
     suspend fun bench(ctx: Context, bmp: Bitmap, runs: Int, onProgress: (String) -> Unit): SamBenchReport? = withContext(Dispatchers.Default) {
         if (!hasModels(ctx)) return@withContext null
+        val variant = selectedVariant(ctx)
         val env = OrtEnvironment.getEnvironment()
         val img = chw(bmp)
         val rows = ArrayList<SamBenchRow>()
         val warm = ArrayList<Double>()
-        val present = ModelStore.list(ctx)
+        val present = ModelStore.listSam(ctx, variant)
         for (name in COMPONENTS.filter { it in present }) {
             fun time(npu: Boolean): Triple<BenchStats?, String?, Long> {
                 warm.clear()
                 onProgress("$name ${if (npu) "NPU" else "CPU"}")
                 var opened: OrtModel? = null
                 try {
-                    val model = Qnn.open(ctx, name, THREADS, npu)
+                    val model = Qnn.open(ctx, name, THREADS, npu, variant)
                     opened = model
                     val inputs = randomInputs(env, model, img)
                     try {
@@ -531,8 +548,8 @@ object SamEngine {
         }
         onProgress("accuracy")
         val parity = try {
-            Qnn.open(ctx, ENC, THREADS, false).use { ce -> Qnn.open(ctx, DEC, THREADS, false).use { cd ->
-                Qnn.open(ctx, ENC, THREADS, true).use { ne -> Qnn.open(ctx, DEC, THREADS, true).use { nd ->
+            Qnn.open(ctx, ENC, THREADS, false, variant).use { ce -> Qnn.open(ctx, DEC, THREADS, false, variant).use { cd ->
+                Qnn.open(ctx, ENC, THREADS, true, variant).use { ne -> Qnn.open(ctx, DEC, THREADS, true, variant).use { nd ->
                     if (!ne.npu || !nd.npu) "NPU not used for encoder/decoder (${ne.fallback ?: nd.fallback ?: "ran on CPU"}): nothing to compare"
                     else {
                         val (ea, ma) = encDec(env, ce, cd, img); val (eb, mb) = encDec(env, ne, nd, img)

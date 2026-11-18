@@ -68,9 +68,9 @@ object Qnn {
     }
 
     /** One graph on NPU (when `wantNpu`) or CPU; see [OrtModel]. */
-    fun open(ctx: Context, name: String, threads: Int, wantNpu: Boolean): OrtModel {
+    fun open(ctx: Context, name: String, threads: Int, wantNpu: Boolean, variant: String? = null): OrtModel {
         val env = OrtEnvironment.getEnvironment()
-        val file = ModelStore.materialize(ctx, name)
+        val file = ModelStore.materialize(ctx, name, variant)
         val t0 = System.nanoTime()
         var fell: String? = null
         var s: OrtSession? = null

@@ -79,8 +79,9 @@ def test_export_workflow_is_manual_only_and_uploads_the_graphs():
     y = (ROOT / ".github/workflows/sam-export.yml").read_text(encoding="utf-8")
     assert "workflow_dispatch:" in y and "push:" not in y and "pull_request:" not in y and "workflow_call:" not in y
     assert "scripts/export_sam2.py" in y and "--no-memory" not in y  # beş grafiğin hepsi (geri düşüş yok)
-    assert "upload-artifact" in y and "sam-models/*.onnx" in y
-    assert all(v in y for v in ("edgetam", "small", "base_plus")) and "large" not in y.split("options:")[1]
+    assert "upload-artifact" in y and "sam-models/${{ matrix.variant }}/*.onnx" in y
+    assert all(v in y for v in ("edgetam", "small", "both")) and "base_plus" not in y and "large" not in y
+    assert "timeout-minutes: 180" in y and "cache: pip" in y
 
 
 # --- girdiler ---

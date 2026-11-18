@@ -75,6 +75,8 @@ fun SamBenchSection(image: Bitmap?, locked: Boolean) {
     if (!SamEngine.hasModels(ctx)) return
     val scope = rememberCoroutineScope()
     var npuOn by remember { mutableStateOf(SamEngine.npuEnabled(ctx)) }
+    val variants = remember { SamEngine.availableVariants(ctx) }
+    var variant by remember { mutableStateOf(SamEngine.selectedVariant(ctx)) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var text by remember { mutableStateOf("") }
@@ -87,6 +89,14 @@ fun SamBenchSection(image: Bitmap?, locked: Boolean) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         HorizontalDivider()
         Text(stringResource(R.string.sam_bench_title), style = MaterialTheme.typography.titleMedium)
+        Text("Model: $variant", style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            variants.forEach { v ->
+                FilterChip(selected = variant == v, enabled = !busy && !locked, onClick = {
+                    variant = v; SamEngine.setSelectedVariant(ctx, v)
+                }, label = { Text(if (v == "edgetam") "EdgeTAM" else "SAM 2.1 Small") })
+            }
+        }
         Text(stringResource(if (SamEngine.hasMemory(ctx)) R.string.sam_bench_memory_ok else R.string.sam_bench_memory_missing), style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(

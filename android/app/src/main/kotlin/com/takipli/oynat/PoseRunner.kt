@@ -33,14 +33,24 @@ object ModelStore {
         return (assets + side).distinct().sorted()
     }
 
-    /** A real file path for ORT. Side-loaded files win; asset copies are refreshed when the size differs. */
-    fun materialize(ctx: Context, name: String): File {
-        sideDir(ctx)?.resolve(name)?.takeIf { it.isFile }?.let { return it }
-        val out = File(ctx.filesDir, "$DIR/$name")
+    fun listSam(ctx: Context, variant: String): List<String> {
+        val rel = "$DIR/$variant"
+        val assets = ctx.assets.list(rel).orEmpty().filter { it.endsWith(".onnx") }
+        val side = sideDir(ctx)?.resolve(variant)?.listFiles { f -> f.isFile && f.name.endsWith(".onnx") }?.map { it.name }.orEmpty()
+        return (assets + side).distinct().sorted()
+    }
+
+    /** A real file path for ORT. Variant files live in models/<variant>; legacy root models remain supported. */
+    fun materialize(ctx: Context, name: String, variant: String? = null): File {
+        val relative = if (variant.isNullOrBlank()) name else "$variant/$name"
+        sideDir(ctx)?.resolve(relative)?.takeIf { it.isFile }?.let { return it }
+        if (!variant.isNullOrBlank()) sideDir(ctx)?.resolve(name)?.takeIf { it.isFile }?.let { return it }
+        val asset = if (variant.isNullOrBlank()) "$DIR/$name" else "$DIR/$variant/$name"
+        val out = File(ctx.filesDir, "$DIR/$relative")
         out.parentFile?.mkdirs()
-        val size = runCatching { ctx.assets.openFd("$DIR/$name").use { it.length } }.getOrDefault(-1L)
+        val size = runCatching { ctx.assets.openFd(asset).use { it.length } }.getOrDefault(-1L)
         if (!out.isFile || size < 0 || out.length() != size) {
-            ctx.assets.open("$DIR/$name").use { input -> out.outputStream().use { input.copyTo(it) } }
+            ctx.assets.open(asset).use { input -> out.outputStream().use { input.copyTo(it) } }
         }
         return out
     }

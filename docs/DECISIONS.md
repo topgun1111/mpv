@@ -33,7 +33,7 @@ Switching without code edits: in a CUDA venv `--device auto` already picks CUDA,
 
 The five graphs (`sam-encoder`, `sam-decoder`, `sam-decoder-trk`, `sam-memenc`, `sam-memattn`) are not in the repo. Export EdgeTAM first, then SAM 2.1 Small. Never SAM 2.1 Large (6 GB VRAM). The two model repositories both install a package named `sam2`: one variant per environment.
 
-**Option A, GitHub Actions (no torch on your PC).** Actions tab, workflow "SAM export (PC)", Run workflow, variant `edgetam`; run it again with `small`. Download the artifact `sam-graphs-edgetam` (a zip; the five `.onnx` files are inside) and unzip it into `models\sam-edgetam\` (small: `models\sam-small\`). The script checks every file against PyTorch and stops on a mismatch. If the memory graphs fail, this workflow does not fall back to encoder + decoder only: paste the log of the failed step.
+**Option A, GitHub Actions (no torch on your PC).** Actions tab, workflow **"SAM model export (EdgeTAM + SAM 2.1 Small)"**, Run workflow, select `both` (default). Two independent jobs export EdgeTAM and SAM 2.1 Small; each uploads its five ONNX graphs and a SHA256 list as `sam-models-edgetam` / `sam-models-small`. Select one variant to run only that export. The workflow has a 180-minute timeout, cached pip dependencies, pinned core export packages, checkpoint retries, ONNX graph/I/O validation, and uploads partial output plus diagnostic logs on failure. The app's Android `sam` build embeds both sets under `models/edgetam/` and `models/small/`; choose the active model in the Bench screen. Do not mix the two Python packages in one environment (both are named `sam2`).
 
 **Option B, a machine with torch (PowerShell, repo folder; a separate venv for each variant):**
 
@@ -44,7 +44,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install onnx onnxruntime timm
 git clone --depth 1 https://github.com/facebookresearch/EdgeTAM.git ..\EdgeTAM
 pip install -e ..\EdgeTAM
-python scripts\export_sam2.py models\sam-edgetam edgetam
+python scripts\export_sam2.py android\app\src\sam\assets\models\edgetam edgetam
 deactivate
 
 py -3.11 -m venv venv-export-sam21
@@ -52,7 +52,7 @@ venv-export-sam21\Scripts\activate
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install onnx onnxruntime timm
 pip install git+https://github.com/facebookresearch/sam2.git
-python scripts\export_sam2.py models\sam-small small
+python scripts\export_sam2.py android\app\src\sam\assets\models\small small
 ```
 
 **Benchmark** (in the DirectML environment, then in the CUDA venv from "CUDA setup"; one JSON and one `.md` file per run):

@@ -26,6 +26,7 @@ that rewrite against the original and every ONNX file against PyTorch, and stops
 from __future__ import annotations
 
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -43,15 +44,29 @@ S, FM = 1024, 64  # image side, feature map side (S/16)
 NO_OBJ = -32.0    # SAM 2 uses -1024 for "no object"; clamped like the logits (fp16-safe, sigmoid ~ 0 either way)
 
 
-def _download(urls, ckpt: Path) -> bool:
-    for u in urls:
-        if ckpt.is_file() and ckpt.stat().st_size > 1_000_000:
-            break
-        try:
-            urllib.request.urlretrieve(u, ckpt)
-        except Exception as e:  # try the next mirror
-            print(f"download failed ({u}): {e}", file=sys.stderr)
-    return ckpt.is_file() and ckpt.stat().st_size > 1_000_000
+def _download(urls, ckpt: Path, attempts: int = 4) -> bool:
+    """Retry each checkpoint mirror, download to a temporary file, and never keep a partial checkpoint."""
+    if ckpt.is_file() and ckpt.stat().st_size > 1_000_000:
+        return True
+    for url in urls:
+        for attempt in range(1, attempts + 1):
+            tmp = ckpt.with_suffix(ckpt.suffix + ".part")
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "mpv-model-export/1.0"})
+                with urllib.request.urlopen(req, timeout=180) as response, tmp.open("wb") as out:
+                    while chunk := response.read(8 * 1024 * 1024):
+                        out.write(chunk)
+                if tmp.stat().st_size <= 1_000_000:
+                    raise RuntimeError(f"checkpoint too small ({tmp.stat().st_size} bytes)")
+                tmp.replace(ckpt)
+                print(f"checkpoint downloaded: {ckpt} ({ckpt.stat().st_size} bytes)")
+                return True
+            except Exception as exc:
+                tmp.unlink(missing_ok=True)
+                print(f"download attempt {attempt}/{attempts} failed ({url}): {exc}", file=sys.stderr)
+                if attempt < attempts:
+                    time.sleep(min(15 * attempt, 60))
+    return False
 
 
 def _patch_rope_real(sam) -> int:
@@ -332,12 +347,29 @@ def main(argv: list[str]) -> int:
             if check:
                 ort_check(matt, ma, a, ["image_feat", "mem_feats", "ptrs"])
             written += [menc, matt]
-    ckpt.unlink(missing_ok=True)
+    # Validate every produced graph independently: structural checker + nonempty, named inputs/outputs.
+    import onnx
+    expected = {
+        "sam-encoder.onnx": ({"image"}, {"high_res_feats_0", "high_res_feats_1", "image_embed", "image_feat"}),
+        "sam-decoder.onnx": ({"image_embed", "high_res_feats_0", "high_res_feats_1", "point_coords", "point_labels"}, {"low_res_masks", "iou_predictions", "obj_ptrs", "object_score"}),
+        "sam-decoder-trk.onnx": ({"image_embed", "high_res_feats_0", "high_res_feats_1", "point_coords", "point_labels"}, {"low_res_masks", "iou_predictions", "obj_ptrs", "object_score"}),
+        "sam-memenc.onnx": ({"image_feat", "low_res_mask", "object_score"}, {"mem_feat"}),
+        "sam-memattn.onnx": ({"image_feat", "mem_feats", "ptrs"}, {"image_embed"}),
+    }
     for pth in written:
         if not pth.is_file() or pth.stat().st_size < MIN_BYTES // 5:
             print(f"ERROR: export failed or too small: {pth}", file=sys.stderr)
             return 1
+        graph = onnx.load(str(pth), load_external_data=True)
+        onnx.checker.check_model(graph, full_check=True)
+        ins = {v.name for v in graph.graph.input}
+        outs = {v.name for v in graph.graph.output}
+        want_in, want_out = expected[pth.name]
+        if ins != want_in or outs != want_out:
+            raise SystemExit(f"ERROR: {pth.name} I/O mismatch: inputs={sorted(ins)}, outputs={sorted(outs)}")
+        print(f"validated: {pth.name} inputs={sorted(ins)} outputs={sorted(outs)}")
         print(f"ready: {pth} ({pth.stat().st_size / 1e6:.1f} MB)")
+    ckpt.unlink(missing_ok=True)
     return 0
 
 

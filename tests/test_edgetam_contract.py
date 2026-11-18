@@ -30,9 +30,9 @@ def test_pose_stub_has_the_same_public_api():
 
 def test_ci_exports_memory_graphs_and_gates_int8():
     y = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
-    assert "--no-memory" in y and "quantize_edgetam.py" in y
-    for g in GRAPHS[2:]:
-        assert g in y
+    assert "quantize_edgetam.py" in y
+    assert '"$d/edgetam" edgetam' in y and '"$d/small" small' in y
+    assert 'for variant in edgetam small' in y and 'for model in sam-encoder sam-decoder sam-decoder-trk sam-memenc sam-memattn' in y
 
 
 def test_decoder_slot_counts_match_the_kotlin_prompts():

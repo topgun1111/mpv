@@ -1,49 +1,113 @@
-name: SAM export (PC)
+name: SAM model export (EdgeTAM + SAM 2.1 Small)
 
-# Elle çalıştırılır: Actions -> "SAM export (PC)" -> Run workflow. Yalnız scripts/export_sam2.py'yi koşar ve
-# 5 statik ONNX grafiğini (sam-encoder, sam-decoder, sam-decoder-trk, sam-memenc, sam-memattn) artifact olarak
-# yükler; PC'de `python -m tracker sam-bench` ile ölçülür (docs/DECISIONS.md "SAM graphs"). Betik her dosyayı
-# PyTorch ile karşılaştırır, uyuşmazlıkta durur (bellek grafikleri başarısızsa burada geri düşüş YOK: hata görünsün).
-# build-all.yml'e bağlı değildir; push/PR'da çalışmaz.
+# Exports both model families independently. Each matrix job has an isolated Python environment because
+# EdgeTAM and SAM 2.1 both install a package named `sam2` and must never coexist in one environment.
 on:
   workflow_dispatch:
     inputs:
-      variant:
-        description: "Model: edgetam (önce bunu), small (SAM 2.1 Small), base_plus. Large 6 GB VRAM için denenmez."
+      variants:
+        description: "Which model exports to run"
         type: choice
-        default: edgetam
-        options: [edgetam, small, base_plus]
+        default: both
+        options: [both, edgetam, small]
 
 permissions:
   contents: read
 
+env:
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
 jobs:
-  export:
-    name: export-${{ inputs.variant }}
+  choose:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        shell: bash
+        run: |
+          case "${{ inputs.variants || 'both' }}" in
+            edgetam) echo 'matrix=["edgetam"]' >> "$GITHUB_OUTPUT" ;;
+            small) echo 'matrix=["small"]' >> "$GITHUB_OUTPUT" ;;
+            *) echo 'matrix=["edgetam","small"]' >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  export:
+    name: export-${{ matrix.variant }}
+    needs: choose
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJson(needs.choose.outputs.matrix) }}
     env:
-      VARIANT: ${{ inputs.variant }}
+      VARIANT: ${{ matrix.variant }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Export (static shapes, float32 I/O; checked against PyTorch by the script)
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install pinned export dependencies
         run: |
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install onnx onnxruntime timm
-          # Both repositories install a package named `sam2`: never together (one variant per run).
-          if [ "$VARIANT" = "edgetam" ]; then
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install onnx==1.17.0 onnxruntime==1.20.1 timm==1.0.11
+      - name: Install isolated model implementation
+        run: |
+          if [ "$VARIANT" = edgetam ]; then
             git clone --depth 1 https://github.com/facebookresearch/EdgeTAM.git "$RUNNER_TEMP/EdgeTAM"
-            pip install -e "$RUNNER_TEMP/EdgeTAM"
+            python -m pip install -e "$RUNNER_TEMP/EdgeTAM"
           else
-            pip install git+https://github.com/facebookresearch/sam2.git
+            python -m pip install git+https://github.com/facebookresearch/sam2.git
           fi
-          python scripts/export_sam2.py sam-models "$VARIANT"
-          ls -l sam-models
-      - uses: actions/upload-artifact@v4
+      - name: Export and validate all five ONNX graphs
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p "sam-models/$VARIANT"
+          python scripts/export_sam2.py "sam-models/$VARIANT" "$VARIANT" 2>&1 | tee "export-$VARIANT.log"
+          for model in sam-encoder sam-decoder sam-decoder-trk sam-memenc sam-memattn; do
+            test -s "sam-models/$VARIANT/$model.onnx" || { echo "MISSING REQUIRED GRAPH: $model.onnx"; exit 1; }
+          done
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root = Path('sam-models')
+          with (root / 'SHA256SUMS.txt').open('w') as f:
+              for p in sorted(root.glob('*/*.onnx')):
+                  f.write(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.as_posix()}\n")
+          PY
+          ls -lh "sam-models/$VARIANT"
+      - name: Upload model files (also on partial failure)
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: sam-graphs-${{ inputs.variant }}
-          path: sam-models/*.onnx
-          if-no-files-found: error
+          name: sam-models-${{ matrix.variant }}
+          path: |
+            sam-models/${{ matrix.variant }}/*.onnx
+            sam-models/SHA256SUMS.txt
+            export-${{ matrix.variant }}.log
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Failure diagnostics
+        if: failure()
+        run: |
+          {
+            echo "## SAM export failed: $VARIANT"
+            echo "Variant: $VARIANT"
+            python --version
+            python -m pip freeze
+            find sam-models -maxdepth 3 -type f -printf '%p %s bytes\n' 2>/dev/null || true
+            tail -n 250 "export-$VARIANT.log" 2>/dev/null || true
+          } > "failure-$VARIANT.txt"
+      - name: Upload failure report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sam-export-diagnostics-${{ matrix.variant }}
+          path: failure-${{ matrix.variant }}.txt
+          if-no-files-found: ignore
