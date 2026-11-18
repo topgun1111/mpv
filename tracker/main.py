@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -1178,11 +1179,20 @@ def _run_live_with_retry(cfg: Config, args: argparse.Namespace, tries: int = 3,
     return 1
 
 
+def _default_cfg_path() -> str:
+    """--config verilmediyse ayar dosyası: %APPDATA%\\TakipliOynat\\config.json (kurulum klasörü
+    Program Files'ta yazılamaz: [Errno 13]); APPDATA yoksa ~/.takipli-oynat/config.json."""
+    base = os.environ.get("APPDATA")
+    d = Path(base) / "TakipliOynat" if base else Path.home() / ".takipli-oynat"
+    return str(d / "config.json")
+
+
 def main(argv: list[str] | None = None) -> int:
     _utf8_console()
     args = build_parser().parse_args(argv)
-    cfg = Config.load(args.config) if args.config and Path(args.config).is_file() else Config()
-    args.cfg_path = args.config or "tracker_config.json"  # canlı `track-save` hedefi
+    args.config = args.config or _default_cfg_path()  # --config yoksa kullanıcı klasörü (yazılabilir)
+    cfg = Config.load(args.config) if Path(args.config).is_file() else Config()
+    args.cfg_path = args.config  # canlı `track-save` hedefi
     args.argv = list(argv) if argv is not None else sys.argv[1:]  # ekran kartı değişince yeniden başlatma
     try:  # S1: device=auto sırası (varsayılan dml,cuda; TAKIPLI_PROVIDER_ORDER geçer)
         if args.cmd not in ("ping", "view", "listen"):  # numpy'siz çalışırlar; detector numpy ister
