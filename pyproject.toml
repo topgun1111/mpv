@@ -6,6 +6,7 @@ target-version = "py311"
 select = ["E", "F", "I", "W"]
 
 [tool.ruff.lint.per-file-ignores]
+"tests/test_packaging.py" = ["E501"]
 "tracker/update.py" = ["E501"]
 "tests/test_update.py" = ["E501"]
 "scripts/gen_golden.py" = ["E501"]
