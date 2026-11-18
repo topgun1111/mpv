@@ -29,7 +29,7 @@ def test_menu_bar_flow(tmp_path):
     assert d["HIDDEN"] == ["true", "false"]  # fare hareketi yok: çubuk yok
     assert d["CENTER"] == ["false", "false"]  # fare hareketinde çubuk görünür; tık yakalanmaz
     assert d["SHOWN"] == ["true", "true", "true"]  # çubuk üstünde: tık yakalanır, todo gri
-    assert d["TITLES"] == [",".join(["true"] * 7)]  # 7 başlık (B3: «Parça» eklendi)
+    assert d["TITLES"] == [",".join(["true"] * 8)]  # 8 başlık (B3: «Parça», Tracker paneli: «Tracker» eklendi)
     assert d["PARTMENU"] == ["true", "true"]  # B3: Parça menüsü tüm ön ayarları listeler
     assert d["PARTSEL"] == ["script-message track-part left_arm", "true"]  # seçim + kapanır
     assert d["PARTCHK"] == ["true"] and d["PARTLBL"] == ["true"]  # ✓ + dinamik «Vücut parçası: …»

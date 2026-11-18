@@ -14,8 +14,11 @@ from dataclasses import dataclass
 from . import errlog
 from .clicks import (
     ADDMODE_MSG,
+    CFG_GET_MSG,
+    CFG_MSG,
     DOT_MSG,
     HUD_MSG,
+    OPTION_MSG,
     PART_MSG,
     RELEASE_MSG,
     REMOVE_MSG,
@@ -35,7 +38,7 @@ from .geometry import View, compute_view
 from .ipc import MpvCommandError, MpvIpc, MpvIpcError
 from .parts import CYCLE, LABELS_TR, PART_MARGIN, next_preset
 from .quality import SOURCES, QualityWindow, scanned_agrees, views_ready
-from .settings import SETTINGS, adjust, status_text
+from .settings import SETTINGS, adjust, panel_snapshot, status_text, toggle_flag
 from .smooth import BoxFilter, ViewSmoother, ease_view
 from .targets import TargetSet
 
@@ -157,6 +160,7 @@ class LiveController:
             cfg.alpha_pos, cfg.alpha_zoom, cfg.dead_zone_pos, cfg.dead_zone_zoom
         )
         self.enabled = False
+        self.cfg_dirty = False  # Tracker paneli: ayar özeti Lua'ya yeniden gönderilmeli
         self.source = "auto"  # A2: auto | live | scanned (Lua menüsü `track-source` yollar)
         self.target_id: int | None = None
         self.last_tracks: list = []
@@ -234,7 +238,13 @@ class LiveController:
             self._click = None
             return self._release()
         if name == SETTING_MSG:
+            self.cfg_dirty = True
             return self._on_setting(ev.get("args") or [])
+        if name == OPTION_MSG:
+            return self._on_option(ev.get("args") or [])
+        if name == CFG_GET_MSG:
+            self.cfg_dirty = True
+            return Output()
         if name == ADDMODE_MSG:
             a = (ev.get("args") or [None, "toggle"])[1:2]
             self.add_mode = (not self.add_mode) if a == ["toggle"] else a == ["on"]
@@ -311,6 +321,34 @@ class LiveController:
             return Output()
         self.smoother.set_alpha(self.cfg.alpha_pos, self.cfg.alpha_zoom)
         return Output(osd=osd)
+
+    def _on_option(self, args: list) -> Output:
+        """Tracker paneli: track-option <anahtar> <+1|-1|0|toggle> (ek ayar ya da açma/kapama)."""
+        try:
+            key, arg = str(args[1]), str(args[2])
+        except IndexError:
+            return Output()
+        if arg == "toggle":
+            osd = toggle_flag(self.cfg, key)
+        else:
+            try:
+                osd = adjust(self.cfg, key, max(-1, min(1, int(float(arg)))))
+            except ValueError:
+                return Output()
+        if osd is None:
+            return Output()
+        self.cfg_dirty = True
+        self.smoother.set_alpha(self.cfg.alpha_pos, self.cfg.alpha_zoom)
+        return Output(osd=osd)
+
+    def cfg_message(self) -> str | None:
+        """Bekleyen ayar özeti (JSON) ya da None; bir kez verir."""
+        if not self.cfg_dirty:
+            return None
+        self.cfg_dirty = False
+        import json
+
+        return json.dumps(panel_snapshot(self.cfg), separators=(",", ":"))
 
     def _on_save(self) -> Output:
         if not self.cfg_path:
@@ -750,6 +788,16 @@ def run_live(
         except MpvCommandError as e:
             log(f"HUD gönderilemedi: {e}")
 
+    def sync_cfg() -> None:
+        # Tracker paneli (Lua `track-cfg`): ayar değişince ya da panel açılınca JSON özeti
+        msg = ctl.cfg_message()
+        if msg is None:
+            return
+        try:
+            mpv.command("script-message-to", "track", CFG_MSG, msg)
+        except MpvCommandError as e:
+            log(f"ayar özeti gönderilemedi: {e}")
+
     def emit(out: Output) -> None:
         nonlocal last_view
         if out.osd:
@@ -768,6 +816,7 @@ def run_live(
                 errlog.record("görünüm", e)
         sync_hud()
         sync_dot()
+        sync_cfg()
 
     log("Canlı mod hazır (Ctrl+C ile çık). mpv'de herhangi bir nesneye sağ tıkla: takip "
         "kendiliğinden açılır (oyuncu kimliği için sol tık).")

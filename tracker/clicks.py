@@ -21,6 +21,9 @@ DOT_MSG = "track-dot"  # Python → Lua: takip noktası (nx ny, video-normalize)
 SOURCE_MSG = "track-source"  # Lua → Python (A2): kaynak modu auto|live|scanned
 USE_SCANNED_MSG = "track-use-scanned"  # Python → Lua (A2): taranmış ize geç <sebep>
 LOADING_MSG = "track-loading"  # Python → Lua: modeller yükleniyor ("1") / hazır ("0")
+OPTION_MSG = "track-option"  # Lua → Python (Tracker paneli): <anahtar> <+1|-1|0|toggle>
+CFG_GET_MSG = "track-cfg-get"  # Lua → Python: panel açıldı, ayar özetini yolla
+CFG_MSG = "track-cfg"  # Python → Lua: ayar özeti (JSON; settings.panel_snapshot)
 HUD_MSG = "track-hud"  # Python → Lua (script-message-to track track-hud <metin>)
 
 

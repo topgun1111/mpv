@@ -10,6 +10,12 @@ local mp = require 'mp'
 local utils = require 'mp.utils'
 
 local enabled = false
+-- Tracker paneli (L / «Tracker» sekmesi): izleme modu. auto = sağ tık nesne/eklem + sağ sürükle alan;
+-- point = yalnız tık; rect = yalnız alan; body = vücut parçası (G / panel). Parça değişince mod uyar (set_part).
+local MODES = { auto = "Otomatik", point = "Nokta", rect = "Dikdörtgen", body = "Vücut" }
+local mode = "auto"
+local tpanel, tp_hot, tp_cfg = nil, false, nil -- panel nesnesi, imleç panel üstünde mi, Python ayar özeti
+local render_tp -- ileri bildirim (panel yeniden çizimi)
 local locked = false -- Python: bir hedef kilitli mi (track-hud'un 2. argümanı); zoom +/- ne yapacağını buna göre seçer
 -- Ekran üstü zoom kontrolü durumu (çizim/yerleşim aşağıda). z = video-zoom (log2).
 local zoomc = { z = 0, hover = nil, rects = {}, ov = nil, shown = "" }
@@ -54,6 +60,7 @@ local function render_hud()
     local r = mp.get_property_number("video-rotate", 0) or 0
     if r ~= 0 then zl = zl .. string.format("  Döndürme: %d°", r) end
     lines[#lines + 1] = zl
+    lines[#lines + 1] = "Mod: " .. (MODES[mode] or mode)
   end
   local data = ""
   if hud.visible and #lines > 0 then
@@ -73,6 +80,7 @@ mp.register_script_message("track-hud", function(text, lock, info)
   locked = (lock == "1")
   render_hud()
   render_zoom() -- + / - davranışı değişmiş olabilir; değer etiketi aynı kalır
+  if render_tp and tpanel and tpanel:is_open() then render_tp() end
 end)
 
 -- Pencere (OSD) boyutu: döndürülmüş videoda (90°/270°) `osd-dimensions` w/h bazı mpv sürümlerinde
@@ -351,6 +359,7 @@ local PART_LABEL = { auto = "Serbest", person = "Tüm kişi", head = "Baş", tor
 local part = "auto"
 local function set_part(p)
   part = p
+  if p ~= "auto" then mode = "body" elseif mode == "body" then mode = "auto" end -- G tuşu/menü modu da günceller
   if not enabled then set_enabled(true) end -- parça seçmek takibi açar (sağ tık gibi)
   mp.commandv("script-message", "track-part", p)
 end
@@ -360,6 +369,18 @@ local function next_part()
   set_part(PARTS[i % #PARTS + 1])
 end
 mp.add_key_binding(nil, "part", next_part)
+
+-- Mod seçimi (panel). body: parça seçili kalır (yoksa «Tüm kişi»); diğerleri parçayı «Serbest»e alır.
+local function set_mode(m)
+  if not MODES[m] then return end
+  if m == "body" then
+    set_part(part == "auto" and "person" or part)
+  else
+    if part ~= "auto" then set_part("auto") end
+    mode = m
+  end
+  osd("mod: " .. MODES[m], 1.5)
+end
 
 -- T1: hedef ekleme kipi. Açıkken sağ tık mevcut hedefe EKLER (birleşik kadraj); üyeye sağ tık çıkarır.
 local add_mode = false
@@ -819,7 +840,8 @@ local zoom_buttons = { function() zoom_step(1) end, function() zoom_step(-1) end
 -- Sağ tık: takip noktası. Takip kapalıysa açılır; tıklanan noktadaki nesne (ne olursa olsun) hedef
 -- olur (hedefin üstüne tekrar sağ tık hedefi bırakır). Sağ tuşla sürükleme dikdörtgen seçer (aşağıda).
 local function pick_target()
-  if panel.hover or zoomc.hover or menu_hot then return end
+  if panel.hover or zoomc.hover or menu_hot or tp_hot then return end
+  if mode == "rect" then osd("Dikdörtgen modu: sağ tuşu basılı tutup sürükle", 2) return end
   if not enabled then set_enabled(true) end
   on_click("track-point")
 end
@@ -870,6 +892,7 @@ local function finish_drag(pos)
     if drag.btn == "right" then pick_target() elseif enabled then on_click() end
     return
   end
+  if drag.btn == "right" and mode == "point" then osd("Nokta modu: sürükleme kapalı, tıkla (alan için Dikdörtgen/Otomatik)", 2.5) return end
   local d = osd_dims()
   local params = mp.get_property_native("video-params")
   if not (d and params and params.w and params.h) then return end
@@ -900,7 +923,7 @@ mp.add_key_binding(nil, "pick", function(ev)
   if e == "press" then
     pick_target()
   elseif e == "down" then
-    if not (panel.hover or zoomc.hover or menu_hot) and pos then
+    if not (panel.hover or zoomc.hover or menu_hot or tp_hot) and pos then
       drag.x0, drag.y0, drag.btn = pos.x, pos.y, "right"
     end
   elseif e == "up" and drag.x0 and drag.btn == "right" then
@@ -958,7 +981,7 @@ mp.add_key_binding(nil, "pan", function(ev)
   local e = ev and ev.event or "press"
   if e == "down" then
     local pos = mouse_xy()
-    if pos and pos.x and not (panel.hover or zoomc.hover or menu_hot)
+    if pos and pos.x and not (panel.hover or zoomc.hover or menu_hot or tp_hot)
         and (mp.get_property_number("video-zoom", 0) or 0) > PAN_MIN_ZOOM then
       pan.on, pan.x, pan.y, pan.x0, pan.y0, pan.hinted = true, pos.x, pos.y, pos.x, pos.y, false
     end
@@ -977,6 +1000,9 @@ local function left_press()
     menu:click(mp_.x, mp_.y)
     menu_hot = menu:over(mp_.x, mp_.y) or menu:is_open()
     render_menu()
+  elseif tp_hot and tpanel and mp_ then
+    tpanel:click(mp_.x, mp_.y)
+    render_tp()
   elseif panel.hover then
     buttons[panel.hover].act()
     render_panel()
@@ -987,7 +1013,7 @@ local function left_press()
 end
 
 sync_click_binding = function()
-  local want = (panel.hover ~= nil) or (zoomc.hover ~= nil) or menu_hot
+  local want = (panel.hover ~= nil) or (zoomc.hover ~= nil) or menu_hot or tp_hot
   if want and not panel.bound then
     mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", function(ev)
       ev = ev or { event = "press" }
@@ -1004,7 +1030,7 @@ end
 -- Çift sol tık (input.conf: MBTN_LEFT_DBL → track/dblclick): videoyu oynat/duraklat.
 -- İmleç ekran üstü düğme/menü üstündeyse pause yapmaz, o öğeye tıklanmış sayılır.
 mp.add_key_binding(nil, "dblclick", function()
-  if panel.hover or zoomc.hover or menu_hot then left_press(); return end
+  if panel.hover or zoomc.hover or menu_hot or tp_hot then left_press(); return end
   mp.commandv("cycle", "pause")
 end)
 
@@ -1053,6 +1079,7 @@ end
 refresh_panel = function()
   if panel.visible then render_panel() end
   render_zoom()
+  if render_tp and tpanel and tpanel:is_open() then render_tp() end
 end
 
 local function hide_panel()
@@ -1077,6 +1104,11 @@ mp.observe_property("mouse-pos", "native", function(_, pos)
     menu_prepare()
     if menu:mouse(pos.x or -1, pos.y or -1) then render_menu() end
     menu_hot = menu:over(pos.x or -1, pos.y or -1) or menu:is_open()
+  end
+  if tpanel and tpanel:is_open() then -- Tracker paneli: üstüne gelince hover + sol tık/klavye yakalanır
+    if tpanel:mouse(pos.x or -1, pos.y or -1) then render_tp() end
+    local hot = tpanel:over(pos.x or -1, pos.y or -1) and not menu_hot
+    if hot ~= tp_hot then tp_hot = hot; render_tp() end
   end
   local was_visible, was_hover = panel.visible, panel.hover
   panel.visible = true
@@ -1429,7 +1461,106 @@ if TRACK_SHOW_MENU ~= false then
     else
       mp.msg.warn("trackfiles.lua yüklenemedi: " .. tostring(TF))
     end
+    -- ---- Tracker paneli (L): modern kart; mantık/çizim script-modules/trackpanel.lua ----------------
+    local okp, TP = pcall(require, "trackpanel")
+    if not okp then
+      local p = mp.command_native and mp.command_native({ "expand-path", "~~/script-modules/trackpanel.lua" })
+      local f = p and loadfile(p)
+      if f then okp, TP = pcall(f) end
+    end
+    local toggle_tp = function() osd("Tracker paneli yüklenemedi (script-modules/trackpanel.lua yok mu?)", 5) end
+    if okp and type(TP) == "table" then
+      local tp_ov, tp_keys = nil, {}
+      local TP_KEYS = { LEFT = "left", RIGHT = "right", UP = "up", DOWN = "down", ENTER = "enter", KP_ENTER = "enter" }
+      local function tp_prepare()
+        local d = osd_dims()
+        if d and d.w and d.w > 0 then tpanel:refresh(d.w, d.h, menu and menu.bh or 0) end
+      end
+      local function sync_tp_keys() -- Esc: panel açıkken; oklar/Enter: yalnız imleç panel üstündeyken (seek bozulmasın)
+        local open = tpanel:is_open()
+        if open and not tp_keys.esc then
+          tp_keys.esc = true
+          mp.add_forced_key_binding("ESC", "trackpanel-ESC", function()
+            tpanel:key("esc"); render_tp()
+          end)
+        elseif not open and tp_keys.esc then
+          tp_keys.esc = false
+          mp.remove_key_binding("trackpanel-ESC")
+        end
+        local arrows = open and tp_hot
+        if arrows ~= (tp_keys.arrows or false) then
+          tp_keys.arrows = arrows
+          for k, name in pairs(TP_KEYS) do
+            if arrows then
+              mp.add_forced_key_binding(k, "trackpanel-" .. k, function()
+                tpanel:key(name); render_tp()
+              end, { repeatable = (name ~= "enter") })
+            else
+              mp.remove_key_binding("trackpanel-" .. k)
+            end
+          end
+        end
+      end
+      tpanel = TP.new({
+        state = function()
+          return { enabled = enabled, mode = mode, part = part, source = source, add_mode = add_mode,
+            offline = off.on, hud = hud.visible, cfg = tp_cfg }
+        end,
+        run = function(act, a, b)
+          if act == "mode" then set_mode(a)
+          elseif act == "part" then set_part(a)
+          elseif act == "toggle" then set_enabled(not enabled)
+          elseif act == "add" then toggle_add()
+          elseif act == "release" then do_release()
+          elseif act == "offline" then set_offline(not off.on)
+          elseif act == "source" then set_source(a)
+          elseif act == "step" then
+            local msg = (a == "fill" or a == "speed" or a == "lead") and "track-setting" or "track-option"
+            mp.commandv("script-message", msg, tostring(a), tostring(b))
+          elseif act == "flag" then
+            if a == "ui_hud" then hud.visible = not hud.visible; render_hud()
+            else mp.commandv("script-message", "track-option", tostring(a), "toggle") end
+          elseif act == "save" then mp.commandv("script-message", "track-save")
+          elseif act == "defaults" then mp.commandv("script-message", "track-setting", "all", "0") end
+          if render_tp then render_tp() end
+        end,
+      })
+      render_tp = function()
+        if not tp_ov then tp_ov = mp.create_osd_overlay("ass-events"); tp_ov.z = MENU_Z - 1 end
+        local d = osd_dims()
+        if d and d.w and d.w > 0 then tp_ov.res_x, tp_ov.res_y = d.w, d.h end
+        if tpanel:is_open() then tp_prepare() else tp_hot = false end
+        tp_ov.data = tpanel:render()
+        tp_ov:update()
+        sync_tp_keys()
+        sync_click_binding()
+      end
+      toggle_tp = function()
+        if tpanel:is_open() then
+          tpanel:close(); tp_hot = false
+        else
+          if menu then menu:close(); render_menu() end
+          local d = osd_dims()
+          if d and d.w and d.w > 0 then tpanel:open(d.w, d.h, menu and menu.bh or 0) else tpanel:open(0, 0, 0) end
+          mp.commandv("script-message", "track-cfg-get") -- Python ayar özetini yollar (track-cfg)
+        end
+        render_tp()
+      end
+      mp.register_script_message("track-cfg", function(json)
+        local t = json and utils.parse_json(json)
+        if type(t) == "table" then
+          tp_cfg = t
+          if tpanel:is_open() then render_tp() end
+        end
+      end)
+      mp.observe_property("osd-dimensions", "native", function()
+        if tpanel:is_open() then render_tp() end
+      end)
+    end
+    mp.add_key_binding(nil, "tracker", function() toggle_tp() end) -- L: Tracker panelini aç/kapat
+
     local ACT = {
+      tracker_panel = function() toggle_tp() end,
       quit = function() mp.commandv("quit") end,
       fullscreen = function() mp.commandv("cycle", "fullscreen") end,
       zoom_in = function() zoom_step(1) end, zoom_out = function() zoom_step(-1) end,
@@ -1460,6 +1591,7 @@ if TRACK_SHOW_MENU ~= false then
       src_scanned = function() return source == "scanned" end,
       toggle = function() return enabled end, target_add = function() return add_mode end,
       offline = function() return off.on end,
+      tracker_panel = function() return tpanel ~= nil and tpanel:is_open() end,
       hud = function() return hud.visible end, fullscreen = function() return mp.get_property_native("fullscreen") == true end, panel = function() return panel.pinned end }
     menu = TM.new({
       run = function(cmd)
@@ -1503,7 +1635,7 @@ end
 mp.msg.info("track.lua yüklendi")
 
 -- Test kancası: imleç bir düğmenin üstünde mi?
-function track_over() return panel.hover ~= nil or zoomc.hover ~= nil or menu_hot end
+function track_over() return panel.hover ~= nil or zoomc.hover ~= nil or menu_hot or tp_hot end
 
 -- Otomatik başlatma: mpv açılınca Python takip programı da (gizli, ayrı süreç) başlar; mpv kapanınca
 -- kendiliğinden biter. Kurulumdan sonra bat dosyası gerekmez: yalnız mpv.exe açılır.

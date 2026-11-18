@@ -84,7 +84,7 @@ reg.bind["trackmenu-ESC"]()
 reg.cmds = {}; reg.bind.part() -- G: sonraki parça (sol kol → sağ kol)
 out("PARTKEY", reg.cmds[1] or "-")
 -- Yardım menüsü: güncelleme öğesi var ve etkin
-move(hx(7), 5); click(hx(7), 5)
+move(hx(8), 5); click(hx(8), 5) -- 8: Yardım (5. sekme «Tracker» eklendi)
 out("UPDATE", tostring(M():find("Güncellemeleri denetle", 1, true) ~= nil))
 reg.bind["trackmenu-ESC"]()
 -- K: döndürme 90 → 180 → 270 → 0

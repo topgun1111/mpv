@@ -57,6 +57,8 @@ select = ["E", "F", "I", "W"]
 "tests/test_camera.py" = ["E501"]
 "tracker/bidir.py" = ["E501"]
 "tests/test_bidir.py" = ["E501"]
+"tests/test_tracker_options.py" = ["E501"]
+"tests/test_lua_tracker.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

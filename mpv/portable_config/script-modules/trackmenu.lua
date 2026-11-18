@@ -67,6 +67,9 @@ M.MENUS = {
     { sep = true },
     { cmd = "part_next", label = "Sonraki parça", key = "G" },
   } },
+  -- Tracker paneli (L): başlığa tıklamak açılır liste yerine modern paneli açar (track.lua `tracker_panel`).
+  -- Mod (Otomatik/Nokta/Dikdörtgen/Vücut), parça ve tüm takip ayarları panelde; bkz. trackpanel.lua.
+  { id = "tracker", label = "Tracker", panel = "tracker_panel", items = {} },
   { id = "tools", label = "Araçlar", items = {
     { cmd = "scan", label = "Offline taramayı başlat", todo = true },
     { cmd = "scan_cancel", label = "Taramayı durdur", todo = true },
@@ -226,7 +229,7 @@ function M.new(ctx)
     local hh
     for i, r in ipairs(self.hrects) do if inside(r, x, y) then hh = i end end
     self.hover = hh
-    if hh and self.open and self.open ~= hh then open_menu(self, hh) end -- açıkken başlıklar arası geçiş
+    if hh and self.open and self.open ~= hh and not M.MENUS[hh].panel then open_menu(self, hh) end -- açıkken başlıklar arası geçiş
     if self.open and self.dbox and inside(self.dbox, x, y) then
       for i, r in ipairs(self.drects) do
         if inside(r, x, y) and selectable(M.MENUS[self.open].items[i]) then self.sel = i end
@@ -248,6 +251,11 @@ function M.new(ctx)
     if not self.visible then return false end
     for i, r in ipairs(self.hrects) do
       if inside(r, x, y) then
+        if M.MENUS[i].panel then -- panel sekmesi: liste yok, panel açılır/kapanır
+          self:close()
+          ctx.run(M.MENUS[i].panel)
+          return true
+        end
         if self.open == i then self:close() else open_menu(self, i) end
         return true
       end
@@ -275,7 +283,9 @@ function M.new(ctx)
     local n = #M.MENUS
     if k == "esc" then self:close() return true end
     if k == "left" or k == "right" then
-      open_menu(self, (self.open - 1 + (k == "right" and 1 or -1)) % n + 1)
+      local i = self.open
+      repeat i = (i - 1 + (k == "right" and 1 or -1)) % n + 1 until not M.MENUS[i].panel -- panel sekmesi klavyeyle gezilmez (L)
+      open_menu(self, i)
       step(self, 1)
       return true
     end
@@ -302,7 +312,8 @@ function M.new(ctx)
     box({ x = 0, y = bh - 1, w = self.W, h = 1 }, "555555", "00") -- ince alt çizgi
     for i, m in ipairs(M.MENUS) do
       local r = self.hrects[i]
-      if self.open == i then box(r, "D59B5B", "00") elseif self.hover == i then box(r, "464646", "00") end
+      local panel_on = m.panel and ctx.state and (ctx.state(m.panel) or {}).checked
+      if self.open == i or panel_on then box(r, "D59B5B", "00") elseif self.hover == i then box(r, "464646", "00") end
       text(r.x + math.floor(r.w / 2), math.floor(bh / 2), 5, "E6E6E6", m.label)
     end
     if self.open and self.dbox then
