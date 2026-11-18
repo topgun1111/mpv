@@ -104,7 +104,7 @@ local function speed() return mp.get_property_number("speed", 1) or 1 end
 local function speed_step(d)
   local s = clamp(round((speed() + d) * 10) / 10, 0.1, 4)
   mp.set_property_number("speed", s)
-  mp.osd_message(string.format("Hız: %.1fx", s), 1.5)
+  mp.commandv("script-message-to", "track", "track-toast", string.format("Hız: %.1fx", s), "1.5")
 end
 
 local ACT = {
@@ -128,7 +128,7 @@ local function volume_step(d)
   local v = clamp(round((mp.get_property_number("volume", 100) or 100) + d), 0, vmax())
   mp.set_property_number("volume", v)
   if mp.get_property_bool("mute", false) then mp.set_property_bool("mute", false) end
-  mp.osd_message(string.format("Ses: %d%%", v), 1.5)
+  mp.commandv("script-message-to", "track", "track-toast", string.format("Ses: %d%%", v), "1.5")
 end
 
 -- Ölçek: pencere yüksekliğiyle orantılı (H/700). Küçük pencerede (H<700) düğmeler parmakla/fareyle
@@ -398,7 +398,7 @@ local function press(ev)
   if st.strip and not el.val and el.id ~= "spd0" then st.strip = false end -- şerit dışı tık: kapat
   if el.val then
     mp.set_property_number("speed", el.val)
-    mp.osd_message(string.format("Hız: %.1fx", el.val), 1.5)
+    mp.commandv("script-message-to", "track", "track-toast", string.format("Hız: %.1fx", el.val), "1.5")
     st.strip = false
   elseif el.id == "seek" or el.id == "vol" then
     st.drag = el.id

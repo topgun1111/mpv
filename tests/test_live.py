@@ -373,6 +373,8 @@ class FakeMpv:
     def command(self, *a):
         if a[0] == "show-text":
             self.texts.append(a[1])
+        elif a[:3] == ("script-message-to", "track", "track-toast"):
+            self.texts.append(a[3])
 
     def set_view(self, v):
         self.views.append(v)

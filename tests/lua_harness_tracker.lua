@@ -27,7 +27,8 @@ local function find(act, a, b)
 end
 local function cmds() return table.concat(reg.cmds, "|") end
 
--- L: panel açılır, Python'dan ayar özeti istenir
+-- Startup paneli otomatik açıktır; testte L ile kapatıp tekrar açarak toggle davranışını doğrula.
+if reg.bind["trackpanel-ESC"] then reg.bind["trackpanel-ESC"]() end
 reg.cmds = {}
 reg.bind.tracker()
 out("OPEN", tostring(P():find("Takip", 1, true) ~= nil), tostring(cmds():find("track-cfg-get", 1, true) ~= nil), tostring(reg.bind["trackpanel-ESC"] ~= nil))
@@ -64,12 +65,12 @@ move(5, H - 5)
 click(find("mode", "rect")); move(5, H - 5)
 reg.cmds, reg.osd = {}, {}
 reg.bind.pick({ event = "press" })
-out("RECTGATE", tostring(cmds():find("track-point", 1, true) == nil), tostring((reg.osd[#reg.osd] or ""):find("Dikdörtgen modu", 1, true) ~= nil))
+out("RECTGATE", tostring(cmds():find("track-point", 1, true) == nil), tostring((reg.ov[100] or ""):find("Dikdörtgen modu", 1, true) ~= nil))
 -- Nokta: sürükleme alan seçmez
 click(find("mode", "point")); move(20, 300) -- kartın solu (panel dışı)
 reg.cmds, reg.osd = {}, {}
 reg.bind.pick({ event = "down" }); move(60, 500); reg.bind.pick({ event = "up" })
-out("POINTGATE", tostring(cmds():find("track-rect", 1, true) == nil), tostring((reg.osd[#reg.osd] or ""):find("Nokta modu", 1, true) ~= nil))
+out("POINTGATE", tostring(cmds():find("track-rect", 1, true) == nil), tostring((reg.ov[100] or ""):find("Nokta modu", 1, true) ~= nil))
 -- G tuşu (sonraki parça) modu «Vücut» yapar; HUD'da «Mod:» satırı
 reg.bind.part()
 reg.msgs["track-hud"]("Takip: hedef seç", "0", "Model: x")

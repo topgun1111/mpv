@@ -204,6 +204,10 @@ def _add_target_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--part", metavar="EKLEM",
                    help="Kişi yerine eklemi izle: indeks 0-16 ya da ad (örn. \"sol ayak bileği\"); "
                         "--target-id/--click ile; track.json'da eklem verisi gerekir")
+    p.add_argument("--preset", choices=("person", "head", "torso", "left_arm", "right_arm",
+                                             "left_leg", "right_leg", "legs", "left_foot",
+                                             "right_foot", "feet", "hands"),
+                   help="Kişi yerine vücut bölgesini izle; --pose model/eklem verisi gerekir")
 
 
 def _resolve_target(doc: dict, cfg: Config, args: argparse.Namespace) -> int | None:
@@ -217,7 +221,7 @@ def _resolve_target(doc: dict, cfg: Config, args: argparse.Namespace) -> int | N
         if tid is None:
             raise ValueError(f"{t:g} sn'de ({nx:g}, {ny:g}) noktasında kişi yok")
         return tid
-    if getattr(args, "part", None) and doc.get("target"):  # yalnız --part: mevcut hedefin eklemi
+    if (getattr(args, "part", None) or getattr(args, "preset", None)) and doc.get("target"):
         return doc["target"]["id"]
     return None
 
@@ -250,7 +254,8 @@ def _finish_doc(doc: dict, cfg: Config, args: argparse.Namespace, out: str) -> N
     tid = _resolve_target(doc, cfg, args)
     if tid is not None:
         part = _parse_part(getattr(args, "part", None))
-        apply_target(doc, tid, cfg, link=not getattr(args, "no_link", False), part=part)
+        preset = getattr(args, "preset", None)
+        apply_target(doc, tid, cfg, link=not getattr(args, "no_link", False), part=part, preset=preset)
         linked = doc["target"].get("linked", [])
         from .pose import KEYPOINT_NAMES
 

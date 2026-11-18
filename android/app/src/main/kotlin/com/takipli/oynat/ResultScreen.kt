@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.height
@@ -44,6 +45,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -59,6 +63,9 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.transformer.Transformer
 import com.takipli.oynat.core.CamMode
+import com.takipli.oynat.core.COCO_SKELETON
+import com.takipli.oynat.core.N_KPT
+import com.takipli.oynat.core.partLabel
 import com.takipli.oynat.core.CamPath
 import com.takipli.oynat.core.CamPos
 import com.takipli.oynat.core.CamZoom
@@ -128,6 +135,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     var tuning by remember { mutableStateOf(Tuning.of(cfg).copy(lostBridgeS = 4.0)) } // keep the zoom through a few seconds of occlusion by default
     var views by remember { mutableStateOf(doc.views) }
     var follow by remember { mutableStateOf(true) }
+    var showSkeleton by remember { mutableStateOf(true) } // visible tracking feedback on the video preview
     // Kayıt modu: oynarken pinch = zoom, sürükle = konum; kayıt anahtar kareleri otomatik kadrajın yerine geçer
     var recording by remember { mutableStateOf(false) }
     var recView by remember { mutableStateOf(CamView(0.0, 0.0, 0.0)) }
@@ -284,6 +292,67 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                     }
                 },
             )
+            // Draw the tracked person's live pose over the same video transform. The scan stores
+            // normalized COCO-17 keypoints per sample, so this is synchronized to playback time.
+            if (showSkeleton && !recording && doc.target?.free == null) {
+                val sample = remember(doc.samples, posMs) {
+                    val t = posMs / 1000.0
+                    doc.samples.minByOrNull { kotlin.math.abs(it.t - t) }
+                        ?.takeIf { kotlin.math.abs(it.t - t) <= (1.5 / doc.sampleFps.coerceAtLeast(1.0)) }
+                }
+                val target = doc.target
+                val selectedJoints = remember(target) {
+                    target?.part?.let { setOf(it) }
+                        ?: target?.preset?.let { PRESETS[it]?.toSet() }
+                        ?: emptySet()
+                }
+                Canvas(
+                    Modifier.fillMaxSize().graphicsLayer {
+                        if (follow && views.isNotEmpty()) {
+                            val tr = viewTransform(viewAtSmooth(views, posMs / 1000.0))
+                            scaleX = tr[0].toFloat(); scaleY = tr[0].toFloat()
+                            translationX = (tr[1] * size.width).toFloat(); translationY = (tr[2] * size.height).toFloat()
+                        }
+                    }
+                ) {
+                    val id = target?.id ?: return@Canvas
+                    val row = sample?.kp?.get(id.toString()) ?: return@Canvas
+                    if (row.size < 3 * N_KPT) return@Canvas
+                    val points = (0 until N_KPT).map { i ->
+                        val x = row[3 * i].toFloat() * size.width
+                        val y = row[3 * i + 1].toFloat() * size.height
+                        val confidence = row[3 * i + 2]
+                        if (confidence >= 0.25 && x.isFinite() && y.isFinite()) Offset(x, y) else null
+                    }
+                    val base = Color(0xFF35E6C5)
+                    val accent = Color(0xFFFFB74D)
+                    for ((a, b) in COCO_SKELETON) {
+                        val pa = points.getOrNull(a) ?: continue
+                        val pb = points.getOrNull(b) ?: continue
+                        val selected = a in selectedJoints || b in selectedJoints
+                        drawLine(if (selected) accent else base, pa, pb, strokeWidth = if (selected) 5f else 3.2f,
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    }
+                    points.forEachIndexed { index, point ->
+                        if (point != null) {
+                            val selected = index in selectedJoints
+                            drawCircle(Color.Black.copy(alpha = 0.75f), if (selected) 8f else 6f, point)
+                            drawCircle(if (selected) accent else base, if (selected) 5.5f else 3.8f, point)
+                        }
+                    }
+                }
+            }
+            if (!recording && showSkeleton && doc.target?.free == null) {
+                val tracked = doc.target
+                if (tracked != null) Text(
+                    "TRACKING · ${partLabel(tracked).uppercase(Locale.ROOT)}",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp)
+                        .background(Color(0xCC10231F), androidx.compose.foundation.shape.RoundedCornerShape(7.dp))
+                        .padding(horizontal = 9.dp, vertical = 6.dp),
+                )
+            }
             if (recording) Text(stringResource(R.string.rec_badge), color = androidx.compose.ui.graphics.Color.Red, modifier = Modifier.align(Alignment.TopStart).padding(8.dp))
             // HUD: which camera is driving the preview right now (behaviour, zoom strategy, live zoom)
             run {
@@ -311,6 +380,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = { if (player.isPlaying) player.pause() else player.play() }) { Text(stringResource(if (playing) R.string.result_pause else R.string.result_play)) }
         FilterChip(selected = follow, enabled = !recording, onClick = { follow = !follow }, label = { Text(stringResource(R.string.result_follow)) })
+        if (doc.target?.free == null) FilterChip(selected = showSkeleton, onClick = { showSkeleton = !showSkeleton }, label = { Text("Skeleton") })
         Text(clock((posMs - startMs).coerceAtLeast(0L)) + " / " + clock(durMs - startMs), modifier = Modifier.align(androidx.compose.ui.Alignment.CenterVertically), style = MaterialTheme.typography.labelLarge)
     }
     Slider(value = posMs.toFloat(), valueRange = startMs.toFloat()..durMs.toFloat().coerceAtLeast(startMs + 1f), onValueChange = { posMs = it.toLong(); player.seekTo(it.toLong()) })

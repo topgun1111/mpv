@@ -921,7 +921,7 @@ def run_live(
             log(out.osd)
             tl.note("OSD: " + out.osd.replace("\n", " | "))
             try:
-                mpv.command("show-text", out.osd, 1500)
+                mpv.command("script-message-to", "track", "track-toast", out.osd, "1.5")
             except MpvCommandError as e:  # OSD hatası döngüyü durdurmasın
                 log(f"OSD gösterilemedi: {e}")
                 errlog.record("OSD", e)

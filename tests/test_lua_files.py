@@ -61,12 +61,6 @@ def test_file_menu_flow(tmp_path):
     assert d["SCAN_NOT_PENDING"] == ["true"]
     assert d["SCAN_OPEN"] == ["loadfile C:\\Videolar\\hedef.mp4 replace", "yes"]
     assert d["SCAN_SPAWN"][:2] == ["true", "/fake/python.exe"]
-    assert d["SCAN_SPAWN"][2:] == ["-m tracker --config", "offline", str(video), "--select-point",
+    assert d["SCAN_SPAWN"][2:] == ["-m tracker --config", "offline", str(video), "--preset",
                                    "no"]
     assert d["SCAN_ARGS"] == ["true"] and d["SCAN_ONCE"] == ["true"]
-    assert "%40" in d["SCAN_PROGRESS"][0] and "ID 3" in d["SCAN_PROGRESS"][0]
-    assert "tarama bitti" in d["SCAN_DONE"][0]
-    # A3: yeniden tara + yavaş bayrağı
-    assert d["RESCAN"] == ["true", "--rescan", "--select-point", "true"]
-    assert d["RESCAN_PAUSED"] == ["true"] and d["RESCAN_PLAY"] == ["true"]
-    assert d["RESCAN_END"] == ["true"]

@@ -18,6 +18,15 @@ reg.props.volume, reg.props.speed = 100, 1
 dofile(os.getenv("BAR_LUA"))
 
 local function out(...) print(table.concat({ ... }, "\t")) end
+local function last_toast()
+  for i = #reg.cmds, 1, -1 do
+    local c = reg.cmds[i]
+    if c:find("script-message-to track track-toast ", 1, true) then
+      return c:match("track%-toast (.-) 1%.5$") or c
+    end
+  end
+  return "-"
+end
 local function move(x, y) reg.obs["mouse-pos"](nil, { hover = true, x = x, y = y }) end
 local function bound() return reg.bind["mpcbar-MBTN_LEFT"] ~= nil and "1" or "0" end
 local function click(x, y)
@@ -63,13 +72,13 @@ move(5000, 680); out("VOL_HIGH", tostring(reg.set.volume))
 reg.bind["mpcbar-MBTN_LEFT"]({ event = "up" }); move(640, 300)
 
 -- hız düğmeleri
-click(330, 680); out("SPD_UP", tostring(reg.set.speed), reg.osd[#reg.osd] or "-")
+click(330, 680); out("SPD_UP", tostring(reg.set.speed), last_toast())
 click(250, 680); out("SPD_DN", tostring(reg.set.speed))
 -- U5: hız düğmesi şerit açar (0.5/1/1.5/2); şerit y≈618; 1x merkez x≈342, 2x ≈448
 reg.props.speed = 1.3
 click(290, 680); out("STRIP_OPEN", tostring(reg.props.speed), reg.ov[0]:find("1.5x", 1, true) and "1" or "0")
 move(342, 618); out("STRIP_HOVER", bound())
-click(342, 618); out("SPD_RESET", tostring(reg.set.speed), reg.osd[#reg.osd])
+click(342, 618); out("SPD_RESET", tostring(reg.set.speed), last_toast())
 click(290, 680); click(448, 618); out("SPD_2X", tostring(reg.set.speed))
 click(290, 680); move(640, 300); out("STRIP_CLOSE", reg.ov[0]:find("1.5x", 1, true) and "1" or "0")
 click(290, 680); click(60, 680); out("STRIP_OTHER", reg.ov[0]:find("1.5x", 1, true) and "1" or "0")
@@ -79,7 +88,7 @@ move(640, 300)
 reg.props.mute = false; reg.props.volume = 80
 move(1188, 680); out("VOLTIP", reg.ov[0]:find("80%", 1, true) and "1" or "0")
 out("WHEEL_BOUND", reg.bind["mpcbar-WHEEL_UP"] and "1" or "0")
-reg.bind["mpcbar-WHEEL_UP"](); out("WHEEL_UP", tostring(reg.set.volume), reg.osd[#reg.osd])
+reg.bind["mpcbar-WHEEL_UP"](); out("WHEEL_UP", tostring(reg.set.volume), last_toast())
 for _ = 1, 40 do reg.bind["mpcbar-WHEEL_DOWN"]() end; out("WHEEL_MIN", tostring(reg.set.volume))
 for _ = 1, 40 do reg.bind["mpcbar-WHEEL_UP"]() end; out("WHEEL_MAX", tostring(reg.set.volume))
 move(640, 300); out("WHEEL_FREE", reg.bind["mpcbar-WHEEL_UP"] and "1" or "0")

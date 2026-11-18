@@ -16,6 +16,8 @@ local MODES = { auto = "Otomatik", point = "Nokta", rect = "Dikdörtgen", body =
 local mode = "auto"
 local tp_save, tp_save_show, tp_save_timer, tp_save_clear -- «Ayarları kaydet» geri bildirimi
 local tpanel, tp_hot, tp_cfg = nil, false, nil -- panel nesnesi, imleç panel üstünde mi, Python ayar özeti
+local toggle_tp -- Tracker panelini dosya yükleme olayından da açabilmek için ileri bildirim
+local scan -- dosya yükleme olayından erişilen offline işlem durumu
 local render_tp -- ileri bildirim (panel yeniden çizimi)
 local locked = false -- Python: bir hedef kilitli mi (track-hud'un 2. argümanı); zoom +/- ne yapacağını buna göre seçer
 -- Ekran üstü zoom kontrolü durumu (çizim/yerleşim aşağıda). z = video-zoom (log2).
@@ -102,7 +104,40 @@ local function osd_dims()
   return d
 end
 
-local function osd(msg, sec) mp.osd_message("Takipli Oynat: " .. msg, sec or 2) end
+-- Notifications use a dedicated ASS layer rather than mpv's default OSD,
+-- which can overlap the top menu and on-screen controls.
+local toast = { ov = nil, timer = nil }
+local function show_toast(message, sec)
+  if not toast.ov then
+    toast.ov = mp.create_osd_overlay("ass-events")
+    toast.ov.z = 100
+  end
+  if toast.timer then toast.timer:kill(); toast.timer = nil end
+  local w = mp.get_property_number("osd-width", 0) or 0
+  local h = mp.get_property_number("osd-height", 0) or 0
+  if w <= 0 or h <= 0 then
+    local d = mp.get_property_native("osd-dimensions") or {}
+    w, h = d.w or 1280, d.h or 720
+  end
+  local scale = math.max(0.75, math.min(1.8, h / 720))
+  local fs = math.floor(25 * scale)
+  local y = math.floor(h - 92 * scale) -- above the bottom playback controls
+  local clean = tostring(message or ""):gsub("[{}\\\r]", " "):gsub("\n", "\\N")
+  toast.ov.data = string.format(
+    "{\\an2\\pos(%d,%d)\\q2\\fnTahoma\\fs%d\\b0\\bord7\\3c&H202020&\\shad1\\4c&H000000&\\1c&HFFFFFF&}%s",
+    math.floor(w / 2), y, fs, clean)
+  toast.ov:update()
+  toast.timer = mp.add_timeout(math.max(0.8, tonumber(sec) or 2), function()
+    if toast.ov then toast.ov.data = ""; toast.ov:update() end
+    toast.timer = nil
+  end)
+end
+
+mp.register_script_message("track-toast", function(message, sec)
+  show_toast(message, tonumber(sec) or 2)
+end)
+
+local function osd(msg, sec) show_toast("Takipli Oynat: " .. tostring(msg), sec or 2) end
 
 -- Videonun pencere içindeki dikdörtgeni (piksel): sol, üst, genişlik, yükseklik.
 -- `osd-dimensions` kenar boşlukları (ml,mr,mt,mb) zoom/pan'da güvenilmez: mpv bunları 0'a
@@ -167,7 +202,11 @@ local function on_click(msg)
   local t = mp.get_property_number("time-pos", 0)
   anchor = { nx, ny }
   show_provisional(nx, ny)
-  if msg == "track-point" and scan_start then scan_start("point", t, nx, ny) end
+  if msg == "track-point" and scan_start then
+    scan_start("point", t, nx, ny)
+    osd("hedef seçildi. İşlemeyi başlatmak için OYNAT'a basın.", 4)
+    return
+  end
   mp.commandv("script-message", msg or "track-click",
     string.format("%.6f", nx), string.format("%.6f", ny),
     string.format("%d", math.floor(params.w)), string.format("%d", math.floor(params.h)),
@@ -382,6 +421,7 @@ local function set_mode(m)
   end
   osd("mod: " .. MODES[m], 1.5)
 end
+mp.register_script_message("track-mode", set_mode)
 
 -- T1: hedef ekleme kipi. Açıkken sağ tık mevcut hedefe EKLER (birleşik kadraj); üyeye sağ tık çıkarır.
 local add_mode = false
@@ -463,11 +503,19 @@ end)
 
 local hold_pause = false -- "Hedefle video aç" videoyu bilerek duraklatır; o durumda otomatik oynatma yok
 mp.register_event("file-loaded", function()
-  if hold_pause then hold_pause = false else mp.set_property("pause", "no") end -- yeni video otomatik başlar
+  if hold_pause then
+    hold_pause = false
+  else
+    -- Android-style PC flow: each new video waits for target selection + Play.
+    mp.set_property("pause", "yes")
+    if scan then scan.pending, scan.selection = true, nil end
+    if tpanel and not tpanel:is_open() and toggle_tp then toggle_tp() end
+    osd("Tracker ayarlarını yapın; paneli kapatıp videoda kişiyi/vücut parçasını sağ tıklayın, sonra OYNAT'a basın.", 7)
+  end
   if saved_rotate_apply then saved_rotate_apply() end
   local vpath = video_path()
   if vpath and not off.on and read_file(vpath .. ".views.json") then
-    osd("offline takip verisi var - o tuşuyla aç", 3)
+    osd("offline takip verisi var - O tuşuyla aç", 3)
   end
 end)
 
@@ -907,6 +955,8 @@ local function finish_drag(pos)
   show_provisional(anchor[1], anchor[2])
   if scan_start then
     scan_start("rect", mp.get_property_number("time-pos", 0), ax, ay, bx, by)
+    osd("alan seçildi. İşlemeyi başlatmak için OYNAT'a basın.", 4)
+    return
   end
   mp.commandv("script-message", "track-rect",
     string.format("%.6f", ax), string.format("%.6f", ay),
@@ -1161,7 +1211,7 @@ mp.add_key_binding(nil, "diag", function()
     tostring(mp.get_property_number("video-pan-y")), tostring(vp.w), tostring(vp.h),
     tostring(vp.dw), tostring(vp.dh))
   mp.msg.info("TANI " .. msg)
-  mp.osd_message(msg, 8)
+  show_toast(msg, 8)
 end)
 
 if TRACK_SHOW_MENU ~= false then
@@ -1223,7 +1273,7 @@ if TRACK_SHOW_MENU ~= false then
       -- sağ tuşla sürükle = alan) canlı takibi hemen başlatır ve arka planda
       -- `tracker offline VIDEO --select-point|--select-rect ...` taramasını başlatır. İlerleme
       -- `<video>.track.json.scan.json`'dan 2 sn'de bir okunur; bitince `o` tuşu offline takibi açar.
-      local scan = { pending = false, running = false, prog = nil, slow = nil, last = nil }
+      scan = { pending = true, running = false, prog = nil, slow = nil, last = nil, selection = nil }
       -- A3: oynatma açıkken tarama canlı takibe yer açsın: `<çıktı>.scan.slow` varlığı = yavaş tarama
       local function slow_flag(on)
         if not scan.slow then return end
@@ -1234,8 +1284,17 @@ if TRACK_SHOW_MENU ~= false then
           os.remove(scan.slow)
         end
       end
+      local start_queued_scan
       mp.observe_property("pause", "bool", function(_, paused)
         if scan.running then slow_flag(not paused) end
+        if not paused and scan.pending and not scan.running then
+          if start_queued_scan then
+            start_queued_scan()
+          else
+            mp.set_property("pause", "yes")
+            osd("önce videoda kişiyi/vücut parçasını sağ tıklayarak seçin", 4)
+          end
+        end
       end)
       local function python_exe()
         local env = os.getenv("TRACK_PYTHON")
@@ -1256,8 +1315,25 @@ if TRACK_SHOW_MENU ~= false then
           if p.state == "done" then
             scan.running = false
             slow_flag(false)
-            if p.error and not p.target then osd("tarama bitti ama " .. p.error, 5)
-            else osd("tarama bitti - offline takip için o tuşu", 5) end
+            if p.error and not p.target then
+              osd("tarama bitti ama " .. p.error, 5)
+            elseif p.target then
+              -- Android-style workflow: processing is complete, rewind to the
+              -- beginning, enable the computed camera path, and play the result
+              -- as a live preview. The user can then export from the File menu.
+              mp.set_property("pause", "yes")
+              set_offline(true, false, "tarama tamamlandı")
+              if off.on then
+                mp.commandv("seek", "0", "absolute+exact")
+                mp.set_property("pause", "no")
+                osd("önizleme hazır: takipli video oynatılıyor · Dosya > Takip kamerası dışa aktar", 6)
+              else
+                mp.set_property("pause", "no")
+                osd("tarama bitti; önizleme açılamadı. O tuşuyla tekrar deneyin.", 6)
+              end
+            else
+              osd("tarama bitti ama hedef bulunamadı; başka bir karede yeniden hedef seçin", 5)
+            end
             return
           elseif p.state == "cancelled" then
             scan.running = false
@@ -1277,7 +1353,8 @@ if TRACK_SHOW_MENU ~= false then
         if not py then osd("tarama başlatılamadı: python/ bulunamadı", 4); return end
         local function f(v) return string.format("%.6f", v) end
         local args = { py, "-m", "tracker", "--config",
-          (os.getenv("APPDATA") or ".") .. "/TakipliOynat/config.json", "offline", vp }
+          (os.getenv("APPDATA") or ".") .. "/TakipliOynat/config.json", "offline", vp,
+          "--preset", (part == "auto" and "person" or part) }
         if kind == "point" then
           for _, v in ipairs({ "--select-point", string.format("%.3f", t), f(a), f(b) }) do args[#args + 1] = v end
         else
@@ -1298,7 +1375,19 @@ if TRACK_SHOW_MENU ~= false then
       end
       scan_start = function(kind, t, a, b, c, d)
         if not scan.pending or scan.running then return end
-        launch_scan(kind, t, a, b, c, d, false)
+        scan.selection = { kind, t, a, b, c, d }
+        osd("hedef hazır · başlatmak için OYNAT'a basın", 4)
+      end
+      start_queued_scan = function()
+        if not scan.pending or scan.running then return end
+        local q = scan.selection
+        if not q then
+          mp.set_property("pause", "yes")
+          osd("önce videoda kişiyi/vücut parçasını sağ tıklayarak seçin", 4)
+          return
+        end
+        scan.selection = nil
+        launch_scan(q[1], q[2], q[3], q[4], q[5], q[6], false)
       end
       -- A3: Dosya → Yeniden tara: son hedefle, önbelleği yok sayarak (`--rescan`) baştan tara
       FILES.rescan = function()
@@ -1469,7 +1558,7 @@ if TRACK_SHOW_MENU ~= false then
       local f = p and loadfile(p)
       if f then okp, TP = pcall(f) end
     end
-    local toggle_tp = function() osd("Tracker paneli yüklenemedi (script-modules/trackpanel.lua yok mu?)", 5) end
+    toggle_tp = function() osd("Tracker paneli yüklenemedi (script-modules/trackpanel.lua yok mu?)", 5) end
     if okp and type(TP) == "table" then
       local tp_ov, tp_keys = nil, {}
       local TP_KEYS = { LEFT = "left", RIGHT = "right", UP = "up", DOWN = "down", ENTER = "enter", KP_ENTER = "enter" }
@@ -1586,6 +1675,8 @@ if TRACK_SHOW_MENU ~= false then
       end)
     end
     mp.add_key_binding(nil, "tracker", function() toggle_tp() end) -- L: Tracker panelini aç/kapat
+    -- Open settings on application startup; close the panel to select a target in the video.
+    if not tpanel:is_open() then toggle_tp() end
 
     local ACT = {
       tracker_panel = function() toggle_tp() end,
@@ -1665,41 +1756,28 @@ mp.msg.info("track.lua yüklendi")
 -- Test kancası: imleç bir düğmenin üstünde mi?
 function track_over() return panel.hover ~= nil or zoomc.hover ~= nil or menu_hot or tp_hot end
 
--- Otomatik başlatma: mpv açılınca Python takip programı da (gizli, ayrı süreç) başlar; mpv kapanınca
--- kendiliğinden biter. Kurulumdan sonra bat dosyası gerekmez: yalnız mpv.exe açılır.
+-- Otomatik başlatma: mpv dogrudan acilsa bile ortak on-kontrol/servis baslaticisini calistir.
+-- Baslat.bat tarafindan acildiysa TAKIP_PY_STARTED ortami tekrar baslatmayi engeller.
 do
   local utils = require("mp.utils")
-  local exe = mp.command_native and mp.command_native({ "expand-path", "~~exe_dir/" })
-  if type(exe) == "string" and exe ~= "" then
-    local root = exe:gsub("[/\\]+$", ""):gsub("[/\\][^/\\]*$", "") -- mpv klasörünün üstü
-    local py = nil
-    for _, name in ipairs({ "pythonw.exe", "python.exe" }) do
-      local p = root .. "/python/" .. name
-      if utils.file_info(p) then py = p break end
-    end
-    if py and os.getenv("TAKIP_PY_STARTED") then
-      mp.msg.info("takip programı elle/başlatıcıyla zaten başlatılmış (TAKIP_PY_STARTED)")
-    elseif py then
-      local appdata = os.getenv("APPDATA") or root
-      local cfg = appdata .. "/TakipliOynat/config.json"
-      mp.command_native({ name = "subprocess", playback_only = false, detached = true,
-        capture_stdout = false, capture_stderr = false,
-        args = { py, "-m", "tracker", "--config", cfg, "live", "--wait", "30" } })
-      mp.msg.info("takip programı başlatıldı: " .. py)
-    else
-      -- Paketli python/ yok (geliştirme klasörü): launcher/Takip.bat Python'u kendisi bulur ve GÖRÜNÜR CMD
-      -- penceresinde çalıştırır (hatalar orada görünür). mpv bu sırada normal açılır.
-      local bat = (root .. "/launcher/Takip.bat"):gsub("/", "\\") -- cmd/start ters bölü ister
-      if os.getenv("TAKIP_PY_STARTED") then
-        mp.msg.info("takip programı başlatıcı tarafından zaten başlatılmış")
-      elseif utils.file_info(bat) then
-        mp.command_native({ name = "subprocess", playback_only = false, detached = true,
+  if not os.getenv("TAKIP_PY_STARTED") then
+    local exe = mp.command_native and mp.command_native({ "expand-path", "~~exe_dir/" })
+    if type(exe) == "string" and exe ~= "" then
+      local root = exe:gsub("[/\\\\]+$", ""):gsub("[/\\\\][^/\\\\]*$", "")
+      local bat = (root .. "/launcher/StartTracker.bat"):gsub("/", "\\\\")
+      if utils.file_info(bat) then
+        mp.command_native({
+          name = "subprocess", playback_only = false, detached = true,
           capture_stdout = false, capture_stderr = false,
-          args = { "cmd", "/d", "/c", "start", "Takip (Python)", "/D", (root:gsub("/", "\\")), "cmd", "/k", "call", bat } })
-        mp.msg.info("takip programı CMD penceresinde başlatıldı: " .. bat)
+          args = { "cmd", "/d", "/c", "start", "Takip Baslatma", "/D",
+                   root:gsub("/", "\\\\"), "cmd", "/k", "call", bat }
+        })
+        mp.msg.info("Python takip servisi ortak baslatici ile baslatiliyor: " .. bat)
       else
-        mp.msg.warn("python/ ve launcher/Takip.bat bulunamadı; takip programı otomatik başlatılmadı")
+        mp.msg.error("launcher/StartTracker.bat bulunamadi; Python otomatik baslatilamadi")
       end
     end
+  else
+    mp.msg.info("Python takip servisi Baslat.bat tarafindan baslatildi")
   end
 end

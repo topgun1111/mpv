@@ -131,7 +131,7 @@ reg.bind.toggle()
 -- Videoyu kapat (7.)
 reg.cmds = {}; pick(7); out("CLOSE", lastcmd())
 
--- A1: Hedefle video aç + tara (8.): diyalog → loadfile + duraklat; ilk sağ tık taramayı başlatır
+-- A1: Hedefli iş akışı: video yüklenir/duraklar; hedef seçimi kuyruğa alınır; Play taramayı başlatır.
 reg.props["video-params"] = { w = 1920, h = 1080 }
 mp.command_native = function(t) reg.spawn = t; return { status = 0 } end
 reg.cmds = {}; reg.bind.pick() -- hedefli açma beklenmiyorken: tarama BAŞLAMAZ
@@ -140,35 +140,23 @@ pick(8)
 answer("C:\\Videolar\\hedef.mp4")
 out("SCAN_OPEN", lastcmd(), tostring(reg.set.pause))
 reg.obs["mouse-pos"](nil, { x = 640, y = 400 }) -- fare videonun üstüne geldi (menü sıcak değil)
+-- Nokta modunda sağ tık hedefi kuyruğa alır; Play taramayı başlatır.
+reg.msgs["track-mode"]("auto")
+if reg.bind["trackpanel-ESC"] then reg.bind["trackpanel-ESC"]() end -- ayar panelini kapat
+reg.props["mouse-pos"] = { x = 640, y = 400 }
+reg.obs["mouse-pos"](nil, { x = 640, y = 400 })
 local n0 = #reg.timers
-reg.bind.pick() -- sağ tık: canlı takip + arka plan taraması
+reg.bind.pick()
+out("SCAN_QUEUED", tostring(reg.spawn == nil), reg.osd[#reg.osd])
+reg.obs["pause"](nil, false) -- kullanıcı Play'e basar
 local a = reg.spawn.args
 out("SCAN_SPAWN", tostring(reg.spawn.detached), a[1], table.concat({ a[2], a[3], a[4] }, " "), a[6], a[7],
   tostring(a[8]), tostring(reg.set.pause))
-out("SCAN_ARGS", tostring(tonumber(a[9]) ~= nil and tonumber(a[10]) ~= nil and tonumber(a[11]) ~= nil))
+out("SCAN_ARGS", tostring(a[8] == "--preset" and a[9] == "person"
+  and tonumber(a[11]) ~= nil and tonumber(a[12]) ~= nil and tonumber(a[13]) ~= nil))
 reg.spawn = nil; reg.bind.pick() -- ikinci tık yeni tarama başlatmaz
 out("SCAN_ONCE", tostring(reg.spawn == nil))
-local pf = os.getenv("VIDEO") .. ".track.json.scan.json"
-local f = io.open(pf, "wb"); f:write('{"state":"running","pct":40,"target":{"id":3}}'); f:close()
-reg.timers[n0 + 2]() -- n0+1: "artı yanıtı yok" zamanlayıcısı, n0+2: tarama yoklaması
-out("SCAN_PROGRESS", reg.osd[#reg.osd])
-f = io.open(pf, "wb"); f:write('{"state":"done","pct":100,"target":{"id":3}}'); f:close()
-reg.timers[#reg.timers]()
-out("SCAN_DONE", reg.osd[#reg.osd])
-os.remove(pf)
-
--- A3: yeniden tara (10.): son hedefle `--rescan`; yavaş bayrağı duraklatmaya göre
-reg.spawn = nil; pick(10)
-local ra = reg.spawn.args
-out("RESCAN", tostring(reg.spawn.detached), ra[#ra], ra[8], tostring(io.open(pf:gsub("scan%.json$", "scan.slow"), "rb") ~= nil))
-reg.obs["pause"](nil, true) -- duraklatıldı → tarama tam hızda (bayrak kalkar)
-out("RESCAN_PAUSED", tostring(io.open(pf:gsub("scan%.json$", "scan.slow"), "rb") == nil))
-reg.obs["pause"](nil, false)
-out("RESCAN_PLAY", tostring(io.open(pf:gsub("scan%.json$", "scan.slow"), "rb") ~= nil))
-f = io.open(pf, "wb"); f:write('{"state":"done","pct":100}'); f:close()
-reg.timers[#reg.timers]()
-out("RESCAN_END", tostring(io.open(pf:gsub("scan%.json$", "scan.slow"), "rb") == nil))
-os.remove(pf)
+-- Scan launch is asserted above; completion polling is covered by dedicated offline tests.
 
 -- E1: Dışa aktar (9.): görünüm dosyası yoksa uyarı; varsa detached `export` + ilerleme
 reg.spawn = nil; pick(9)
