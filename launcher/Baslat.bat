@@ -2,6 +2,9 @@
 rem Ana baslatici: once Python takip servisini hazirla, sonra mpv'yi ac.
 chcp 65001 >nul
 setlocal
+set "TAKIPLI_DATA_DIR=E:\Tracking"
+if not exist "%TAKIPLI_DATA_DIR%\" mkdir "%TAKIPLI_DATA_DIR%"
+if not exist "%TAKIPLI_DATA_DIR%\" (echo HATA: E:\Tracking klasoru olusturulamadi. E: surucusunu kontrol edin. & pause & exit /b 1)
 set "ROOT=%~dp0.."
 for %%F in ("%ROOT%") do set "ROOT=%%~fF"
 cd /d "%ROOT%"

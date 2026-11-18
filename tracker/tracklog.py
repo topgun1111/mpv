@@ -44,6 +44,9 @@ F_SCANNED = "taranmış ize geçiş"
 def log_dir() -> Path | None:
     """Masaüstü/TakipLog (masaüstü yoksa ana klasör/TakipLog)."""
     try:
+        configured = os.environ.get("TAKIPLI_DATA_DIR")
+        if configured:
+            return Path(configured) / FOLDER
         from .errlog import desktop_dir
 
         base = desktop_dir() or Path.home()

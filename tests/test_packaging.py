@@ -74,7 +74,7 @@ def test_launchers_use_embedded_python_and_wait_for_mpv():
     lua = (ROOT / "mpv" / "portable_config" / "scripts" / "track.lua").read_text(encoding="utf-8")
     assert "StartTracker.bat" in lua and "TAKIP_PY_STARTED" in lua  # ortak başlatıcı, çift başlatma yok
     st = (ROOT / "launcher" / "StartTracker.bat").read_text(encoding="utf-8")
-    assert "live --wait" in st and "APPDATA" in st
+    assert "live --wait" in st and "TAKIPLI_DATA_DIR" in st
     code = [ln for ln in st.splitlines() if not ln.lstrip().lower().startswith("rem")]
     assert not any("tracker ping" in ln for ln in code)  # ping mpv IPC ister: mpv'den önce kilitlenme
     off = (ROOT / "launcher" / "Offline.bat").read_text(encoding="utf-8")
@@ -271,3 +271,10 @@ def test_verify_models_optional_file_missing_is_warning_but_present_is_checked(t
     (tmp_path / "models").mkdir()
     (tmp_path / "models" / "o.onnx").write_bytes(b"x")  # var ama bozuk → hata
     assert vm.check(tmp_path, files)[0][0].startswith("ÇOK KÜÇÜK")
+
+
+def test_default_config_path_uses_takipli_data_dir(tmp_path, monkeypatch):
+    from tracker.main import _default_cfg_path
+
+    monkeypatch.setenv("TAKIPLI_DATA_DIR", str(tmp_path / "Tracking"))
+    assert Path(_default_cfg_path()) == tmp_path / "Tracking" / "config.json"

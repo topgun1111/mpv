@@ -237,3 +237,5 @@ Ana uygulamadan ayrı, **model içermeyen** küçük paket (`dist/TakipliOynatKa
 | `K` | Videoyu 90° döndür (düğmeyle aynı; kayıt başlayınca yok) |
 
 Akış: `Kayit.bat` ya da kısayol → video aç → **KAYDET** (hazır) → gerekirse **◄ 90° / 90° ►** ile döndür → hızı ayarla → `Space` (kayıt hemen başlar) → zoom + sol tuşla sürükle → **KAYDET** (durdur) → `S`. Çıktı özgün hızda, özgün sesle (`-shortest`) ve kaynakla aynı boyutta yazılır; önizleme hızı çıktıyı etkilemez. Komut satırından: `python -m recorder export video.mp4 [--rec F] [--out F] [--crf 14] [--preset medium] [--no-audio]`; sürükle-bırak için `Disa-Aktar.bat`. Derleme: `build-recording.yml` (sürüm ve Release ana uygulamayla ortak: `VERSION`, tek `v*` etiketi, `build-all.yml` `release` işi). Lisanslar: `THIRD_PARTY_NOTICES.md` Madde 3c.
+
+**Kayıt konumu (Windows geliştirme/taşınabilir başlatıcıları)**: `launcher\Baslat.bat`, `Canli.bat` ve `Takip.bat` otomatik olarak `E:\Tracking` klasörünü oluşturur ve `config.json`, `recent.json`, `rotate.txt`, güncelleme durumu ile takip günlüklerini (`TakipLog\`) burada saklar. E: sürücüsü bağlı/yazılabilir olmalıdır.

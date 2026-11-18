@@ -473,9 +473,13 @@ local saved_rotate_apply, save_rotate
 local rotate_ready, last_rot = false, nil
 local function rotate_paths()
   local list = {}
-  local ad = os.getenv("APPDATA")
+  local ad = os.getenv("TAKIPLI_DATA_DIR")
+  if not ad or ad == "" then
+    local appdata = os.getenv("APPDATA")
+    ad = appdata and (appdata .. "\\TakipliOynat") or nil
+  end
   if ad and ad ~= "" then
-    list[#list + 1] = { dir = ad .. "\\TakipliOynat", file = ad .. "\\TakipliOynat\\rotate.txt" }
+    list[#list + 1] = { dir = ad, file = ad .. "\\rotate.txt" }
   end
   local p = mp.command_native and mp.command_native({ "expand-path", "~~/rotate.txt" })
   if type(p) == "string" and p ~= "" then list[#list + 1] = { file = p } end
@@ -1362,8 +1366,17 @@ if TRACK_SHOW_MENU ~= false then
     local FILES = {}
     if okf and type(TF) == "table" then
       local WIN = TRACK_FORCE_WIN or package.config:sub(1, 1) == "\\"
-      local sdir = os.getenv("TRACK_STATE_DIR") or os.getenv("APPDATA")
-      local spath = sdir and (sdir .. "/TakipliOynat/recent.json") or nil
+      local sdir = os.getenv("TRACK_STATE_DIR")
+      if sdir and sdir ~= "" then
+        sdir = sdir .. "/TakipliOynat" -- eski ortam değişkeni APPDATA kökünü temsil eder
+      else
+        sdir = os.getenv("TAKIPLI_DATA_DIR")
+        if not sdir or sdir == "" then
+          local appdata = os.getenv("APPDATA")
+          sdir = appdata and (appdata .. "/TakipliOynat") or nil
+        end
+      end
+      local spath = sdir and (sdir .. "/recent.json") or nil
       local fstate = TF.sanitize(nil)
       local text = spath and read_file(spath)
       if text then fstate = TF.sanitize(utils.parse_json(text)) end
@@ -1574,7 +1587,11 @@ if TRACK_SHOW_MENU ~= false then
       -- sessiz kurulum) ayrı süreçte çalışır, ilerleme `update.json`'dan okunur, kurulum başlayınca
       -- mpv kapanır (Inno Setup zaten açık mpv/python'u kapatır).
       local upd = { running = false }
-      local function cfg_path() return (os.getenv("APPDATA") or ".") .. "/TakipliOynat/config.json" end
+      local function cfg_path()
+        local d = os.getenv("TAKIPLI_DATA_DIR")
+        if not d or d == "" then d = (os.getenv("APPDATA") or ".") .. "/TakipliOynat" end
+        return d .. "/config.json"
+      end
       local function console_python() -- stdout okunacağı için pythonw değil python.exe
         local p = python_exe()
         if not p then return nil end
@@ -1602,7 +1619,8 @@ if TRACK_SHOW_MENU ~= false then
       local function start_install(info)
         local py = python_exe()
         if not py then osd("güncelleme başlatılamadı: python/ bulunamadı", 4); return end
-        local dir = (os.getenv("APPDATA") or ".") .. "/TakipliOynat"
+        local dir = os.getenv("TAKIPLI_DATA_DIR")
+        if not dir or dir == "" then dir = (os.getenv("APPDATA") or ".") .. "/TakipliOynat" end
         upd.prog = dir .. "/update.json"
         os.remove(upd.prog)
         mp.command_native({ name = "subprocess", playback_only = false, detached = true,

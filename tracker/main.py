@@ -1182,6 +1182,9 @@ def _run_live_with_retry(cfg: Config, args: argparse.Namespace, tries: int = 3,
 def _default_cfg_path() -> str:
     """--config verilmediyse ayar dosyası: %APPDATA%\\TakipliOynat\\config.json (kurulum klasörü
     Program Files'ta yazılamaz: [Errno 13]); APPDATA yoksa ~/.takipli-oynat/config.json."""
+    data_dir = os.environ.get("TAKIPLI_DATA_DIR")
+    if data_dir:
+        return str(Path(data_dir) / "config.json")
     base = os.environ.get("APPDATA")
     d = Path(base) / "TakipliOynat" if base else Path.home() / ".takipli-oynat"
     return str(d / "config.json")
