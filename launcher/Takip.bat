@@ -7,7 +7,10 @@ title Takip (Python)
 if exist "%~dp0tracker\__init__.py" (set "ROOT=%~dp0") else (set "ROOT=%~dp0..\")
 cd /d "%ROOT%"
 call "%~dp0_python.bat"
-if errorlevel 1 exit /b 1
+if errorlevel 1 (
+  pause
+  exit /b 1
+)
 "%PY%" -c "import numpy, cv2, onnxruntime" 2>nul
 if errorlevel 1 (
   echo Gerekli paketler yukleniyor...

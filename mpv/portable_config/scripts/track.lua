@@ -1677,13 +1677,13 @@ do
     else
       -- Paketli python/ yok (geliştirme klasörü): launcher/Takip.bat Python'u kendisi bulur ve GÖRÜNÜR CMD
       -- penceresinde çalıştırır (hatalar orada görünür). mpv bu sırada normal açılır.
-      local bat = root .. "/launcher/Takip.bat"
+      local bat = (root .. "/launcher/Takip.bat"):gsub("/", "\\") -- cmd/start ters bölü ister
       if os.getenv("TAKIP_PY_STARTED") then
         mp.msg.info("takip programı başlatıcı tarafından zaten başlatılmış")
       elseif utils.file_info(bat) then
         mp.command_native({ name = "subprocess", playback_only = false, detached = true,
           capture_stdout = false, capture_stderr = false,
-          args = { "cmd", "/c", "start", "Takip (Python)", bat } })
+          args = { "cmd", "/d", "/c", "start", "Takip (Python)", "/D", (root:gsub("/", "\\")), "cmd", "/k", "call", bat } })
         mp.msg.info("takip programı CMD penceresinde başlatıldı: " .. bat)
       else
         mp.msg.warn("python/ ve launcher/Takip.bat bulunamadı; takip programı otomatik başlatılmadı")

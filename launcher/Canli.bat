@@ -7,7 +7,10 @@ setlocal
 if exist "%~dp0tracker\__init__.py" (set "ROOT=%~dp0") else (set "ROOT=%~dp0..\")
 cd /d "%ROOT%"
 call "%~dp0_python.bat"
-if errorlevel 1 exit /b 1
+if errorlevel 1 (
+  pause
+  exit /b 1
+)
 set "HASMODEL="
 for %%M in (yolov8n yolox_s yolox_m yolox_tiny yolox_nano) do if exist "models\%%M.onnx" set "HASMODEL=1"
 if not defined HASMODEL (
