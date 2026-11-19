@@ -18,7 +18,7 @@ jobs:
   android:
     name: android-${{ matrix.flavor }}
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 40
     env:
       BUILD_NUMBER: ${{ github.run_number }}  # app/build.gradle.kts: versionCode = (X*10000+Y*100+Z)*1000 + build, so builds update each other
     strategy:
@@ -124,6 +124,7 @@ jobs:
           gradle-version: "8.14.3"
       - name: Unit tests + signed release APK (same committed key every build, so it installs over the previous one)
         working-directory: android
+        timeout-minutes: 30
         run: gradle --no-daemon --stacktrace :core:test :app:assemble${{ matrix.gradle_task }}Release
       - name: Models are inside the APK
         shell: bash

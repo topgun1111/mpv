@@ -18,7 +18,7 @@ jobs:
   windows-package:
     needs: sam-models
     runs-on: windows-latest
-    timeout-minutes: 90  # takılan derleme runner dakikalarını yemesin
+    timeout-minutes: 45  # takılan derleme runner dakikalarını yemesin (normal süre ~20 dk)
     env:
       PYTHONUTF8: "1"  # Windows konsolu cp1252: Türkçe çıktı (ı, ş...) UnicodeEncodeError veriyordu
     steps:
@@ -83,6 +83,7 @@ jobs:
           restore-keys: nuitka-${{ runner.os }}-
       - name: Nuitka tek dosya tracker.exe derlemesi
         shell: pwsh
+        timeout-minutes: 30
         run: |
           python -m pip install -r requirements.txt
           python scripts/build_nuitka.py --out dist/TakipliOynat
@@ -137,8 +138,8 @@ jobs:
         working-directory: dist/TakipliOynat
         run: |
           .\tracker.exe --version
-          $providerReport = .\tracker.exe providers --json
-          $providerReport
+          $providerReport = (.\tracker.exe providers --json | Out-String)
+          Write-Host $providerReport
           if ($providerReport -notmatch 'DmlExecutionProvider') { throw "tracker.exe icinde DirectML provider yuklenemedi" }
           .\tracker.exe detect --help | Out-Null
           if (-not (Test-Path THIRD_PARTY_NOTICES.md)) { throw "THIRD_PARTY_NOTICES.md pakette yok" }

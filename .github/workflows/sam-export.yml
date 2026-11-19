@@ -28,6 +28,7 @@ env:
 jobs:
   choose:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
     steps:
@@ -44,7 +45,7 @@ jobs:
     name: export-${{ matrix.variant }}
     needs: choose
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
