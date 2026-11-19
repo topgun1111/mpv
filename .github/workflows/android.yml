@@ -20,7 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
-      MODEL_CKPT_DIR: ${{ runner.temp }}/model-checkpoints
       BUILD_NUMBER: ${{ github.run_number }}  # app/build.gradle.kts: versionCode = (X*10000+Y*100+Z)*1000 + build, so builds update each other
     strategy:
       fail-fast: false
@@ -31,6 +30,9 @@ jobs:
           - flavor: sam
             gradle_task: Sam
     steps:
+      # The `runner` context is not available in a job-level env, so MODEL_CKPT_DIR is exported for all later steps here.
+      - name: Model checkpoint directory
+        run: echo "MODEL_CKPT_DIR=$RUNNER_TEMP/model-checkpoints" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
