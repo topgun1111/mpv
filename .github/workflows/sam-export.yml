@@ -3,6 +3,13 @@ name: SAM model export (EdgeTAM + SAM 2.1 Small)
 # Exports both model families independently. Each matrix job has an isolated Python environment because
 # EdgeTAM and SAM 2.1 both install a package named `sam2` and must never coexist in one environment.
 on:
+  workflow_call:
+    inputs:
+      variants:
+        description: "Which model exports to run"
+        type: string
+        required: false
+        default: both
   workflow_dispatch:
     inputs:
       variants:
@@ -108,10 +115,10 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import hashlib
-          root = Path('sam-models')
+          root = Path('sam-models') / __import__('os').environ['VARIANT']
           with (root / 'SHA256SUMS.txt').open('w') as f:
-              for p in sorted(root.glob('*/*.onnx')):
-                  f.write(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.as_posix()}\n")
+              for p in sorted(root.glob('*.onnx')):
+                  f.write(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n")
           PY
           ls -lh "sam-models/$VARIANT"
           echo
@@ -121,10 +128,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sam-models-${{ matrix.variant }}
-          path: |
-            sam-models/${{ matrix.variant }}/*.onnx
-            sam-models/SHA256SUMS.txt
-            export-${{ matrix.variant }}.log
+          path: sam-models/${{ matrix.variant }}/
           if-no-files-found: warn
           retention-days: 30
       - name: Failure diagnostics

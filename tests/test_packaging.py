@@ -163,8 +163,10 @@ def test_installer_upgrades_in_place_and_ships_model_with_license():
     # eski artıklar silinir…
     inst_delete = "\n".join(ln for ln in sect.splitlines() if not ln.startswith(";"))
     assert r'{app}\python"' in inst_delete and r'{app}\tracker"' in inst_delete
-    # …ama kullanıcı verisi (models, %APPDATA%) kalır
-    assert "models" not in inst_delete and "AppData" not in inst_delete
+    # …ama kullanıcı tarafından yönetilen models/ ve %APPDATA% verisi kalır.
+    # SAM modelleri ise sürümle birlikte dağıtılan uygulama dosyalarıdır ve güncellenir.
+    assert r'{app}\models"' not in inst_delete and "AppData" not in inst_delete
+    assert r'{app}\sam-models"' in inst_delete
     assert "{userappdata}" not in iss
     # model kurulumla gelir: elle kopyalamak gerekmez
     fm = (ROOT / "scripts" / "fetch_model.ps1").read_text(encoding="utf-8")
@@ -173,6 +175,8 @@ def test_installer_upgrades_in_place_and_ships_model_with_license():
     wf = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
     assert r"models\yolox_s.onnx" in wf and r"models\yolov8s-pose.onnx" in wf
     assert "export_pose.py" in wf and "tracker detect" in wf
+    assert "sam-models-edgetam" in wf and "sam-models-small" in wf
+    assert "sam_smoke_test.py" in wf and "MODEL EXPORT: SUCCESS" in wf
     # kurulum sonrası otomatik başlatma seçeneği (sessiz kurulumda atlanır)
     assert "postinstall" in iss and "skipifsilent" in iss
 

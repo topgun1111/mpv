@@ -42,8 +42,9 @@ RestartApplications=no
 Name: "tr"; MessagesFile: "compiler:Languages\Turkish.isl"
 
 [Files]
-; models\yolox_s.onnx, models\yolov8s-pose.onnx (eklem takibi; AGPL: yalnız kişisel kullanım) ve ffmpeg\ffmpeg.exe
-; (dışa aktarma; GPL) pakete CI'da konur (models\manifest.json + scripts\verify_models.py denetler).
+; models\yolox_s.onnx + models\yolov8s-pose.onnx, sam-models\{edgetam,small}\*.onnx
+; (beş grafik x iki SAM varyantı) ve ffmpeg\ffmpeg.exe CI'da pakete konur.
+; YOLOX bütünlüğü models\manifest.json + scripts\verify_models.py ile; SAM bütünlüğü build.yml ile denetlenir.
 Source: "dist\TakipliOynat\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [InstallDelete]
@@ -52,6 +53,7 @@ Source: "dist\TakipliOynat\*"; DestDir: "{app}"; Flags: recursesubdirs createall
 Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\tracker"
 Type: filesandordirs; Name: "{app}\ffmpeg"
+Type: filesandordirs; Name: "{app}\sam-models"
 Type: filesandordirs; Name: "{app}\mpv\portable_config\scripts"
 Type: filesandordirs; Name: "{app}\mpv\portable_config\script-modules"
 
