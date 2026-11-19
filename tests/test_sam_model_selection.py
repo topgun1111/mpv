@@ -45,7 +45,6 @@ def test_pc_sam_model_selection_rejects_unknown_variant():
 
 
 def test_panel_snapshot_exposes_both_sam_model_choices():
-    cfg = SimpleNamespace(sam_model_variant="edgetam")
     # panel_snapshot also serializes all ordinary settings; use the real Config defaults.
     from tracker.config import Config
     snap = panel_snapshot(Config())

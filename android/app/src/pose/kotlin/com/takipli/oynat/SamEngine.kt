@@ -10,6 +10,14 @@ import com.takipli.oynat.core.TrackDoc
 /** `pose` build: no SAM. The real implementation lives in src/sam (same signatures). */
 object SamEngine {
     val lastRun: String = ""
+    @Suppress("UNUSED_PARAMETER")
+    fun availableVariants(ctx: Context): List<String> = emptyList()
+
+    @Suppress("UNUSED_PARAMETER")
+    fun selectedVariant(ctx: Context): String = "edgetam"
+
+    @Suppress("UNUSED_PARAMETER")
+    fun setSelectedVariant(ctx: Context, variant: String) = Unit
     fun hasModels(ctx: Context): Boolean = false
     fun hasMemory(ctx: Context): Boolean = false
     fun npuEnabled(ctx: Context): Boolean = false

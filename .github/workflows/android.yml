@@ -66,9 +66,11 @@ jobs:
           python -m venv "$RUNNER_TEMP/venv-edgetam"
           "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install --upgrade pip
           "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
-          "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install onnx==1.17.0 onnxruntime==1.20.1 timm==1.0.11 huggingface_hub
+          "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install onnx==1.17.0 onnxruntime==1.20.1 timm==1.0.11 "huggingface_hub>=0.26,<1.0"
           git clone --depth 1 https://github.com/facebookresearch/EdgeTAM.git "$RUNNER_TEMP/EdgeTAM"
           "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install -e "$RUNNER_TEMP/EdgeTAM"
+          # timm reports "package not installed" when huggingface_hub is missing OR fails to import (e.g. a 1.x release): fail here with a clear message
+          "$RUNNER_TEMP/venv-edgetam/bin/python" -c "import huggingface_hub, timm.models._hub as h; assert h._has_hf_hub, 'timm cannot import huggingface_hub'; print('huggingface_hub', huggingface_hub.__version__)"
           "$RUNNER_TEMP/venv-edgetam/bin/python" scripts/export_sam2.py "$d/edgetam" edgetam 2>&1 | tee "$RUNNER_TEMP/export-edgetam.log"
 
           python -m venv "$RUNNER_TEMP/venv-sam2"

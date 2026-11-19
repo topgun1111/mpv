@@ -62,12 +62,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install onnx==1.17.0 onnxruntime==1.20.1 timm==1.0.11 huggingface_hub
+          python -m pip install onnx==1.17.0 onnxruntime==1.20.1 timm==1.0.11 "huggingface_hub>=0.26,<1.0"
       - name: Install isolated model implementation
         run: |
           if [ "$VARIANT" = edgetam ]; then
             git clone --depth 1 https://github.com/facebookresearch/EdgeTAM.git "$RUNNER_TEMP/EdgeTAM"
             python -m pip install -e "$RUNNER_TEMP/EdgeTAM"
+            python -c "import huggingface_hub, timm.models._hub as h; assert h._has_hf_hub, 'timm cannot import huggingface_hub'; print('huggingface_hub', huggingface_hub.__version__)"
           else
             python -m pip install git+https://github.com/facebookresearch/sam2.git
           fi
