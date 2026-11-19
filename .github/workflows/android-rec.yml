@@ -1,0 +1,58 @@
+name: Android Record
+
+# Record-only Android app (android/rec, package com.takipli.oynat.rec): no pose models, no tracking, no ONNX Runtime / OpenCV.
+# Separate workflow so android.yml (pose / sam) and its tests stay untouched. No models to export, so this one is fast.
+# The APK is a workflow artifact and, on every push, goes onto the shared GitHub Release (release job in build-all.yml). Nothing here is AGPL.
+on:
+  workflow_call:  # started by build-all.yml (push / tag / pull request); this file no longer has its own triggers
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-rec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BUILD_NUMBER: ${{ github.run_number }}  # android/rec/build.gradle.kts: versionCode = (X*10000+Y*100+Z)*1000 + build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Android SDK (accepts licences)
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ""
+      - name: Gradle (installs the pinned version and caches it)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Unit tests + signed release APK
+        working-directory: android
+        run: gradle --no-daemon --stacktrace :core:test :rec:assembleRelease
+      - name: Record app has no AI / tracking payload
+        run: |
+          apk=android/rec/build/outputs/apk/release/rec-release.apk
+          test -s "$apk" || { echo "release APK missing"; ls -l android/rec/build/outputs/apk/release; exit 1; }
+          if unzip -l "$apk" | grep -Ei "\.onnx|libonnxruntime|libopencv|libQnn"; then echo "unexpected AI/tracking files in the record APK"; exit 1; fi
+          ls -l "$apk"
+      - name: Name the APK
+        run: |
+          v=$(tr -d "[:space:]" < VERSION)
+          mkdir -p dist-rec/release
+          cp android/rec/build/outputs/apk/release/rec-release.apk "dist-rec/release/TakipliKayit-Android-$v-b${{ github.run_number }}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TakipliKayit-Android-Release
+          path: dist-rec/release/*.apk
+          if-no-files-found: error
+      - name: Test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-rec-reports
+          path: android/**/build/reports
+          if-no-files-found: ignore

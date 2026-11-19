@@ -1,0 +1,90 @@
+name: Build Recording
+# Kayıt varyantı (yalnız elle kamera: zoom + sürükle → kaydet → dışa aktar). Model/ONNX YOK.
+# Ana `build.yml`'den bağımsızdır; sürüm numarası ve Release ortaktır (build-all.yml: `release` işi, scripts/version.py).
+on:
+  workflow_call:  # started by build-all.yml (push / tag / pull request); this file no longer has its own triggers
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-package:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test
+        run: |
+          pip install -r requirements-dev.txt
+          ruff check .
+          pytest -q tests/test_recorder.py tests/test_lua_kayit.py tests/test_packaging_recording.py
+      - name: Paket klasörünü hazırla (kayıt varyantı)
+        run: python scripts/make_package.py --variant recording
+      - name: Gömülü Python + bağımlılıklar (numpy + opencv; onnxruntime YOK)
+        run: python scripts/build_embedded.py --out dist/TakipliOynatKayit --requirements requirements-recording.txt
+      - name: mpv indir
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}  # API hız sınırı (anonim istek runner IP'sinde 403 verir)
+        run: ./scripts/fetch_deps.ps1 -Target dist/TakipliOynatKayit/mpv
+      - name: ffmpeg indir (GPL derlemesi, libx264; dışa aktarma için)
+        shell: pwsh
+        run: ./scripts/fetch_ffmpeg.ps1 -Target dist/TakipliOynatKayit/ffmpeg
+      - name: Paketlenmiş Python duman testi
+        shell: pwsh
+        working-directory: dist/TakipliOynatKayit
+        run: |
+          .\python\python.exe -m recorder --version
+          .\python\python.exe -c "import recorder, numpy, cv2"
+          if ($LASTEXITCODE -ne 0) { throw "recorder/numpy/cv2 içe aktarılamadı" }
+          # kayıt varyantında yapay zekâ çalışma zamanı ve model OLMAMALI
+          .\python\python.exe -c "import importlib.util, sys; sys.exit(1 if importlib.util.find_spec('onnxruntime') else 0)"
+          if ($LASTEXITCODE -ne 0) { throw "onnxruntime pakette var (kayıt varyantında olmamalı)" }
+          foreach ($d in "tracker", "models") { if (Test-Path $d) { throw "$d klasörü kayıt paketinde olmamalı" } }
+          if (Get-ChildItem -Recurse -Filter *.onnx -ErrorAction SilentlyContinue) { throw "kayıt paketinde .onnx var" }
+          foreach ($f in "THIRD_PARTY_NOTICES.md", "mpv\BUILD_INFO.txt", "mpv\mpv.exe", "ffmpeg\ffmpeg.exe",
+                         "mpv\portable_config\scripts\kayit.lua", "Kayit.bat", "Disa-Aktar.bat") {
+            if (-not (Test-Path $f)) { throw "$f pakette yok" }
+          }
+          # ffmpeg libx264 ile kodluyor mu → uçtan uca: kayıt dosyası + dışa aktarma
+          .\ffmpeg\ffmpeg.exe -hide_banner -loglevel error -f lavfi -i testsrc=size=320x240:rate=10 -t 2 -c:v libx264 -pix_fmt yuv420p smoke.mp4
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path smoke.mp4)) { throw "ffmpeg libx264 duman testi başarısız" }
+          .\python\python.exe -c "import json; json.dump({'version': 1, 'kind': 'manual-camera', 'video': 'smoke.mp4', 'rotate': 0, 'speed': 1.0, 'views': [[0.0, 0.0, 0.0, 0.0], [1.0, 1.0, 0.1, 0.0], [2.0, 1.0, 0.1, 0.0]]}, open('smoke.mp4.rec.json', 'w'))"
+          .\python\python.exe -m recorder export smoke.mp4
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path smoke.kamera.mp4)) { throw "recorder export duman testi başarısız" }
+          Remove-Item smoke.mp4, smoke.mp4.rec.json, smoke.kamera.mp4, smoke.kamera.mp4.export.json -ErrorAction SilentlyContinue
+      - name: Taşınabilir ZIP
+        shell: pwsh
+        run: Compress-Archive -Path dist/TakipliOynatKayit -DestinationPath dist/TakipliOynatKayit-portable.zip
+      - name: Installer derle (Inno Setup)
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION).Trim()
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=$v" installer-recording.iss
+      - name: Dosyaları adlandır
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION).Trim()
+          $full = "$v-b${{ github.run_number }}"  # ortak sürüm: X.Y.Z-b<derleme> (scripts/version.py)
+          $exe = Get-ChildItem dist/installer-recording/*.exe | Select-Object -First 1
+          if (-not $exe) { throw "installer .exe üretilmedi" }
+          Move-Item $exe.FullName "dist/TakipliOynatKayit-Setup-$full.exe" -Force
+          Move-Item dist/TakipliOynatKayit-portable.zip "dist/TakipliOynatKayit-Portable-$full.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TakipliOynatKayit-Setup
+          path: dist/TakipliOynatKayit-Setup-*.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TakipliOynatKayit-Portable
+          path: dist/TakipliOynatKayit-Portable-*.zip
+          if-no-files-found: error

@@ -1,0 +1,200 @@
+package com.takipli.oynat.core
+
+import kotlin.math.abs
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+class FreePointTest {
+    // 20 samples at 10 fps; person (id 1) walks right, the tapped spot is its torso: x = 0.3 + 0.02 i, y = 0.5.
+    private fun doc(pass: List<List<Double>>): TrackDoc {
+        val samples = (0 until 20).map { i ->
+            val cx = 0.3 + 0.02 * i
+            Sample(i / 10.0, listOf(listOf(1.0, cx - 0.1, 0.2, cx + 0.1, 0.9, 0.9)))
+        }
+        return TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples, pt = PointTrack(a = pass))
+    }
+
+    private fun pass(): List<List<Double>> = (0 until 20).map { i ->
+        when (i) {
+            5 -> listOf(0.9, 0.1, 0.9)         // tracker jumped to the background
+            8, 9 -> emptyList()                // lost (blur / fast motion)
+            else -> listOf(0.3 + 0.02 * i, 0.5, 0.9)
+        }
+    }
+
+    private val pick = FreePick(t = 0.0, x = 0.3, y = 0.5, id = 1)
+
+    @Test
+    fun jumpIsRejectedAndLossIsFilledFromAnchor() {
+        val f = fuseFreePoint(doc(pass()), pick, Config())
+        assertTrue(abs(f.getValue(5)[0] - 0.4) < 0.01 && abs(f.getValue(5)[1] - 0.5) < 0.01)
+        for (i in listOf(8, 9)) assertTrue(abs(f.getValue(i)[0] - (0.3 + 0.02 * i)) < 0.01, "sample $i")
+        assertEquals(20, f.size)
+    }
+
+    @Test
+    fun targetWithFreePickBuildsViewsAtChosenZoom() {
+        val d = doc(pass())
+        val views = buildTargetViews(d, Target(id = 1, free = pick.copy(zoom = 1.5)), Config())
+        assertTrue(views.isNotEmpty())
+        val mid = views.minByOrNull { abs(it[0] - 1.0) }!!
+        assertEquals(1.5, mid[1], 1e-3)
+        assertNotNull(viewAtSmooth(views, 0.95))
+    }
+
+    @Test
+    fun keepDistanceZoomsOutAsTheObjectGrows() {
+        // tracker box (SAM mask), 12 s at 10 fps: constant for the first 4 s (pick reference), then it doubles by the end: the object comes closer.
+        // Long enough that the zero-phase smoothing (it also looks backwards) cannot pull the growth into the first samples.
+        val n = 120
+        val samples = (0 until n).map { Sample(it / 10.0) }
+        val rows = (0 until n).map { i -> val k = 1.0 + maxOf(0, i - 40) / 79.0; listOf(0.5, 0.5, 0.9, 0.1 * k, 0.1 * k) }
+        val d = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples, pt = PointTrack(a = rows))
+        val cfg = Config(kpWorld = false)
+        val fixed = buildTargetViews(d, Target(-1, free = FreePick(0.0, 0.5, 0.5, null, 1.5)), cfg)
+        val keep = buildTargetViews(d, Target(-1, free = FreePick(0.0, 0.5, 0.5, null, 1.5, keepDist = true)), cfg)
+        assertTrue(fixed.all { abs(it[1] - 1.5) < 1e-3 }, "without keepDist the zoom stays at the chosen value")
+        assertEquals(1.5, keep.first()[1], 0.05)           // starts at the chosen zoom
+        assertEquals(0.5, keep.last()[1], 0.2)             // object 2x bigger: one stop (log2) less zoom
+        var prev = 9.0
+        for (v in keep) { assertTrue(v[1] <= prev + 1e-6, "zoom never rises while the object only grows"); prev = v[1] }
+    }
+
+    @Test
+    fun keepDistanceWithoutAnySizeKeepsTheZoomFixed() {
+        val d = doc(pass()).copy(samples = (0 until 20).map { Sample(it / 10.0) }) // no person rows, tracker rows have no size
+        assertTrue(freePointScale(d, pick, Config()).isEmpty())
+    }
+
+    @Test
+    fun smoothSamplingHitsKeysAndDoesNotOvershoot() {
+        val keys: List<ViewKey> = listOf(listOf(0.0, 1.0, 0.0, 0.0), listOf(1.0, 1.0, 0.2, 0.0), listOf(2.0, 1.0, 0.2, 0.0), listOf(3.0, 1.0, 0.4, 0.0))
+        assertEquals(0.2, viewAtSmooth(keys, 1.0).panX, 1e-9)
+        var prev = -1.0
+        for (k in 0..300) {
+            val x = viewAtSmooth(keys, k / 100.0).panX
+            assertTrue(x in -1e-9..0.4 + 1e-9 && x >= prev - 1e-9, "t=${k / 100.0} x=$x")
+            prev = x
+        }
+    }
+}
+
+class FreePickResolveTest {
+    @Test
+    fun freePickBecomesFreeTargetEvenWithoutPerson() {
+        val d = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, listOf(Sample(0.0)))
+        val t = resolvePick(d, TargetPick(0.0, 0.5, 0.5, free = true, zoom = 2.0), Config())
+        assertNotNull(t); assertEquals(-1, t.id); assertEquals(2.0, t.free?.zoom)
+    }
+}
+
+class DotsTest {
+    @Test
+    fun combineVotesTheCentreAndHoldsTheSizeWhenADotIsLost() {
+        val start = listOf(listOf(0.4, 0.4), listOf(0.6, 0.6))
+        val t0 = listOf(listOf(0.4, 0.4, 1.0), listOf(0.5, 0.4, 0.9), listOf(0.6, 0.4, 0.9))
+        val t1 = listOf(listOf(0.6, 0.6, 1.0), listOf(0.7, 0.6, 0.9), emptyList())
+        val r = combineDots(listOf(t0, t1), start, 3)
+        assertEquals(0.5, r[0][0], 1e-9); assertEquals(0.5, r[0][1], 1e-9)
+        assertEquals(0.6, r[1][0], 1e-9); assertEquals(0.5, r[1][1], 1e-9)
+        assertEquals(0.7, r[2][0], 1e-9); assertEquals(0.5, r[2][1], 1e-9) // only dot 0 left: its vote
+        assertEquals(0.2, r[2][3], 1e-9); assertEquals(0.2, r[2][4], 1e-9) // size of the last full sample
+    }
+
+    @Test
+    fun threeDotsOutvoteOneThatDrifts() {
+        val start = listOf(listOf(0.4, 0.5), listOf(0.5, 0.5), listOf(0.6, 0.5))
+        val good = { x: Double -> (0 until 2).map { listOf(x, 0.5, 0.9) } }
+        val r = combineDots(listOf(good(0.4), good(0.5) , good(0.6).mapIndexed { i, p -> if (i == 1) listOf(0.95, 0.1, 0.9) else p }), start, 2)
+        assertTrue(abs(r[1][0] - 0.5) < 1e-9 && abs(r[1][1] - 0.5) < 1e-9, "centre = ${r[1]}")
+    }
+
+    @Test
+    fun dotPickIsAFramedFreeTargetAndZoomFollowsTheirSpread() {
+        val d0 = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, listOf(Sample(0.0)))
+        val dots = listOf(listOf(0.4, 0.4), listOf(0.6, 0.6))
+        val t = resolvePick(d0, TargetPick(0.0, 0.5, 0.5, free = true, dots = dots), Config())!!
+        assertEquals(2, t.free?.dots?.size); assertTrue(t.free!!.framed)
+        val samples = (0 until 6).map { Sample(it / 10.0) }
+        val per = dots.map { p -> (0 until 6).map { listOf(p[0], p[1], 0.9) } }
+        val d = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples, pt = PointTrack(a = combineDots(per, dots, 6)))
+        val z = buildTargetViews(d, Target(-1, free = t.free), Config(kpWorld = false)).map { it[1] }
+        assertTrue(abs(z[0] - 1.97) < 0.05, "zoom(log2) = $z") // log2(0.9 / (0.2 * 1.15))
+    }
+}
+
+class RegionTest {
+    @Test
+    fun boundsAndPick() {
+        val shapes = listOf(listOf(listOf(0.2, 0.4), listOf(0.3, 0.9), listOf(0.25, 0.6)), listOf(listOf(0.5, 0.4), listOf(0.6, 0.9)))
+        val b = shapeBounds(shapes)!!
+        assertEquals(0.4, b[0], 1e-9); assertEquals(0.65, b[1], 1e-9); assertEquals(0.4, b[2], 1e-9); assertEquals(0.5, b[3], 1e-9)
+        assertEquals(0.4, regionPick(1.0, shapes).x, 1e-9)
+    }
+
+    @Test
+    fun simplifyKeepsCornersDropsCollinear() {
+        val line = (0..10).map { listOf(it / 10.0, 0.0) } + (1..10).map { listOf(1.0, it / 10.0) }
+        val s = simplifyStroke(line, 0.01)
+        assertEquals(3, s.size)
+    }
+
+    @Test
+    fun regionRowsGiveSizedBoxes() {
+        val samples = (0 until 6).map { Sample(it / 10.0) }
+        val rows = (0 until 6).map { listOf(0.4 + 0.01 * it, 0.5, 0.9, 0.2, 0.3) }
+        val d = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples, pt = PointTrack(a = rows))
+        val pick = regionPick(0.0, listOf(listOf(listOf(0.3, 0.35), listOf(0.5, 0.65), listOf(0.4, 0.5))))
+        val boxes = freePointBoxes(d, pick, Config())
+        val b = boxes.getValue(3)
+        assertTrue(abs(b[2] - 0.2 * 1.15) < 0.01 && abs(b[3] - 0.3 * 1.15) < 0.01, "size ${b[2]} x ${b[3]}")
+    }
+
+    @Test
+    fun drawnRegionFillsTheFrameInsteadOfStayingAt1x() {
+        val samples = (0 until 6).map { Sample(it / 10.0) }
+        // tall region: half of the frame height, a fifth of its width (before the fix: fill 0.30 < 0.575 -> zoom clamped to 0)
+        val rows = (0 until 6).map { listOf(0.5, 0.5, 0.9, 0.2, 0.5) }
+        val d = TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples, pt = PointTrack(a = rows))
+        val pick = regionPick(0.0, listOf(listOf(listOf(0.4, 0.25), listOf(0.6, 0.75), listOf(0.5, 0.5))))
+        val cfg = Config(kpWorld = false)
+        val views = buildTargetViews(d, Target(-1, free = pick), cfg)
+        val z = views.map { it[1] }
+        assertTrue(z.all { it > 0.5 }, "zoom(log2) = $z") // expected ~ log2(0.9 / (0.5 * 1.15)) = 0.65
+        assertTrue(abs(z[0] - 0.65) < 0.1, "zoom(log2) = ${z[0]}") // constant box: buildTargetViews drops repeated keys, so only the ends remain
+        // a tapped spot keeps its own rule (30% fill, no region framing)
+        assertEquals(0.30, cfg.targetFill, 1e-9)
+        assertEquals(0.90, regionFill(0.30), 1e-9)
+        assertEquals(0.98, regionFill(0.85), 1e-9)
+        assertEquals(0.30, regionFill(0.10), 1e-9)
+    }
+
+    private fun regionDoc(sizes: List<Pair<Double, Double>>): TrackDoc {
+        val samples = sizes.indices.map { Sample(it / 10.0) }
+        val rows = sizes.map { (w, h) -> listOf(0.5, 0.5, 0.9, w, h) }
+        return TrackDoc(2, VideoInfo(w = 1920, h = 1080, fps = 30.0), 10.0, samples, pt = PointTrack(a = rows))
+    }
+    private val shapes = listOf(listOf(listOf(0.4, 0.4), listOf(0.6, 0.6), listOf(0.5, 0.5)))
+
+    @Test
+    fun keepSizeZoomFollowsAreaSizeAndFillIsChosen() {
+        // the area grows 2x (object comes closer): zoom drops by 1 (log2); smaller area: zoom rises
+        val d = regionDoc(listOf(0.2 to 0.2, 0.2 to 0.2, 0.2 to 0.2, 0.4 to 0.4, 0.4 to 0.4, 0.4 to 0.4))
+        val cfg = Config(kpWorld = false, offlineAlpha = 1.0)
+        val z = buildTargetViews(d, Target(-1, free = regionPick(0.0, shapes)), cfg).map { it[1] }
+        assertTrue(z[0] > z[5] + 0.5, "zoom(log2) = $z") // size is smoothed (alpha x 0.4, as offline.py): 6 samples give ~0.66 of the full 1.0
+        // a lower chosen fill zooms out: 0.45 instead of 0.90 = exactly 1 log2 less (when not clamped)
+        val zLow = buildTargetViews(d, Target(-1, free = regionPick(0.0, shapes).copy(fill = 0.45)), cfg).map { it[1] }
+        assertTrue(abs((z[0] - zLow[0]) - 1.0) < 0.05 || zLow[0] == 0.0, "z=${z[0]} zLow=${zLow[0]}")
+    }
+
+    @Test
+    fun fixedZoomStaysConstantWhileAreaSizeChanges() {
+        val d = regionDoc(listOf(0.2 to 0.2, 0.2 to 0.2, 0.2 to 0.2, 0.4 to 0.4, 0.4 to 0.4, 0.4 to 0.4))
+        val cfg = Config(kpWorld = false)
+        val views = buildTargetViews(d, Target(-1, free = regionPick(0.0, shapes).copy(zoom = 1.5)), cfg)
+        assertTrue(views.all { abs(it[1] - 1.5) < 1e-6 }, "zoom(log2) = ${views.map { it[1] }}")
+    }
+}

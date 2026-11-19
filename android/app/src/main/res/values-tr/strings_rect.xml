@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mode_tab_rect">Dikdörtgen</string>
+    <string name="pick_rect_hint">Nesnenin etrafına bir kutu sürükleyin. Köşeden sürükleyerek boyutlandırın, içinden sürükleyerek taşıyın, dışından sürükleyerek yenisini çizin. Kamera kutunun alanını izler.</string>
+</resources>

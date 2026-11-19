@@ -1,0 +1,115 @@
+# recording.handover.md — Takipli Oynat KAYIT (PC varyantı)
+
+Yeni oturumda önce bu dosyayı, sonra ana `handover.md`'nin «Kurallar» satırını oku; sıradaki ⬜ parçayı yap.
+Her parça sonunda bu dosyayı güncelle → TÜM projeyi ZIP'le (`takipli-oynat-recording-partN.zip`; değişen dosyalar değil, hepsi).
+Ücretsiz Claude hesabı: token'ı idareli kullan. Bir parça = bir oturum; yarım bırakma, son yeşil testte dur ve buraya yaz.
+
+## 1. Amaç (kullanıcı isteği, bağlayıcı)
+PC tarafı **iki varyanta** ayrılır:
+1. **Ana varyant (`main`)** — mevcut uygulama (takip, modeller, offline). **Değişmez**; testleri aynen geçmeli.
+2. **Kayıt varyantı (`recording`)** — **tek özellik**: video oynarken kullanıcı **zoom düzeyini ayarlar ve videoyu aynı anda sürükler**
+   (Android `RecordScreen` ile aynı özellik); kamera hareketi kaydedilir, sonra yeni video olarak dışa aktarılır.
+   **Poz, YOLO, Re-ID, takip, model YOK ve eklenmeyecek.** `onnxruntime`, `tracker/`, `models/` pakete girmez.
+
+Kodlama **üç parçaya** bölündü (aşağıda). **R1, R2, R3 yapıldı — kayıt varyantının kodlaması BİTTİ**; kalan iş yalnız Windows'ta gerçek doğrulama (aşağıda «Doğrulama»).
+
+## 2. Tasarım kararları
+- Yeni, bağımsız Python paketi **`recorder/`** (ana `tracker/`'ı içe aktarmaz; test AST ile denetler). Geometri/dışa aktarma
+  formülleri ana varyantla **birebir aynı** (testte `tracker.export`/`tracker.offline` ile eşlik testi) → çıktı tutarlı.
+- Anahtar kare biçimi her yerde aynı: `[t, zoom(log2), pan_x, pan_y]`, `t` = videonun kendi saati (`time-pos`).
+  Önizleme hızı (0.25×–2×) kaydı etkilemez; dışa aktarma özgün hızda (Android ile aynı kural).
+- Kayıt dosyası: `<video>.rec.json` = `{version:1, kind:"manual-camera", video, vsig, rotate, speed, views}`.
+  `vsig` = ana varyanttaki `cache.file_sig` ile aynı imza; video değişmişse dışa aktarma reddeder.
+- Zoom + sürükleme **aynı anda**: `apply_gesture_at` (Android `applyGestureAt` portu) imlecin altındaki kare noktasını imleçle
+  birlikte tutar; zoom imleç etrafındadır, kare ortası etrafında değil. Zoom 0..4 (log2, 1×–16×), pan ±(0.5−0.5/2^z) ile kıstırılır.
+- Ayrı mpv IPC borusu (`\\.\pipe\mpv-kayit`) ve ayrı paket klasörü (`dist/TakipliOynatKayit`) → iki varyant yan yana çalışabilir.
+- Dışa aktarma ffmpeg ile (ana varyanttaki gibi `ffmpeg\ffmpeg.exe`; yoksa sessiz cv2 yedeği). `requirements-recording.txt` =
+  numpy + opencv-python-headless (kare okuma/kırpma için); ONNX çalışma zamanı yok.
+- mpv `video-rotate` (K tuşu) kayda yazılır; dışa aktarma önce kareyi döndürür, sonra kırpar (çıktı boyutu 90/270'te yer değiştirir).
+
+## 3. Parçalar
+| # | Parça | Durum |
+|---|-------|-------|
+| R1 | Python çekirdek + varyant paketleme (`recorder/`, `make_package --variant`, testler) | ✅ |
+| R2 | Lua kayıt arayüzü: `scripts/kayit.lua` (+ `input.conf`), Lua↔Python eşlik testi | ✅ |
+| R3 | Dışa aktarma akışı (`E` tuşu → `recorder export`), başlatıcılar, installer, CI workflow, README/lisans, son testler | ✅ |
+
+### R1 — Yapıldı (2026-11-15)
+- `recorder/geometry.py`: `clamp_view`, `apply_gesture_at`, `set_zoom_at`, `view_at`, `crop_rect` (+ `MAX_ZOOM=4`).
+- `recorder/keys.py`: `append_key`, `normalize_keys`, hız (`clamp_speed`, `key_dt`, `SPEED_PRESETS`), `save_recording`/`load_recording`, `rec_path`, `default_out` (`<video>.kamera.mp4`), `file_sig`.
+- `recorder/export.py`: `export_video(video, views, out, rotate=…)` (ffmpeg libx264 + özgün ses; ilerleme `<out>.export.json`, iptal `<out>.export.cancel`).
+- `recorder/main.py` CLI: `python -m recorder export VIDEO [--rec F] [--out F] [--no-audio] [--crf N] [--ffmpeg P]`, `info REC`, `--version`.
+- `scripts/make_package.py --variant main|recording [--out DİZİN]` (varsayılan main = eski davranış; `main()` argümansız çağrılabilir),
+  `scripts/build_embedded.py --requirements <dosya>`, `requirements-recording.txt`.
+- Kayıt paketi iskeleti: `mpv/portable_config_recording/{mpv.conf,input.conf}` (şimdilik düz oynatıcı), `launcher_recording/Kayit.bat`.
+- Testler: `tests/test_recorder.py` (25 test: zoom+sürükleme aynı anda, imleç sabitleme, ana varyantla eşlik, kayıt dosyası, uçtan uca dışa aktarma,
+  döndürme, iptal, CLI, `recorder` içinde tracker/onnx/torch içe aktarımı yok, kayıt paketinde model/tracker yok, ana paket değişmedi).
+  Gerçek ffmpeg ile (sesli test klibi) elle doğrulandı: sesli, 640x360 çıktı. Bu ortamda pytest/ruff kurulamadı (ağ yok); testler yerel
+  mini koşucuyla yeşil, satır uzunluğu (≤100) ve kullanılmayan içe aktarma elle denetlendi → **CI'da ilk koşuda `ruff check .` + `pytest -q` doğrulanmalı**.
+- Bilinen/devralınan: `-shortest` nedeniyle ffmpeg sesli çıktıda son 1–2 kareyi kırpabilir (ana varyantla aynı davranış).
+
+### R2 — Yapıldı (2026-11-15): Lua kayıt arayüzü (`mpv/portable_config_recording/scripts/kayit.lua`, 269 satır)
+- **Girdi**: sol tuş basılı + sürükle = kaydır; tekerlek = imleç etrafında zoom (adım 0.25 log2); sürüklerken tekerlek de çalışır (her olay `apply_gesture_at` ile, aynı imleç noktasında → nokta imleçle kalır). `+`/`-` (basılı tut = sürekli, `repeatable`) = zoom düzeyi (pencere ortası), `0` = sıfırla, `K` = döndür (kayıt sırasında reddedilir), `[`/`]` = hız (SPEED_PRESETS adımları), çift tık = `cycle pause` (input.conf), Space = mpv varsayılanı.
+- **Geometri**: `clamp_view`/`apply_gesture_at`/`set_zoom_at`/`clamp_speed`/`key_dt`/`append_key` Python'dan birebir port. Görünüm doğrudan `video-zoom`/`video-pan-x`/`video-pan-y`'a yazılır (mpv pan = ölçekli genişlik oranı = kare oranı; işaret/merkez `0.5 − pan` Python ile aynı). İmleç oranı, zoom=1/pan=0'daki video dikdörtgenine göre (`box()`: osd boyutu + `video-params` dw/dh, 90/270 döndürmede yer değiştirir) → letterbox'ta da doğru.
+- **Kayıt**: `R` → görünümü sıfırla, `seek 0 absolute exact`, oynat; anahtarlar **`playback-restart` gelince** başlar (seek bitmeden eski `time-pos` yazılmasın diye). Zamanlayıcı `add_timeout` (33 ms duvar saati, her tikte yeniden kurulur; `rec.id` ile eski zamanlayıcı etkisiz). `append_key` min_dt = `key_dt(speed)/2` → geri sarma/duraklatma anahtar üretmez. `R` tekrar / dosya sonu (`eof-reached`) / `end-file` = durdur: son anahtar eklenir, `<video>.rec.json` atomik yazılır (tmp + rename). Tek anahtar varsa 40 ms sonrasına kopyalanır.
+- **KARAR (vsig)**: Lua `vsig` YAZMAZ (sha1 yok); `load_recording` `vsig` yoksa imza denetimini atlar → R3'te `recorder sig` alt komutu GEREKMİYOR. Video değişirse dışa aktarma bunu yakalamaz; kabul edilen ödünleşim (kayıt dosyası video yanında, adı `<video>.rec.json`).
+- **HUD**: ASS katman z=5, sol üst: kayıtta `● KAYIT  3.2×  12.4 sn` (kırmızı ●), kayıt dışında yalnız `3.2×` (zoom her zaman görünür).
+- **Testler**: `tests/lua_harness_kayit.lua` + `tests/test_lua_kayit.py` (6 test): Android referansı + 5 adımlı dizi Python ile birebir, imleç sabitleme değişmezi (zoom ve zoom+sürükleme, hata <1e-9), fare/tekerlek/tuş entegrasyonu (Python `geometry` ile karşılaştırma), kayıt akışı (seek komutu, playback-restart öncesi anahtar yok, duraklatma/geri sarma anahtarsız, HUD), `.rec.json` şeması + `load_recording` ile okunur, hız/döndürme, yazma hatası uyarısı, input.conf↔Lua bağ eşleşmesi, ≤350 satır, kodda onnx/yolo/tracker yok. `texlua` (Lua 5.3) ile yeşil; CI'da `REQUIRE_LUA=1`.
+- Bu ortamda pytest/ruff kurulamadı (ağ yok): testler yerel mini koşucuyla yeşil (R1 testleri dahil, ffmpeg yedeği ile), satır uzunluğu ≤100 elle denetlendi → **CI'da ilk koşuda `ruff check .` + `pytest -q` doğrulanmalı**.
+- **Bilinen riskler (gerçek Windows'ta elle denenmedi)**: (1) mpv'nin Lua'sında `io.open` Windows'ta UTF-8 olmayan/ANSI dışı karakterli yolları açamayabilir → yazma başarısız olursa OSD «dosya yazılamadı» der; R3'te dışa aktarma `--rec` ile elle yol verilebilir, gerekirse Python tarafı yazan bir `recorder save` yolu düşünülebilir. (2) mpv OSC `MBTN_LEFT`'i kendi düğmelerinde alır; boş alanda sürükleme `script-binding` ile çalışmalı (ana varyantta aynı kalıp) — gerçek mpv'de doğrulanacak. (3) `video-params.dw/dh` yoksa pencere oranı varsayılır.
+
+### R3 — Yapıldı (2026-11-15): dışa aktarma akışı + dağıtım
+- **Lua** (`kayit.lua`, 336 satır ≤350): `E` = `track`'teki kalıpla `~~exe_dir/../python/pythonw.exe` (yoksa `python.exe`) → `mp.command_native_async` ile `-m recorder export VIDEO --out <video>.kamera.mp4` (çıktı adı `recorder.keys.default_out` ile aynı; testle denetlenir). Ön koşullar: kayıt sürmüyor, yerel video, `<video>.rec.json` var (yoksa «önce kayıt yap (R)»), python bulundu. İlerleme 1 sn'de bir `<çıktı>.export.json`'dan OSD'ye «dışa aktarılıyor %NN (Esc: iptal)»; **Esc** yalnız dışa aktarma sürerken dinamik forced bağ (`export-cancel`) → `<çıktı>.export.cancel` dosyası (Python 1 sn'de bir bakar); bitince OSD «Kaydedildi: clip.kamera.mp4» / «iptal edildi» / «başarısız: <sebep>». Sonuç alt süreç çıkış koduyla belirlenir (0 ok, 3 iptal, diğer = hata), eski `.export.json` başta silinir (bayat «done» karışmaz). `R` ile kayıt bitince OSD ipucu «— E: dışa aktar». `input.conf`: `e script-binding kayit/export`.
+- **Python** (`recorder/main.py`, `export.py`; küçük): konsolsuz `pythonw`'da hata görünsün diye `export` komutu her hatada (kayıt dosyası yok, video açılmıyor, ffmpeg hatası) `<çıktı>.export.json`'a `state: error` + sebep yazar (`_report_failure`); `_write_state` artık `ensure_ascii=False` (OSD'de «açılamadı», `\u0131` değil); `state_path()`; `main()` başında `_utf8_stdio()` (cp125x konsolunda Türkçe harf UnicodeEncodeError vermesin; akış yoksa sessiz geçer).
+- **Dağıtım**: `launcher_recording/Disa-Aktar.bat` (video sürükle → `python\python.exe -m recorder export`; `if (` bloğu yok, etiket/goto; `chcp 65001` + `PYTHONUTF8=1`; her yolda `pause`), `installer-recording.iss` (YENİ AppId `B7E2D4A9-…`, «Takipli Oynat Kayit», `dist\TakipliOynatKayit`, çıktı `dist\installer-recording`, `MinVersion=10.0` — DirectML yok, model yok, `[InstallDelete]` python/recorder/ffmpeg/scripts; **ASCII** metinler: ana `installer.iss` gibi BOM'suz dosyada Türkçe harf ANSI sanılır → bilerek «Kayit», «Disa-Aktar»), `.github/workflows/build-recording.yml` (ana `build.yml` DEĞİŞMEDİ; tetik: `main` push + elle + **`kayit-v*`** etiketi → Release yalnız bu etikette; adımlar: ruff + yalnız kayıt testleri → `make_package --variant recording` → `build_embedded --out dist/TakipliOynatKayit --requirements requirements-recording.txt` → mpv → ffmpeg → duman testi → zip → Inno → artifact `TakipliOynatKayit-Setup`/`-Portable`). **Duman testi** (Windows runner): `recorder --version`, `import recorder, numpy, cv2`, **onnxruntime YOK** (`find_spec`), `tracker/` ve `models/` yok, `*.onnx` yok, gerekli dosyalar var, ffmpeg libx264 ile 2 sn test videosu → elle `.rec.json` yazılıp **gerçek `recorder export` uçtan uca** çalıştırılır.
+- **Belgeler**: README «Kayıt varyantı (R1–R3)» (tuş tablosu + akış + CLI + CI) ve dosya yapısı; `THIRD_PARTY_NOTICES.md` Madde **3c** (kayıt paketi: mpv GPL, ffmpeg GPL, Python PSF, numpy BSD, opencv Apache-2.0; model satırları UYGULANMAZ).
+- **Testler**: `tests/test_packaging_recording.py` (9: installer bağımsız/model yok/AppId farklı/Turkish.isl, workflow sırası + yasaklı adımlar (model, DirectML, `requirements.txt`) + `kayit-v*`, ana `build.yml`/`installer.iss`/`track.lua` kayıttan habersiz, bat yapısı, paket içeriği + CRLF, Lua↔Python sözleşmesi (komut, `.kamera.mp4`, `.export.json` alan desenleri Lua'nın okuyucusuyla), CLI hatası durum dosyasına yazılır, `_utf8_stdio`, belgeler); `tests/lua_harness_kayit.lua` bölüm 7 + `test_lua_kayit.py::test_export_flow_launches_recorder_and_reports` (sahte `mp`: komut satırı birebir, python.exe yedeği, python yok/kayıt yok/kayıt sürerken, ikinci E, %50 ilerleme, Esc → `.cancel`, iptal/başarı/hata (json'lu ve json'suz) OSD'leri, Esc bağı kalkar); `input.conf` bağ tablosuna `e`.
+- **Bu ortamda doğrulanan**: pytest/ruff kurulamadı (ağ yok) → küçük pytest benzeri koşucuyla **tüm `tests/` (428 test; Lua testleri `texlua` ile gerçekten çalıştı)**: 427 geçti, 1 başarısız = **bu işten bağımsız, önceden var**: `tests/test_android_release.py::test_android_workflow_release_step` `android.yml`'de `secrets.ANDROID_KEYSTORE_B64/…` arıyor, workflow artık bunları kullanmıyor (imza anahtarı `android/app/stable.jks` depoda; yalnız yorum satırı eski). Android tarafına dokunulmadı: ya testi güncelle ya workflow'u eski haline getir. Satır ≤100, kullanılmayan import ve sondaki boşluk elle/betikle denetlendi; `texluac -p kayit.lua` temiz; zip'te `git grep '<<<<<<<'` temiz. **CI'da ilk koşuda gerçek `ruff check .` + `pytest -q` doğrulanmalı** (özellikle `ruff` import sırası `I001`).
+
+### Doğrulama (yapılmadı — gerçek Windows gerekir)
+1. `build-recording.yml` hiç çalışmadı: `get-pip`/cp311 tekerlekleri (opencv-python-headless, numpy), `fetch_ffmpeg.ps1` adresi, Inno derlemesi (`Turkish.isl`, `MinVersion=10.0`), duman testindeki PowerShell satırları (özellikle `Get-ChildItem -Recurse -Filter *.onnx` ve `find_spec` tek tırnak/çift tırnak kaçışı) ilk koşuda bakılacak.
+2. `kayit.lua` gerçek mpv'de hiç denenmedi (R2 riskleri geçerli): sol sürükleme + OSC çakışması, `video-params` yokken oran, `io.open` ile Unicode yol. **R3 ek riskleri**: (a) `mp.command_native_async` alt süreci mpv kapanınca ÖLDÜRÜLÜR → dışa aktarma sürerken mpv kapatılırsa `<ad>.partial.mp4` yarım kalır (ana varyant `detached` kullanıyor ama durum kodunu alamıyor; burada sonuç/hata OSD'si için async seçildi) — istenirse `detached` + yalnız `.export.json` yoklaması; (b) `pythonw.exe` ile ffmpeg alt süreci ek konsol penceresi açabilir (`stderr=PIPE` kullanıldığı için görünmez olması beklenir, denenmedi); (c) `Esc` forced bağı yalnız dışa aktarma sürerken; tam ekrandan çıkış için `F`/çift tık kullan; (d) Windows'ta `os.remove(exp.prog)` eski dosya yoksa sessiz geçer; (e) `.kamera.mp4` zaten varsa üzerine yazılır (ffmpeg `-y`), uyarı yok.
+3. Çıkış kriteri (kullanıcıda): temiz Windows'ta kayıt installer'ı → video aç → zoom + sürükle → `R` → `E` → `.kamera.mp4` açılır ve kamera hareketi kayıtla aynı.
+4. Bilinen/devralınan: `vsig` Lua'da yazılmaz (R2 kararı) → video değişirse dışa aktarma bunu yakalamaz; `-shortest` sesli çıktıda son 1–2 kareyi kırpabilir.
+
+## 4. Kurallar (bu varyant için)
+- Yeni özellik EKLEME: yalnız «zoom düzeyi + sürükleme (aynı anda) → kaydet → dışa aktar». Poz/model/takip isteği gelirse ana varyanta.
+- Ana varyant dosyalarını (`tracker/`, `track.lua`, `installer.iss`, `build.yml`) değiştirme; gerekirse küçük, testli ve `handover.md`'ye yazılı.
+- Sürüm tek yerden: `VERSION` = `tracker.__version__` = `recorder.__version__` (test denetler; yükseltirken üçünü ve `tests/test_license.py`'ı birlikte güncelle).
+
+### R4 — Yapıldı (2026-11-15): düğmeler + hazır/Space akışı + sağ tuşla sürükleme + yüksek kalite
+(Alt/Ctrl zoom denendi ve KALDIRILDI: kullanıcı fikrini değiştirdi → zoom eskisi gibi tekerlek/`+`/`-`.)
+- **Fare**: tekerlek = zoom (aynen); **SAĞ tuş** basılı sürükle = kaydır (`kayit/drag` artık `MBTN_RIGHT`); **SOL tık** = ekrandaki düğmeler (`kayit/click`), videoya sol tık hiçbir şey yapmaz.
+- **Oynat/durdur YALNIZ alttaki OSC düğmesiyle**: `input.conf`'ta `MBTN_LEFT_DBL`, `p`, `PAUSE`, `PLAYPAUSE` = `ignore`; Space artık `kayit/space`. `mpv.conf` `pause=yes` + `file-loaded`'da `pause=yes` → video açılınca kendiliğinden oynamaz.
+- **Kayıt akışı**: KAYDET düğmesi (sağ üst) veya `R` = oturumu AÇ → **hazır** (video başa sarılır, duraklı; HUD «HAZIR», düğme «■ DURDUR»; kayıt henüz YOK) → bu aşamada **HIZ** düğmesiyle hız ayarlanır →
+  `Space` = kaydı başlat (oynatma başlar; anahtarlar `playback-restart`/time-pos<0.05 ile açılır) → kayıtta `Space` = **duraklat** (video da durur, anahtar üretilmez) → `Space` = sürdür →
+  KAYDET/`R` = **durdur** (`<video>.rec.json` yazılır) → **`S` = dışa aktar** (eski `E` kalktı; otomatik dışa aktarma YOK). KAYDET'e basmadan Space: «önce KAYDET düğmesine bas».
+- **HIZ düğmesi** (KAYDET'in solu; HUD x900 y12): sol tık ileri, sağ tık geri, 0.25×…2× arasında döner (`speed_cycle`); `[` `]` aynen (sınırda durur).
+- **Yüksek kalite**: CLI varsayılanı `--crf 14 --preset medium` (öncesi 18/veryfast); `ffmpeg_cmd(..., preset=)` varsayılanı `veryfast` KALDI (ana varyantla eşlik testi). Derin zoom kaynak pikselleri büyütür.
+- Testler: `lua_harness_kayit.lua` bölüm 4/6/8 yeniden yazıldı, `test_lua_kayit.py` (2 yeni akış testi, satır sınırı 470), `tests/test_recorder_quality.py` (2), README/`test_packaging_recording.py` (`S`). texlua ile yeşil; gerçek ffmpeg ile uçtan uca dışa aktarma doğrulandı.
+- **Gerçek Windows'ta DENENMEDİ**: (1) `MBTN_RIGHT`/`MBTN_LEFT` bağlarının OSC ve mpv bağlam menüsüyle çakışmaması; (2) `pause=yes` ile açılışta duraklı başlama (Kayit.bat `%*` ile açılan dosya dahil);
+  (3) Space'in OSC odağı varken de `kayit/space`'e gitmesi; (4) sağ üstteki iki düğmenin pencere boyutuna göre isabet/çizim konumu (HUD 1280×720 ölçekli); (5) `Esc` ile iptal hâlâ yalnız dışa aktarma sürerken.
+
+### R5 — Yapıldı (2026-11-15): sol tuşla sürükleme + 5 sn geri sayım
+- **SOL tuş** artık sürükler (`MBTN_LEFT` → `kayit/drag`; düğme isabeti aynı bağda: KAYDET/HIZ(ileri) üstünde tık sürükleme başlatmaz). **SAĞ tık** yalnız HIZ düğmesinde yavaşlatır (`MBTN_RIGHT` → `kayit/rclick`). `kayit/click` bağı kalktı. Çift tık `ignore`.
+- **Geri sayım**: hazırken `Space` → `COUNTDOWN = 5` sn (HUD ortasında büyük sayı, sol üstte «BAŞLIYOR… (Space: iptal)»); video duraklı kalır, kayıt başlamaz. Sayarken `Space` = vazgeç (hazır durumuna döner). Sayaç 0 olunca `start_run()` oynatma + kaydı başlatır.
+  Duraklamadan devam (`Space`) geri sayımsız. KAYDET/`R` ile durdurma geri sayımı da iptal eder.
+- Testler: harness `COUNT`, `COUNT_CANCEL`, `DRAG_BTN` satırları; `test_lua_kayit.py` güncellendi. texlua ile yeşil. Gerçek Windows'ta denenmedi (sol tuş bağı mpv'nin kendi sol tuş davranışı/OSC ile çakışmıyor mu bakılacak).
+
+### R6 — Yapıldı (2026-11-15): ekrandaki döndürme düğmeleri
+- `kayit.lua`: üstte HIZ'ın soluna **◄ 90°** (`ROTL`, saat yönü tersi) ve **90° ►** (`ROTR`) düğmeleri; sol tık `kayit/drag` bağında isabet denetimiyle (`rotate_by(∓90)`). `rotate_by` K tuşuyla ortak. Döndürme **kayıt başlamadan** (boşta ya da hazırken) çalışır; geri sayım/kayıt/duraklatma sırasında düğmeler gizli, tık/K döndürmez (`rot_visible`). Döndürünce görünüm sıfırlanır, OSD «döndürme N°».
+- Akış: video aç → KAYDET (hazır) → ◄/► ile döndür → Space (geri sayım) → zoom/sürükle → durdur → S. Dönüş `.rec.json` `rotate` alanına yazılır; dışa aktarma önce döndürür, sonra kırpar (`recorder/export.py` DEĞİŞMEDİ) → `.kamera.mp4` döndürülmüş boyutta çıkar.
+- Testler: harness `ROT_BTN_READY`, `ROT_LOCK`; `test_lua_kayit.py::test_rotate_buttons`. `kayit.lua` 468 satır (sınır 470 — bir sonraki eklemede `test_lua_kayit.py` sınırını yükselt). texlua ile yeşil; gerçek Windows'ta DENENMEDİ (◄ ► glifleri mpv fontunda; düğme konumu HUD 1280×720'de x716–890).
+
+### R7 — Yapıldı (2026-11-15): geri sayım kaldırıldı + pencere sürükleme kapatıldı
+- **Geri sayım YOK**: hazırken `Space` kaydı hemen başlatır (`start_run`); `COUNTDOWN`, `count_tick`, HUD «BAŞLIYOR…» ve `rec.count/cg` silindi. Döndürme kilidi artık `rec.on and rec.started`.
+- **Sol tuş pencereyi taşıyordu**: mpv'nin `window-dragging` varsayılanı (yes) sol tuşla pencereyi sürüklüyordu → `mpv.conf`'a `window-dragging=no` eklendi; sol tuş yalnız videoyu kaydırır. Gerçek Windows'ta DENENMEDİ.
+- Testler güncellendi (COUNT/COUNT_CANCEL kalktı). texlua ile yeşil.
+
+### R8 — Yapıldı (2026-11-15): geri sarma da kaydedilir (parçalı kayıt)
+- **İstek**: kayıtta geri sarıp tekrar oynatılan yer de kayda girsin; 10 kez yarıdan geri dönülse bile çıktı kesintisiz ve tekrarlı olsun.
+- **Biçim**: `.rec.json`'a `"breaks":[...]` eklendi = yeni parçanın İLK anahtarının 0 tabanlı indeksi; `views` artık KAYIT SIRASINDA (zamana göre sıralanmaz). `breaks` alanı varsa parçalı kayıt, yoksa eski tek parça (tüm video; geriye uyumlu). `keys.split_segments` ayrıca zaman geri giderse otomatik böler; tek anahtarlı parça +40 ms.
+- **Lua** (`kayit.lua`, 465 satır): `push_key` — `seek` olayı ya da zaman geri gitmesi = yeni parça (anahtar her zaman eklenir, `rec.breaks`); seek bitene (`playback-restart`) kadar eski `time-pos` yazılmaz; duraklıyken geri sarma da yeni parça. HUD süresi = parçaların toplamı. `playback-restart` artık `rec.started` iken arm eder (duraklıyken seek için).
+- **Dışa aktarma** (`recorder/export.py`): `segments` verilirse çıktı = parçalar kaydedildiği SIRAYLA art arda (`segment_plan`: kare aralığı, son kare dahil, video uzunluğuna kıstırılır; `_iter_frames` her parçada `CAP_PROP_POS_FRAMES` ile konumlanır). Yalnız kaydedilen kısımlar çıkar (eski kayıtlarda tüm video). **Ses**: `asplit` + parça başına `atrim` + `concat` (`audio_filter`), AAC 192k (kopya olamaz); kaynakta ses yoksa (`has_audio`) sessiz. `ffmpeg_cmd` DEĞİŞMEDİ (ana varyantla eşlik testi); yeni `ffmpeg_cmd_segments`. `info` parça sayısını yazar.
+- **Testler**: harness bölüm 9 (4 parça: 0→1.0, 0.5→1.0, 0.5→0.8, duraklıyken geri 0.2→0.3 → `breaks=[11,17,21]`, toplam 1.90 sn), `test_rewinds_are_recorded_as_repeated_segments`, `test_split_segments_*`, `test_segmented_recording_roundtrip_keeps_order`, `test_export_segments_repeat_rewound_parts_in_order` (kare sırası 0-9,5-9,5-7), gerçek ffmpeg ile sesli uçtan uca, `test_audio_filter_*`, `test_segment_plan_*`. texlua + mini koşucu ile yeşil (pytest/ruff yok → CI'da `ruff check .` + `pytest -q`).
+- **Bilinen**: kayıt video sonunda (`eof-reached`) hâlâ durur → tekrar için sona varmadan geri sar. cv2 ile kare konumlama bazı kodeklerde ±1 kare kayabilir. Gerçek Windows/mpv'de DENENMEDİ (`seek` olayı + `playback-restart` sırası, OSC arama çubuğuyla sarma).
