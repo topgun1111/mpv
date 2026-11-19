@@ -23,6 +23,7 @@ class Config:
     dead_zone_zoom: float = 0.05
     model_path: str = "models/yolov8n.onnx"
     sam_model_variant: str = "edgetam"  # edgetam | sam2_small; PC SAM workflows use this selected family
+    sam_live: bool = True  # F2: mpv dikdörtgen seçimi SAM ile izlenir (modeller yoksa/kapalıysa eski nesne izleyici)
     model_type: str = "auto"  # auto (dosya adında yolox → yolox, yoksa yolov8) | yolov8 | yolox
     yolox_decoded: bool = False  # YOLOX --decode_in_inference ile dışa aktarıldıysa true
     det_conf: float = 0.25

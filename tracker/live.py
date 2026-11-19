@@ -162,7 +162,11 @@ class LiveController:
         self.wb = wholebody  # WholeBodyEstimator | None (O2): el/yüz/ayak parmağı noktaları
         self.pipeline, self.cfg, self.reid = pipeline, cfg, reid  # reid: ReIdManager | None
         # (kare, px, py, cfg) -> update(kare) -> BBox | None veren nesne; testte sahtesi verilir
-        self._point_factory = point_factory or _default_point_factory
+        if point_factory is None:  # F2: dikdörtgen + SAM modelleri hazırsa SAM, değilse eski nesne izleyici
+            from .sam_live import make_factory
+
+            point_factory = make_factory(_default_point_factory)
+        self._point_factory = point_factory
         self.point = None  # sağ tıkla seçilen sınıfsız nesne izleyici (tracker/point.py)
         self.add_mode = False  # T1: sonraki sağ tık mevcut hedefe EKLER (birleşik kadraj)
         self.part = "auto"  # B3: parts.CYCLE adı; "auto" = tıklanan eklem (eski davranış)
@@ -175,7 +179,7 @@ class LiveController:
             cfg.alpha_pos, cfg.alpha_zoom, cfg.dead_zone_pos, cfg.dead_zone_zoom
         )
         self.enabled = False
-        self.skel_on = True  # iskelet (Vücut modunda varsayılan açık; Lua `J` tuşu)
+        self.skel_on = True  # canlı takipte otomatik iskelet; Lua `J` tuşu kapatır/açar
         self.cfg_dirty = False  # Tracker paneli: ayar özeti Lua'ya yeniden gönderilmeli
         self.source = "auto"  # A2: auto | live | scanned (Lua menüsü `track-source` yollar)
         self.target_id: int | None = None
@@ -955,8 +959,9 @@ def run_live(
     skel = {"last": "-", "t": -1e9, "fail": 0}  # "-" = Lua tarafında çizim yok
 
     def skel_wanted() -> bool:
-        # Vücut modunda (parça ön ayarı seçili) varsayılan AÇIK; Lua `J` tuşu kapatır/açar
-        return ctl.skel_on and ctl.pose is not None and ctl.part != "auto"
+        # Poz modeli mevcutsa canlı takip etkin olduğu sürece iskelet otomatik gösterilir.
+        # Lua `J` tuşu görünümü elle kapatıp/açabilir; SAM maskesi tek başına eklem üretmez.
+        return ctl.skel_on and ctl.enabled and ctl.pose is not None
 
     def skel_send(msg: str) -> None:
         if msg == skel["last"]:
