@@ -68,17 +68,19 @@ def test_make_package_copies_launchers_with_crlf(tmp_path, monkeypatch):
     assert not list(out.rglob("__pycache__"))
 
 
-def test_launchers_use_embedded_python_and_wait_for_mpv():
+def test_launchers_use_nuitka_exe_and_wait_for_mpv():
     live = (ROOT / "launcher" / "Baslat.bat").read_text(encoding="utf-8")
     assert "mpv\\mpv.exe" in live  # takip programını track.lua kendisi başlatır
     lua = (ROOT / "mpv" / "portable_config" / "scripts" / "track.lua").read_text(encoding="utf-8")
     assert "StartTracker.bat" in lua and "TAKIP_PY_STARTED" in lua  # ortak başlatıcı, çift başlatma yok
     st = (ROOT / "launcher" / "StartTracker.bat").read_text(encoding="utf-8")
     assert "live --wait" in st and "TAKIPLI_DATA_DIR" in st
+    assert "tracker.exe" in st and "python.exe" not in st
     code = [ln for ln in st.splitlines() if not ln.lstrip().lower().startswith("rem")]
     assert not any("tracker ping" in ln for ln in code)  # ping mpv IPC ister: mpv'den önce kilitlenme
     off = (ROOT / "launcher" / "Offline.bat").read_text(encoding="utf-8")
     assert "offline-view" in off and "--target-id" in off and "%~1.track.json" in off
+    assert "tracker.exe" in off and "python.exe" not in off
     for t in (off,):
         assert t.isascii() or "chcp 65001" in t  # UTF-8 kod sayfası ya da ASCII
         assert "yolox_s" in t and "yolov8n" in t and "HASMODEL" in t  # model eksikse anlaşılır hata
@@ -99,7 +101,7 @@ def test_installer_references_existing_files_and_win10_directml():
 
 def test_build_workflow_orders_steps_and_checks_directml():
     wf = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
-    order = [wf.index(k) for k in ("make_package.py", "build_embedded.py", "fetch_deps.ps1",
+    order = [wf.index(k) for k in ("make_package.py", "build_nuitka.py", "fetch_deps.ps1",
                                    "fetch_model.ps1", "DmlExecutionProvider", "Compress-Archive",
                                    "iscc")]
     assert order == sorted(order)
@@ -174,7 +176,7 @@ def test_installer_upgrades_in_place_and_ships_model_with_license():
     assert "throw" in fm and "SHA256" in fm  # indirme bozuksa derleme durur; özet günlüğe yazılır
     wf = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
     assert r"models\yolox_s.onnx" in wf and r"models\yolov8s-pose.onnx" in wf
-    assert "export_pose.py" in wf and "tracker detect" in wf
+    assert "export_pose.py" in wf and "tracker.exe detect" in wf
     assert "sam-models-edgetam" in wf and "sam-models-small" in wf
     assert "sam_smoke_test.py" in wf and "MODEL EXPORT: SUCCESS" in wf
     # kurulum sonrası otomatik başlatma seçeneği (sessiz kurulumda atlanır)

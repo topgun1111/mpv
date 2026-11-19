@@ -3,7 +3,12 @@ rem Takipli Oynat - offline mod. Video dosyasini bu dosyanin ustune surukle.
 chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
-set "PY=%~dp0python\python.exe"
+set "TRACKER=%~dp0tracker.exe"
+if not exist "%TRACKER%" (
+  echo HATA: tracker.exe bulunamadi. Nuitka paket derlemesi eksik.
+  pause
+  exit /b 1
+)
 if "%~1"=="" (
   echo Kullanim: video dosyasini Offline.bat uzerine surukle birak.
   pause
@@ -20,14 +25,14 @@ set "EXTRA="
 if exist "models\osnet_x0_25.onnx" set "EXTRA=--reid --team"
 
 echo Video isleniyor (uzun surebilir)...
-"%PY%" -m tracker offline "%~1" %EXTRA%
+"%TRACKER%" offline "%~1" %EXTRA%
 if errorlevel 1 (
   pause
   exit /b 1
 )
 echo.
 set /p TID=Takip edilecek oyuncunun ID numarasi: 
-"%PY%" -m tracker offline-view "%~1.track.json" --target-id %TID%
+"%TRACKER%" offline-view "%~1.track.json" --target-id %TID%
 if errorlevel 1 (
   pause
   exit /b 1

@@ -74,8 +74,11 @@ jobs:
       - name: Güncelleme deposu (Yardım → Güncellemeleri denetle)
         run: |
           python -c "import json,os; json.dump({'repo': os.environ['GITHUB_REPOSITORY'], 'build': int(os.environ['GITHUB_RUN_NUMBER'])}, open('dist/TakipliOynat/update.json','w'))"
-      - name: Gömülü Python + bağımlılıklar
-        run: python scripts/build_embedded.py
+      - name: Nuitka tek dosya tracker.exe derlemesi
+        shell: pwsh
+        run: |
+          python -m pip install -r requirements.txt
+          python scripts/build_nuitka.py --out dist/TakipliOynat
       - name: mpv indir
         shell: pwsh
         env:
@@ -122,13 +125,15 @@ jobs:
           python scripts/model_report.py dist/TakipliOynat --preset pc --summary --json model-logs/pc.json
       - name: Model/araç bütünlüğü (models/manifest.json) + SHA256SUMS
         run: python scripts/verify_models.py dist/TakipliOynat --write-sums
-      - name: Paketlenmiş Python duman testi
+      - name: Nuitka tracker.exe duman testi
         shell: pwsh
         working-directory: dist/TakipliOynat
         run: |
-          .\python\python.exe -m tracker --version
-          .\python\python.exe -c "import tracker, numpy, cv2, onnxruntime as o; p = o.get_available_providers(); print(p); assert 'DmlExecutionProvider' in p, 'DirectML yok'"
-          .\python\python.exe -m tracker detect --help | Out-Null
+          .\tracker.exe --version
+          $providerReport = .\tracker.exe providers --json
+          $providerReport
+          if ($providerReport -notmatch 'DmlExecutionProvider') { throw "tracker.exe icinde DirectML provider yuklenemedi" }
+          .\tracker.exe detect --help | Out-Null
           if (-not (Test-Path THIRD_PARTY_NOTICES.md)) { throw "THIRD_PARTY_NOTICES.md pakette yok" }
           if (-not (Test-Path mpv\BUILD_INFO.txt)) { throw "mpv/BUILD_INFO.txt yok (GPL kaynak teklifi)" }
           # Kurulumdan sonra elle bir şey gerekmesin: model pakette olmalı ve gerçekten çalışmalı
@@ -137,24 +142,24 @@ jobs:
           if (-not (Test-Path models\yolov8s-pose.onnx)) { throw "models\yolov8s-pose.onnx pakette yok" }
           if (-not (Test-Path ffmpeg\ffmpeg.exe)) { throw "ffmpeg\ffmpeg.exe pakette yok" }
           if (-not (Test-Path models\SHA256SUMS.txt)) { throw "models\SHA256SUMS.txt yok" }
-          .\python\python.exe -c "import numpy as np, cv2; cv2.imwrite('blank.jpg', np.zeros((720, 1280, 3), np.uint8))"
-          .\python\python.exe -m tracker detect blank.jpg --model models\yolox_s.onnx --out blank_out.jpg
+          python -c "import numpy as np, cv2; cv2.imwrite('blank.jpg', np.zeros((720, 1280, 3), np.uint8))"
+          .\tracker.exe detect blank.jpg --model models\yolox_s.onnx --out blank_out.jpg
           if ($LASTEXITCODE -ne 0) { throw "YOLOX modeli duman testinde çalışmadı" }
           # pose modeli açılıyor mu ve çıktı düzeni [1,56,N] mi (tracker/pose.py çözücüsünün varsayımı)
-          .\python\python.exe -c "import onnxruntime as o; s = o.InferenceSession('models/yolov8s-pose.onnx', providers=['CPUExecutionProvider']); sh = s.get_outputs()[0].shape; print('pose çıktı', sh); assert sh[1] == 56, sh"
+          python -c "import onnxruntime as o; s = o.InferenceSession('models/yolov8s-pose.onnx', providers=['CPUExecutionProvider']); sh = s.get_outputs()[0].shape; print('pose çıktı', sh); assert sh[1] == 56, sh"
           if ($LASTEXITCODE -ne 0) { throw "yolov8s-pose.onnx açılmadı ya da çıktı düzeni [1,56,N] değil" }
           foreach ($pm in "yolo11m-pose", "yolo11m-pose-fp16") {
             if (Test-Path "models\$pm.onnx") {
-              .\python\python.exe -c "import onnxruntime as o; s = o.InferenceSession('models/$pm.onnx', providers=['CPUExecutionProvider']); sh = s.get_outputs()[0].shape; print('$pm çıktı', sh); assert sh[1] == 56, sh"
+              python -c "import onnxruntime as o; s = o.InferenceSession('models/$pm.onnx', providers=['CPUExecutionProvider']); sh = s.get_outputs()[0].shape; print('$pm çıktı', sh); assert sh[1] == 56, sh"
               if ($LASTEXITCODE -ne 0) { throw "$pm.onnx açılmadı ya da çıktı [1,56,N] değil" }
             } else { Write-Host "UYARI: models\$pm.onnx yok (isteğe bağlı)" }
           }
           if (Test-Path models\osnet_x0_25.onnx) {
-            .\python\python.exe -c "import onnxruntime as o, numpy as np; s = o.InferenceSession('models/osnet_x0_25.onnx', providers=['CPUExecutionProvider']); y = s.run(None, {s.get_inputs()[0].name: np.zeros((1, 3, 256, 128), np.float32)})[0]; print('reid çıktı', y.shape); assert y.ndim == 2"
+            python -c "import onnxruntime as o, numpy as np; s = o.InferenceSession('models/osnet_x0_25.onnx', providers=['CPUExecutionProvider']); y = s.run(None, {s.get_inputs()[0].name: np.zeros((1, 3, 256, 128), np.float32)})[0]; print('reid çıktı', y.shape); assert y.ndim == 2"
             if ($LASTEXITCODE -ne 0) { throw "osnet_x0_25.onnx açılmadı ya da çıktı [N,D] değil" }
           } else { Write-Host "UYARI: osnet_x0_25.onnx yok: Re-ID kapalı kalacak (reid_live=auto)" }
           if (Test-Path models\rtmpose-wholebody.onnx) {
-            .\python\python.exe -c "import onnxruntime as o, numpy as np; s = o.InferenceSession('models/rtmpose-wholebody.onnx', providers=['CPUExecutionProvider']); sh = s.get_inputs()[0].shape; ys = s.run(None, {s.get_inputs()[0].name: np.zeros((1, 3, sh[2], sh[3]), np.float32)}); print('wholebody çıktı', [y.shape for y in ys]); assert ys[0].shape[1] == 133 and ys[1].shape[1] == 133"
+            python -c "import onnxruntime as o, numpy as np; s = o.InferenceSession('models/rtmpose-wholebody.onnx', providers=['CPUExecutionProvider']); sh = s.get_inputs()[0].shape; ys = s.run(None, {s.get_inputs()[0].name: np.zeros((1, 3, sh[2], sh[3]), np.float32)}); print('wholebody çıktı', [y.shape for y in ys]); assert ys[0].shape[1] == 133 and ys[1].shape[1] == 133"
             if ($LASTEXITCODE -ne 0) { throw "rtmpose-wholebody.onnx açılmadı ya da SimCC [1,133,*] değil" }
           } else { Write-Host "UYARI: rtmpose-wholebody.onnx yok: el/yüz/ayak parmağı takibi kapalı kalacak (wholebody=auto)" }
           # Both PC SAM variants must load and execute all five graphs, not merely exist.
@@ -177,7 +182,7 @@ jobs:
                   print(f"✓ {variant}/{name}: loaded and executed; outputs={[x.shape for x in outputs]}", flush=True)
               print(f"MODEL EXPORT: SUCCESS — {variant}", flush=True)
           '@ | Set-Content -Encoding utf8 sam_smoke_test.py
-          .\python\python.exe sam_smoke_test.py
+          python sam_smoke_test.py
           if ($LASTEXITCODE -ne 0) { throw "SAM ONNX Runtime smoke test failed" }
           # ffmpeg libx264 ile gerçekten kodluyor mu (dışa aktarma sessiz yedeğe düşmesin)
           .\ffmpeg\ffmpeg.exe -hide_banner -loglevel error -f lavfi -i testsrc=size=320x240:rate=10 -t 1 -c:v libx264 -pix_fmt yuv420p ff_test.mp4

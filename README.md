@@ -77,7 +77,7 @@ TakipliOynat/
 │  └─ single.py                  # tek takip programı kilidi (tracker.lock)
 ├─ models/                       # ONNX modeller (MODELLER.txt; yolox_s/pose pakette gelir)
 ├─ launcher/                     # Baslat.bat (yalnız mpv), Offline.bat (sürükle-bırak offline)
-├─ scripts/                      # make_package.py, build_embedded.py, fetch_deps.ps1, fetch_model.ps1, export_pose.py
+├─ scripts/                      # make_package.py, build_nuitka.py, fetch_deps.ps1, fetch_model.ps1, export_pose.py
 ├─ tests/                        # pytest + texlua ile Lua harness testleri
 ├─ .github/workflows/            # build-all.yml = tek tetikleyici; ci.yml (ruff + pytest), build.yml (paket + installer), android*.yml, build-recording.yml onun çağırdığı iş akışları
 ├─ installer.iss                 # Inno Setup
@@ -93,7 +93,7 @@ TakipliOynat/
 - **Installer**: Inno Setup / NSIS → tek `setup.exe`, kısayol "Takipli Oynat" (mpv + Python süreci birlikte)
 - **Boyut**: PyTorch ~2–3 GB; ONNX Runtime + ONNX model ~300–500 MB
 - **GPU**: `onnxruntime-directml` (NVIDIA/AMD/Intel evrensel); NVIDIA için `onnxruntime-gpu` (+~1 GB CUDA/cuDNN)
-- **Kullanılan yol**: gömülü Python (`scripts/build_embedded.py`) + Inno Setup; PyInstaller kullanılmıyor
+- **Kullanılan yol**: Nuitka tek dosya `tracker.exe` (`scripts/build_nuitka.py`) + Inno Setup; Python çalışma zamanı kullanıcıya ayrıca kurulmaz.
 
 ## Lisans
 Ayrıntılı denetim: **`THIRD_PARTY_NOTICES.md`** (pakete ve Başlat menüsüne de konur; hukuki görüş değildir).
@@ -190,7 +190,7 @@ Takip açıkken sol üstte küçük harflerle tüm takip bilgisi görünür: dur
 Fareyi/parmağı oynatınca üstte menü çubuğu görünür (3 sn sonra gizlenir); **F10** de açar. **K** videoyu 90° döndürür (takip için önce 0°'ye getir): **Dosya · Görünüm · Takip · Araçlar · Ayarlar · Yardım**. Çalışan işlevler (takip, bırak, sıfırla, offline, zoom, HUD, tepki/öngörü/doluluk, kaydet, durum, çıkış) menüden de kullanılır; kısayolları yanında yazar, açık olanlar • ile işaretlidir. Henüz yazılmamış öğeler (Takip kamerası dışa aktar, Tam ekran menü öğesi, Otomatik tarama, Vücut parçası, Araçlar menüsündeki tarama/kıyaslama/modeller, Ayar penceresi, Kısayollar, Hakkında) gri görünür ve sonraki parçalarda (`yol haritası (handover.md)`) açılır; tam ekran şimdilik `F` tuşuyla. Açıkken ←/→/↑/↓, Enter, Esc ile gezilir; dışarı tıklamak kapatır.
 
 ### Dosya menüsü (M2)
-**Dosya** menüsü ya da **Ctrl+O**: **Video aç…** (Windows dosya diyaloğu, son klasörde açılır), **Son açılanlar…** (son 10, listeden çift tık/Enter), **Klasör aç…** (klasör oynatma listesi olur), **Adres (URL) aç…**, **Görünümü kaydet / yükle** (videonun yanına `<video>.view.json`: o anki zoom/pan/döndürme; takip/offline kapalıyken yüklenir), **Videoyu kapat**, **Çıkış**. Dışa aktarma (E1) gridir. Son açılanlar ve son klasör `%APPDATA%\\TakipliOynat\\recent.json`'da tutulur. Diyaloglar PowerShell+WinForms ile açılır (mpv donmaz; gömülü Python'da tkinter yoktur). Yalnız Windows.
+**Dosya** menüsü ya da **Ctrl+O**: **Video aç…** (Windows dosya diyaloğu, son klasörde açılır), **Son açılanlar…** (son 10, listeden çift tık/Enter), **Klasör aç…** (klasör oynatma listesi olur), **Adres (URL) aç…**, **Görünümü kaydet / yükle** (videonun yanına `<video>.view.json`: o anki zoom/pan/döndürme; takip/offline kapalıyken yüklenir), **Videoyu kapat**, **Çıkış**. Dışa aktarma (E1) gridir. Son açılanlar ve son klasör `%APPDATA%\\TakipliOynat\\recent.json`'da tutulur. Diyaloglar PowerShell+WinForms ile açılır (mpv donmaz). Yalnız Windows.
 
 ### Ekran üstü düğmeler (Parça 16)
 Düğme paneli **varsayılan kapalıdır** (`track.lua` içinde `TRACK_SHOW_PANEL=true` ile açılır; kapalıyken menüdeki «Düğme paneli sabit» öğesi gri görünür). Açıkken mpv penceresinde fareyi/parmağı oynatınca sol üstte çıkar (3 sn sonra gizlenir; **Sabit** düğmesi ya da `Ctrl+B` ile sabitlenir): **Takip AÇIK/KAPALI**, **Bırak**, **Sıfırla**, **Offline**, **Zoom -/+**, **Tepki -/+**, **Öngörü -/+**, **Kaydet**, **Durum**. Zoom düğmeleri ayrı bir **ekran üstü zoom kontrolüne** taşındı (aşağıda). Sol tuşla oyuncu seçme Parça 21'de kaldırıldı; sol tuş yalnız imleç ekran üstü düğmenin üzerindeyken yakalanır. Klavye kısayolları aynen çalışır.
@@ -203,18 +203,18 @@ Düğme paneli **varsayılan kapalıdır** (`track.lua` içinde `TRACK_SHOW_PANE
   - Offline oynatma açıkken zoom sabittir (uyarı verir).
 
 ### Kurulum ve başlatıcılar (Parça 14)
-Installer (`TakipliOynat-Setup-x.y.z.exe`, Windows 10 1903+) gömülü Python, mpv, DirectML ve **YOLOX-S modeliyle (Apache-2.0)** gelir: kurduktan sonra elle bir şey kurmak ya da kopyalamak gerekmez, kurulum bitince "şimdi başlat" ile çalışır. Eklem (vücut parçası) takibi için `yolov8s-pose.onnx` (AGPL, yalnız kişisel kullanım) de pakete CI'da konur; sağ tık bir eklemin (ayak bileği, diz, bilek...) yakınına yapılırsa o eklem izlenir, uzaksa nesne izlenir. Re-ID/numara modelleri isteğe bağlıdır (`models\MODELLER.txt`); bunlar şimdilik yalnız komut satırından (`live --reid …`) ve `Offline.bat` ile kullanılır — mpv'nin otomatik başlattığı takip programı bayrak vermez.
+Installer (`TakipliOynat-Setup-x.y.z.exe`, Windows 10 1903+) Nuitka tracker.exe (Python çalışma zamanı ve bağımlılıkları tek dosyada), mpv, DirectML ve **YOLOX-S modeliyle (Apache-2.0)** gelir: kurduktan sonra elle bir şey kurmak ya da kopyalamak gerekmez, kurulum bitince "şimdi başlat" ile çalışır. Eklem (vücut parçası) takibi için `yolov8s-pose.onnx` (AGPL, yalnız kişisel kullanım) de pakete CI'da konur; sağ tık bir eklemin (ayak bileği, diz, bilek...) yakınına yapılırsa o eklem izlenir, uzaksa nesne izlenir. Re-ID/numara modelleri isteğe bağlıdır (`models\MODELLER.txt`); bunlar şimdilik yalnız komut satırından (`live --reid …`) ve `Offline.bat` ile kullanılır — mpv'nin otomatik başlattığı takip programı bayrak vermez.
 
-**Güncelleme**: yeni `setup.exe`'yi çalıştırmak yeter; AppId aynı olduğundan eski kurulumun üstüne (aynı klasör/yetki) sorusuz kurulur, açık mpv/python kapatılır, eski artıklar (`python\`, `tracker\`, Lua betikleri) temizlenip yenisi yazılır. Ayarlar (`%APPDATA%\TakipliOynat\config.json`) ve `models\` içine kendi eklediğin dosyalar korunur. Sessiz: `TakipliOynat-Setup-x.y.z.exe /VERYSILENT /NORESTART`.
+**Güncelleme**: yeni `setup.exe`'yi çalıştırmak yeter; AppId aynı olduğundan eski kurulumun üstüne (aynı klasör/yetki) sorusuz kurulur, açık mpv/tracker.exe kapatılır, eski artıklar (`python\`, eski `tracker\` kaynakları, Lua betikleri) temizlenip yenisi yazılır. Ayarlar (`%APPDATA%\TakipliOynat\config.json`) ve `models\` içine kendi eklediğin dosyalar korunur. Sessiz: `TakipliOynat-Setup-x.y.z.exe /VERYSILENT /NORESTART`.
 - **Takipli Oynat (canlı)** kısayolu (doğrudan `mpv.exe`) / `Baslat.bat` (yalnız mpv'yi açar; video sürükleyebilirsin): takip programını mpv içindeki `track.lua` kendiliğinden başlatır, mpv kapanınca biter; aynı anda tek takip programı çalışır (`tracker.lock`).
 - **Offline** kısayolu / `Offline.bat`: videoyu üstüne sürükle → işlenir (`models\osnet_x0_25.onnx` varsa `--reid --team` ile) → oyuncu ID'sini yaz → mpv'de `o`.
 - Ayarlar `%APPDATA%\TakipliOynat\config.json` dosyasına kaydedilir.
-Paket derleme (CI): `python scripts/make_package.py` → `python scripts/build_embedded.py` → `scripts/fetch_deps.ps1` → `iscc installer.iss`.
+Paket derleme (CI): `python scripts/make_package.py` → `python scripts/build_nuitka.py --out dist/TakipliOynat` → `scripts/fetch_deps.ps1` → `iscc installer.iss`.
 
 ### Release (Parça 15)
 0. **Tek sürüm:** tüm uygulamalar (PC ana, PC kayıt, Android pose/sam, Android kayıt) `VERSION` dosyasını paylaşır. Yükseltmek için `python scripts/bump_version.py patch|minor|major|X.Y.Z` (VERSION, `tracker/`, `recorder/` ve `tests/test_license.py` birlikte güncellenir); `python scripts/version.py check` tutarlılığı denetler (CI de çalıştırır).
 1. `main`'e push → `build-all.yml` (CI + PC ana + PC kayıt + Android pose/sam + Android kayıt tek çalıştırmada) ve sonunda **tek bir önsürüm** `vX.Y.Z-b<çalıştırma no>`: tüm kurulum/APK dosyaları `<Uygulama>-X.Y.Z-b<no>.<uzantı>` adıyla + `SHA256SUMS.txt` aynı Release'e eklenir (son 8 önsürüm tutulur). AGPL pose modeli içeren dosyalar (PC ana, Android pose/sam) yalnız özel depoda eklenir; PC ana `v*` etiketinde her depoda eklenir. Ayrı artifact'lar da durur.
-2. Derleme günlüğündeki `SHA256 python-...` ve `SHA256 mpv-...` satırlarını doğrulayıp `scripts/build_embedded.py` (`PY_SHA256`) içine yaz; mpv için `fetch_deps.ps1 -Tag <sürüm>` ile sürümü sabitle.
+2. Paket derlemesi Windows CI üzerinde Nuitka ile yapılır: `python scripts/make_package.py` → `python scripts/build_nuitka.py --out dist/TakipliOynat` → model/mpv/ffmpeg varlıkları → `iscc installer.iss`. Kullanıcıya ayrıca Python kurulumu gerekmez.
 3. Temiz Windows'ta kur (model pakette gelir) → `Baslat.bat` ile dene. Üzerine yeni sürüm kurup ayarların/kısayolların korunduğunu da dene.
 4. `python scripts/bump_version.py minor && git commit -am "Version X.Y.Z" && git tag vX.Y.Z && git push --follow-tags` → aynı çalıştırma tam Release `vX.Y.Z` açar (etiket VERSION ile aynı olmalı, değilse çalıştırma hemen durur).
 
