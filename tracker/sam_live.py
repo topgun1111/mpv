@@ -1,12 +1,14 @@
 """F2: mpv'de çizilen dikdörtgen -> canlı SAM takibi.
 
-`LiveController` nesne izleyiciden `bbox`, `update(kare) -> BBox | None`, `label` ve `visible` bekler.
-`SamPointTracker` bunu `sam_track.track_video` üzerinden sağlar: üreteç tembeldir, bu yüzden canlı kareler
-bir `_Feed` ile içeri itilir (her `update` = bir kare itilir + üretecin bir kaydı çekilir). Böylece
-S4/S5 bellek döngüsü ve kapı ÇEVRİMDIŞI ile BİREBİR aynı kodla koşar (kopya yok).
+`LiveController` nesne izleyiciden `bbox`, `update(kare) -> BBox | None`, `label` ve `visible`
+bekler. `SamPointTracker` bunu `sam_track.track_video` üzerinden sağlar: üreteç tembeldir, bu
+yüzden canlı kareler bir `_Feed` ile içeri itilir (her `update` = bir kare itilir + üretecin bir
+kaydı çekilir). Böylece S4/S5 bellek döngüsü ve kapı ÇEVRİMDIŞI ile BİREBİR aynı kodla koşar
+(kopya yok).
 
-`make_factory`: dikdörtgen + SAM modelleri hazırsa SAM, değilse (tek tık, model yok, `sam_live=False`,
-yükleme hatası) eski `WorldPointTracker`. Motor ilk dikdörtgende tembel yüklenir ve (varyant, cihaz) için saklanır.
+`make_factory`: dikdörtgen + SAM modelleri hazırsa SAM, değilse (tek tık, model yok,
+`sam_live=False`, yükleme hatası) eski `WorldPointTracker`. Motor ilk dikdörtgende tembel
+yüklenir ve (varyant, cihaz) için saklanır.
 """
 from __future__ import annotations
 
@@ -58,7 +60,8 @@ class SamPointTracker:
 
     label = LABEL
 
-    def __init__(self, engine: SamEngine, frame: np.ndarray, rect: tuple[float, float, float, float],
+    def __init__(self, engine: SamEngine, frame: np.ndarray,
+                 rect: tuple[float, float, float, float],
                  t: float = 0.0, *, use_gate: bool = True) -> None:
         self._h, self._w = frame.shape[:2]
         self._feed = _Feed()

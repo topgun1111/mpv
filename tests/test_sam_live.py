@@ -1,15 +1,18 @@
-"""F2: mpv dikdörtgeni -> canlı SAM izleyici. Sahte grafikler (test_sam_track) kullanılır; model/GPU gerekmez."""
+"""F2: mpv dikdörtgeni -> canlı SAM izleyici.
+
+Sahte grafikler (test_sam_track) kullanılır; model/GPU gerekmez.
+"""
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from test_sam_track import GOOD, FakeDec, logits, make
 
 from tracker import errlog, sam_live
 from tracker.geometry import BBox
 from tracker.live import LiveController
 from tracker.sam_engine import to_frame_box
 from tracker.sam_track import NoInitialMask
-from test_sam_track import GOOD, FakeDec, logits, make
 
 RECT = (8.0, 8.0, 56.0, 40.0)
 W, H = 64, 48

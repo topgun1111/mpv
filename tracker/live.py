@@ -162,7 +162,8 @@ class LiveController:
         self.wb = wholebody  # WholeBodyEstimator | None (O2): el/yüz/ayak parmağı noktaları
         self.pipeline, self.cfg, self.reid = pipeline, cfg, reid  # reid: ReIdManager | None
         # (kare, px, py, cfg) -> update(kare) -> BBox | None veren nesne; testte sahtesi verilir
-        if point_factory is None:  # F2: dikdörtgen + SAM modelleri hazırsa SAM, değilse eski nesne izleyici
+        # F2: dikdörtgen + SAM modelleri hazırsa SAM, değilse eski nesne izleyici
+        if point_factory is None:
             from .sam_live import make_factory
 
             point_factory = make_factory(_default_point_factory)
