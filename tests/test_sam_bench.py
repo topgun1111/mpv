@@ -82,7 +82,9 @@ def test_export_workflow_is_reusable_and_dispatchable_and_uploads_the_graphs():
     assert "scripts/export_sam2.py" in y and "--no-memory" not in y  # beş grafiğin hepsi (geri düşüş yok)
     assert "upload-artifact" in y and "sam-models/${{ matrix.variant }}/" in y
     assert all(v in y for v in ("edgetam", "small", "both")) and "base_plus" not in y and "large" not in y
-    assert "timeout-minutes: 180" in y and "cache: pip" in y
+    # takılan export runner dakikalarını yemesin: 180 dk değil, makul bir üst sınır (<= 60)
+    mins = [int(m) for m in re.findall(r"timeout-minutes:\s*(\d+)", y)]
+    assert mins and max(mins) <= 60 and "timeout-minutes: 45" in y and "cache: pip" in y
 
 
 # --- girdiler ---
