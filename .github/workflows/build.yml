@@ -18,6 +18,7 @@ jobs:
   windows-package:
     needs: sam-models
     runs-on: windows-latest
+    timeout-minutes: 90  # takılan derleme runner dakikalarını yemesin
     env:
       PYTHONUTF8: "1"  # Windows konsolu cp1252: Türkçe çıktı (ı, ş...) UnicodeEncodeError veriyordu
     steps:
@@ -74,6 +75,12 @@ jobs:
       - name: Güncelleme deposu (Yardım → Güncellemeleri denetle)
         run: |
           python -c "import json,os; json.dump({'repo': os.environ['GITHUB_REPOSITORY'], 'build': int(os.environ['GITHUB_RUN_NUMBER'])}, open('dist/TakipliOynat/update.json','w'))"
+      - name: Nuitka önbelleği
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\Nuitka
+          key: nuitka-${{ runner.os }}-${{ hashFiles('requirements.txt', 'scripts/build_nuitka.py') }}
+          restore-keys: nuitka-${{ runner.os }}-
       - name: Nuitka tek dosya tracker.exe derlemesi
         shell: pwsh
         run: |

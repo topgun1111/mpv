@@ -6,6 +6,7 @@ Run from the repository root on Windows after installing requirements.txt:
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -31,13 +32,15 @@ def build(out: Path) -> Path:
         f"--output-dir={out}",
         "--output-filename=tracker.exe",
         "--enable-plugin=numpy",
+        # Yalnız kendi paketimiz C'ye derlenir; numpy/cv2/onnxruntime import'lardan bulunur.
+        # (--include-package ile üçüncü taraf paket derlemek derlemeyi saatlere uzatıyordu.)
         "--include-package=tracker",
-        "--include-package=numpy",
-        "--include-package=cv2",
-        "--include-package=onnxruntime",
-        "--include-package=onnxruntime.capi",
         "--include-package-data=onnxruntime",
         "--include-package-data=cv2",
+        "--nofollow-import-to=numpy.tests,numpy.f2py,matplotlib,scipy,tkinter,pytest",
+        f"--jobs={os.cpu_count() or 2}",
+        "--lto=no",
+        "--show-scons",
         str(ROOT / "scripts" / "tracker_entry.py"),
     ]
     subprocess.run(command, cwd=ROOT, check=True)
