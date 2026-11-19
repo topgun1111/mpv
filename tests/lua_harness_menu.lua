@@ -8,6 +8,7 @@ local function out(...) print(table.concat({ ... }, "\t")) end
 local W, H = 1280, 720
 reg.props["osd-dimensions"] = { w = W, h = H, ml = 0, mr = 0, mt = 0, mb = 0 }
 reg.obs["osd-dimensions"]("osd-dimensions", reg.props["osd-dimensions"]) -- pencere açıldı: çubuk çizilir
+local timers_at_load = #reg.timers -- yüklemede kurulan zamanlayıcılar (ör. yoklama); panel zamanlayıcısı ilk fare hareketinde eklenir
 local function move(x, y)
   reg.props["mouse-pos"] = { x = x, y = y, hover = true }
   reg.obs["mouse-pos"]("mouse-pos", { x = x, y = y, hover = true }) end
@@ -59,7 +60,7 @@ out("ENTER", tostring(M():find("Yakınlaştır", 1, true) == nil), tostring(reg.
 reg.bind.menu(); click(W / 2, H / 2)
 out("OUTSIDE", tostring(M():find("Video aç", 1, true) == nil))
 -- Otomatik gizleme (zamanlayıcı)
-move(hx(2), 5); reg.timers[1]()
+move(hx(2), 5); reg.timers[timers_at_load + 1]()
 out("AUTOHIDE", tostring(M() == ""), tostring(track_over()))
 -- Tam ekrandan çıkınca çubuk geri gelir ve zamanlayıcı gizlemez
 reg.props.fullscreen = false
