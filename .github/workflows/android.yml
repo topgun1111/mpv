@@ -41,20 +41,40 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Pose models into app assets (explicit list; AGPL-3.0, personal use)
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: "1"
         run: |
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install ultralytics==8.3.40 onnx==1.17.0 onnxscript==0.2.1
+          set -euo pipefail
+          logs="$RUNNER_TEMP/model-logs"; mkdir -p "$logs"
+          # torch is PINNED to 2.5.1, the version the EdgeTAM / SAM 2.1 export below already uses. Its default ONNX
+          # exporter is the TorchScript one and needs neither onnxscript nor onnx_ir. An unpinned torch (2.15 on
+          # 2026-11-19) uses the dynamo exporter and crashed here with "No module named 'onnx_ir'".
+          pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install ultralytics==8.3.40 onnx==1.17.0 onnxruntime==1.20.1
+          echo "::group::installed versions"
+          pip list 2>/dev/null | grep -iE "^(torch|torchvision|ultralytics|onnx|onnxruntime|onnxscript|onnx-ir|numpy|opencv)" | tee "$logs/pose-versions.txt" || true
+          echo "::endgroup::"
           d=android/app/src/${{ matrix.flavor }}/assets/models
+          mkdir -p "$d"
           # pose build: both candidates (decide by measurement); sam build: the small one + the SAM models below
           if [ "${{ matrix.flavor }}" = "pose" ]; then models="yolov8s-pose yolo11m-pose"; else models="yolov8s-pose"; fi
-          for m in $models; do python scripts/export_pose.py "$d" "$m"; done
+          for m in $models; do
+            echo "::group::export $m"
+            python scripts/export_pose.py "$d" "$m" 2>&1 | tee "$logs/export-pose-$m.log"
+            echo "::endgroup::"
+          done
           ls -l "$d"
           for m in $models; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
       - name: Export EdgeTAM and SAM 2.1 Small (five graphs each, isolated environments)
         if: matrix.flavor == 'sam'
         shell: bash
+        env:
+          PYTHONUNBUFFERED: "1"
+          MODEL_CKPT_DIR: ${{ runner.temp }}/sam-ckpt  # checkpoints stay OUT of the assets folder (they would be packed into the APK)
         run: |
           set -euo pipefail
+          logs="$RUNNER_TEMP/model-logs"; mkdir -p "$logs" "$MODEL_CKPT_DIR"
           d=android/app/src/sam/assets/models
           mkdir -p "$d/edgetam" "$d/small"
           # EdgeTAM and SAM 2.1 both expose the Python package `sam2`; separate venvs prevent collisions.
@@ -63,22 +83,31 @@ jobs:
           "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
           "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install onnx==1.17.0 onnxruntime==1.20.1 timm==1.0.11
           git clone --depth 1 https://github.com/facebookresearch/EdgeTAM.git "$RUNNER_TEMP/EdgeTAM"
+          echo "EdgeTAM commit: $(git -C "$RUNNER_TEMP/EdgeTAM" rev-parse HEAD)" | tee "$logs/edgetam-commit.txt"
           "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install -e "$RUNNER_TEMP/EdgeTAM"
-          "$RUNNER_TEMP/venv-edgetam/bin/python" scripts/export_sam2.py "$d/edgetam" edgetam 2>&1 | tee "$RUNNER_TEMP/export-edgetam.log"
+          "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip list 2>/dev/null | tee "$logs/venv-edgetam-versions.txt" | grep -iE "^(torch|torchvision|onnx|onnxruntime|numpy|timm|sam2|edgetam)" || true
+          echo "::group::EdgeTAM export"
+          "$RUNNER_TEMP/venv-edgetam/bin/python" scripts/export_sam2.py "$d/edgetam" edgetam 2>&1 | tee "$logs/export-edgetam.log"
+          echo "::endgroup::"
 
           python -m venv "$RUNNER_TEMP/venv-sam2"
           "$RUNNER_TEMP/venv-sam2/bin/python" -m pip install --upgrade pip
           "$RUNNER_TEMP/venv-sam2/bin/python" -m pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
           "$RUNNER_TEMP/venv-sam2/bin/python" -m pip install onnx==1.17.0 onnxruntime==1.20.1
           "$RUNNER_TEMP/venv-sam2/bin/python" -m pip install git+https://github.com/facebookresearch/sam2.git
-          "$RUNNER_TEMP/venv-sam2/bin/python" scripts/export_sam2.py "$d/small" small 2>&1 | tee "$RUNNER_TEMP/export-small.log"
+          "$RUNNER_TEMP/venv-sam2/bin/python" -m pip list 2>/dev/null | tee "$logs/venv-sam2-versions.txt" | grep -iE "^(torch|torchvision|onnx|onnxruntime|numpy|sam2|sam-2)" || true
+          echo "::group::SAM 2.1 Small export"
+          "$RUNNER_TEMP/venv-sam2/bin/python" scripts/export_sam2.py "$d/small" small 2>&1 | tee "$logs/export-small.log"
+          echo "::endgroup::"
 
+          missing=0
           for variant in edgetam small; do
             for model in sam-encoder sam-decoder sam-decoder-trk sam-memenc sam-memattn; do
-              test -s "$d/$variant/$model.onnx" || { echo "missing $variant/$model.onnx"; exit 1; }
+              if test -s "$d/$variant/$model.onnx"; then echo "OK      $variant/$model.onnx"; else echo "MISSING $variant/$model.onnx"; missing=1; fi
             done
           done
           ls -lhR "$d"
+          [ "$missing" -eq 0 ] || { echo "SAM export incomplete: see the MISSING lines above and the export logs"; exit 1; }
       - name: int8 EdgeTAM encoder for the NPU (only if android/calib has frames AND the accuracy gate passes; optional)
         if: matrix.flavor == 'sam'
         continue-on-error: true
@@ -103,6 +132,15 @@ jobs:
           python scripts/quantize_android.py "$d/yolov8s-pose.onnx" "$d/yolov8s-pose-int8.onnx" android/calib
           python scripts/quantize_android.py "$d/yolov8s-pose.onnx" "$d/yolov8s-pose-a16w8.onnx" android/calib --a16
           ls -l "$d"
+      - name: Model export report (per model - present, size, sha256, ONNX valid, ONNX Runtime loads)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          logs="$RUNNER_TEMP/model-logs"; mkdir -p "$logs"
+          # runs even when an export step failed (shows what exists); installs the checkers in case that step died early
+          pip install onnx==1.17.0 onnxruntime==1.20.1
+          python scripts/model_report.py "android/app/src/${{ matrix.flavor }}/assets/models" --preset "android-${{ matrix.flavor }}" --summary --json "$logs/report.json" 2>&1 | tee "$logs/report.txt"
       - name: Android SDK (accepts licences)
         uses: android-actions/setup-android@v3
         with:
@@ -115,15 +153,28 @@ jobs:
         working-directory: android
         run: gradle --no-daemon --stacktrace :core:test :app:assemble${{ matrix.gradle_task }}Release
       - name: Models are inside the APK
+        shell: bash
         run: |
+          set -euo pipefail
           apk=android/app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk
           test -s "$apk" || { echo "release APK was not produced (unsigned?)"; ls -l android/app/build/outputs/apk/${{ matrix.flavor }}/release; exit 1; }
-          unzip -l "$apk" | grep -E "assets/models/(edgetam|small)/.*\.onnx"
-          for variant in edgetam small; do
-            for model in sam-encoder sam-decoder sam-decoder-trk sam-memenc sam-memattn; do
-              unzip -l "$apk" | grep -q "assets/models/$variant/$model.onnx" || { echo "APK missing $variant/$model.onnx"; exit 1; }
+          listing=$(unzip -l "$apk")  # read once: `unzip | grep -q` under pipefail reports false misses (SIGPIPE)
+          echo "--- every ONNX model inside $apk"
+          grep -E "assets/models/.*\.onnx" <<<"$listing" || { echo "no ONNX model in the APK"; exit 1; }
+          missing=0
+          need() { if grep -q "assets/models/$1" <<<"$listing"; then echo "OK      APK has $1"; else echo "MISSING APK lacks $1"; missing=1; fi; }
+          need yolov8s-pose.onnx
+          if [ "${{ matrix.flavor }}" = "pose" ]; then
+            need yolo11m-pose.onnx
+          else
+            for variant in edgetam small; do
+              for model in sam-encoder sam-decoder sam-decoder-trk sam-memenc sam-memattn; do
+                need "$variant/$model.onnx"
+              done
             done
-          done
+          fi
+          if grep -E "assets/models/.*\.(pt|part)$" <<<"$listing"; then echo "stray checkpoint inside the APK"; missing=1; fi
+          [ "$missing" -eq 0 ] || exit 1
       - name: Name the APK
         run: |
           v=$(tr -d "[:space:]" < VERSION)
@@ -134,12 +185,12 @@ jobs:
           name: TakipliOynat-Android-${{ matrix.flavor }}-Release
           path: dist-android/release/*.apk
           if-no-files-found: error
-      - name: Test reports on failure
-        if: failure()
+      - name: Model export logs and test reports (always uploaded, also when everything passed)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-reports-${{ matrix.flavor }}
           path: |
             android/**/build/reports
-            ${{ runner.temp }}/export-*.log
+            ${{ runner.temp }}/model-logs
           if-no-files-found: ignore

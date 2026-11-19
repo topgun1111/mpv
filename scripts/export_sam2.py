@@ -25,7 +25,9 @@ that rewrite against the original and every ONNX file against PyTorch, and stops
 """
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -150,7 +152,10 @@ def main(argv: list[str]) -> int:
     size = pos[1] if len(pos) > 1 else "edgetam"
     cfgs, urls = VARIANTS[size]
     out.mkdir(parents=True, exist_ok=True)
-    ckpt = out / f"{size}.pt"
+    # The checkpoint lives OUTSIDE `out`: `out` is an APK assets folder, and a leftover .pt/.part (failed run)
+    # would be packed into the APK. MODEL_CKPT_DIR overrides the temp folder.
+    ckpt = Path(os.environ.get("MODEL_CKPT_DIR") or tempfile.gettempdir()) / f"sam-export-{size}.pt"
+    ckpt.parent.mkdir(parents=True, exist_ok=True)
     if not _download(urls, ckpt):
         print("ERROR: checkpoint download failed", file=sys.stderr)
         return 1
@@ -305,6 +310,11 @@ def main(argv: list[str]) -> int:
             raise SystemExit(f"ERROR: {path.name} differs from PyTorch: " + ", ".join(bad))
 
     check = "--no-check" not in flags
+    import onnx as _onnx
+    import onnxruntime as _ort
+    print(f"export environment: python {sys.version.split()[0]}, torch {torch.__version__}, "
+          f"onnx {_onnx.__version__}, onnxruntime {_ort.__version__}, numpy {np.__version__}", flush=True)
+    print(f"checkpoint: {ckpt} ({ckpt.stat().st_size / 1e6:.1f} MB), output folder: {out.resolve()}", flush=True)
     print(f"=== {size.upper()} ===", flush=True)
     print("Export verification: enabled", flush=True)
     print("File verification: enabled", flush=True)
@@ -389,6 +399,10 @@ def main(argv: list[str]) -> int:
     if export_index != 5:
         raise SystemExit(f"ERROR: expected 5 exports, completed {export_index}")
     ckpt.unlink(missing_ok=True)
+    stray = sorted(p.name for p in out.iterdir() if p.suffix in (".pt", ".part"))
+    if stray:
+        raise SystemExit(f"ERROR: leftover files would be packed into the APK: {stray}")
+    print(f"=== {size.upper()} summary: " + ", ".join(f"{p.name} {p.stat().st_size / 1e6:.1f} MB" for p in written), flush=True)
     print(f"✓ {size.upper()} export SUCCESS", flush=True)
     return 0
 
