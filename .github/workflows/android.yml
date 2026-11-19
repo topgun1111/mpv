@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
+      MODEL_CKPT_DIR: ${{ runner.temp }}/model-checkpoints
       BUILD_NUMBER: ${{ github.run_number }}  # app/build.gradle.kts: versionCode = (X*10000+Y*100+Z)*1000 + build, so builds update each other
     strategy:
       fail-fast: false
@@ -42,8 +43,10 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Pose models into app assets (explicit list; AGPL-3.0, personal use)
         run: |
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install ultralytics==8.3.40 onnx==1.17.0 onnxscript==0.2.1 onnx-ir
+          # Keep the legacy TorchScript ONNX exporter: PyTorch 2.6+ defaults to
+          # dynamo and requires a matching onnxscript opset23 implementation.
+          pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install ultralytics==8.3.40 onnx==1.17.0 onnxruntime==1.20.1
           d=android/app/src/${{ matrix.flavor }}/assets/models
           # pose build: both candidates (decide by measurement); sam build: the small one + the SAM models below
           if [ "${{ matrix.flavor }}" = "pose" ]; then models="yolov8s-pose yolo11m-pose"; else models="yolov8s-pose"; fi
@@ -61,7 +64,7 @@ jobs:
           python -m venv "$RUNNER_TEMP/venv-edgetam"
           "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install --upgrade pip
           "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
-          "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install onnx==1.17.0 onnxruntime==1.20.1 timm==1.0.11
+          "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install onnx==1.17.0 onnxruntime==1.20.1 timm==1.0.11 huggingface_hub
           git clone --depth 1 https://github.com/facebookresearch/EdgeTAM.git "$RUNNER_TEMP/EdgeTAM"
           "$RUNNER_TEMP/venv-edgetam/bin/python" -m pip install -e "$RUNNER_TEMP/EdgeTAM"
           "$RUNNER_TEMP/venv-edgetam/bin/python" scripts/export_sam2.py "$d/edgetam" edgetam 2>&1 | tee "$RUNNER_TEMP/export-edgetam.log"
@@ -79,6 +82,10 @@ jobs:
             done
           done
           ls -lhR "$d"
+      - name: Validate exported Android models before packaging
+        run: |
+          python -m pip install onnx==1.17.0 onnxruntime==1.20.1
+          python scripts/model_report.py "android/app/src/${{ matrix.flavor }}/assets/models" --preset "android-${{ matrix.flavor }}" --summary --json "model-logs/android-${{ matrix.flavor }}.json"
       - name: int8 EdgeTAM encoder for the NPU (only if android/calib has frames AND the accuracy gate passes; optional)
         if: matrix.flavor == 'sam'
         continue-on-error: true
@@ -115,15 +122,25 @@ jobs:
         working-directory: android
         run: gradle --no-daemon --stacktrace :core:test :app:assemble${{ matrix.gradle_task }}Release
       - name: Models are inside the APK
+        shell: bash
         run: |
+          set -euo pipefail
           apk=android/app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk
-          test -s "$apk" || { echo "release APK was not produced (unsigned?)"; ls -l android/app/build/outputs/apk/${{ matrix.flavor }}/release; exit 1; }
-          unzip -l "$apk" | grep -E "assets/models/(edgetam|small)/.*\.onnx"
-          for variant in edgetam small; do
-            for model in sam-encoder sam-decoder sam-decoder-trk sam-memenc sam-memattn; do
-              unzip -l "$apk" | grep -q "assets/models/$variant/$model.onnx" || { echo "APK missing $variant/$model.onnx"; exit 1; }
+          test -s "$apk" || { echo "release APK was not produced (unsigned?)"; ls -l "$(dirname "$apk")"; exit 1; }
+          entries=$(unzip -Z1 "$apk")
+          if [ "${{ matrix.flavor }}" = "pose" ]; then
+            for model in yolov8s-pose.onnx yolo11m-pose.onnx; do
+              grep -Fxq "assets/models/$model" <<< "$entries" || { echo "APK missing $model"; exit 1; }
             done
-          done
+            echo "pose APK must include yolov8s-pose.onnx and need yolo11m-pose.onnx"
+          else
+            grep -Fxq "assets/models/yolov8s-pose.onnx" <<< "$entries" || { echo "APK missing yolov8s-pose.onnx"; exit 1; }
+            for variant in edgetam small; do
+              for model in sam-encoder sam-decoder sam-decoder-trk sam-memenc sam-memattn; do
+                grep -Fxq "assets/models/$variant/$model.onnx" <<< "$entries" || { echo "APK missing $variant/$model.onnx"; exit 1; }
+              done
+            done
+          fi
       - name: Name the APK
         run: |
           v=$(tr -d "[:space:]" < VERSION)
@@ -134,12 +151,13 @@ jobs:
           name: TakipliOynat-Android-${{ matrix.flavor }}-Release
           path: dist-android/release/*.apk
           if-no-files-found: error
-      - name: Test reports on failure
-        if: failure()
+      - name: Export/build diagnostics (also when a previous step failed)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-reports-${{ matrix.flavor }}
           path: |
             android/**/build/reports
             ${{ runner.temp }}/export-*.log
+            model-logs/**
           if-no-files-found: ignore

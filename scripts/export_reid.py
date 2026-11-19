@@ -31,9 +31,12 @@ def main(argv: list[str]) -> int:
     target.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / f"{name}.onnx"
-        torch.onnx.export(model, dummy, str(out), opset_version=12, input_names=["input"],
-                          output_names=["feat"], dynamic_axes={"input": {0: "batch"},
-                                                               "feat": {0: "batch"}})
+        export_args = dict(opset_version=12, input_names=["input"], output_names=["feat"],
+                           dynamic_axes={"input": {0: "batch"}, "feat": {0: "batch"}})
+        try:
+            torch.onnx.export(model, dummy, str(out), dynamo=False, **export_args)
+        except TypeError:  # compatibility with older PyTorch releases
+            torch.onnx.export(model, dummy, str(out), dynamo=True, **export_args)
         if not out.is_file() or out.stat().st_size < MIN_BYTES:
             print(f"HATA: ONNX dışa aktarma başarısız/çok küçük: {out}", file=sys.stderr)
             return 1

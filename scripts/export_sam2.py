@@ -137,6 +137,7 @@ def _patch_rope_real(sam) -> int:
 
 def main(argv: list[str]) -> int:
     import inspect
+    import os
 
     import numpy as np
     import torch
@@ -150,7 +151,11 @@ def main(argv: list[str]) -> int:
     size = pos[1] if len(pos) > 1 else "edgetam"
     cfgs, urls = VARIANTS[size]
     out.mkdir(parents=True, exist_ok=True)
-    ckpt = out / f"{size}.pt"
+    # Checkpoints can be hundreds of MB; never place them under an app-assets
+    # directory because Gradle would package them into the APK.
+    checkpoint_root = Path(os.environ.get("MODEL_CKPT_DIR", str(out.parent / "model-checkpoints")))
+    checkpoint_root.mkdir(parents=True, exist_ok=True)
+    ckpt = checkpoint_root / f"{size}.pt"
     if not _download(urls, ckpt):
         print("ERROR: checkpoint download failed", file=sys.stderr)
         return 1

@@ -87,8 +87,11 @@ jobs:
         # Özeti doğrulayınca env: YOLOX_S_SHA256 olarak sabitle (tedarik zinciri)
       - name: Pose modeli (YOLOv8s-pose, vücut parçası takibi; kişisel kullanım)
         shell: pwsh
+        env:
+          MODEL_CKPT_DIR: ${{ runner.temp }}/model-checkpoints
         run: |
-          pip install ultralytics onnx onnxscript onnx-ir
+          pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install ultralytics onnx==1.17.0 onnxruntime==1.20.1 onnxscript onnx-ir
           python scripts/export_pose.py dist/TakipliOynat/models yolov8s-pose
       - name: Güçlü pose adayı (YOLO11m-pose fp32+fp16; isteğe bağlı, tek-model/benchmark için)
         shell: pwsh
@@ -99,9 +102,11 @@ jobs:
       - name: Re-ID modeli (OSNet x0.25, isteğe bağlı; indirilemezse Re-ID kapalı kalır)
         shell: pwsh
         continue-on-error: true
+        env:
+          MODEL_CKPT_DIR: ${{ runner.temp }}/model-checkpoints
         run: |
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install torchreid gdown onnx scipy tensorboard
+          pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install torchreid gdown onnx==1.17.0 onnxruntime==1.20.1 scipy tensorboard
           python scripts/export_reid.py dist/TakipliOynat/models osnet_x0_25
       - name: Tüm-vücut poz modeli (RTMPose-wholebody, el/yüz/ayak parmağı; isteğe bağlı)
         shell: pwsh
@@ -111,6 +116,10 @@ jobs:
         shell: pwsh
         run: ./scripts/fetch_ffmpeg.ps1 -Target dist/TakipliOynat/ffmpeg
         # Özeti doğrulayınca env: FFMPEG_SHA256 olarak sabitle
+      - name: ONNX model export report
+        run: |
+          pip install onnx onnxruntime
+          python scripts/model_report.py dist/TakipliOynat --preset pc --summary --json model-logs/pc.json
       - name: Model/araç bütünlüğü (models/manifest.json) + SHA256SUMS
         run: python scripts/verify_models.py dist/TakipliOynat --write-sums
       - name: Paketlenmiş Python duman testi
