@@ -67,12 +67,44 @@ jobs:
       - name: Export and validate all five ONNX graphs
         shell: bash
         run: |
-          set -o pipefail
+          set -Eeuo pipefail
           mkdir -p "sam-models/$VARIANT"
-          python scripts/export_sam2.py "sam-models/$VARIANT" "$VARIANT" 2>&1 | tee "export-$VARIANT.log"
+          export_dir="sam-models/$VARIANT"
+          case "$VARIANT" in
+            edgetam) display_name="EdgeTAM" ;;
+            small) display_name="SAM 2.1 Small" ;;
+            *) display_name="$VARIANT" ;;
+          esac
+          echo "=== $display_name ==="
+          on_error() {
+            status=$?
+            echo
+            echo "ERROR: $display_name export failed (exit $status)."
+            echo "Missing or empty required models:"
+            for model in sam-encoder sam-decoder sam-decoder-trk sam-memenc sam-memattn; do
+              file="$export_dir/$model.onnx"
+              if [ ! -s "$file" ]; then echo "  ✗ $file"; else echo "  ✓ $file"; fi
+            done
+            echo
+            echo "MODEL EXPORT: FAILED"
+            exit "$status"
+          }
+          trap on_error ERR
+          python scripts/export_sam2.py "$export_dir" "$VARIANT" 2>&1 | tee "export-$VARIANT.log"
+          echo
+          echo "=== FINAL MODEL CHECK: $display_name ==="
           for model in sam-encoder sam-decoder sam-decoder-trk sam-memenc sam-memattn; do
-            test -s "sam-models/$VARIANT/$model.onnx" || { echo "MISSING REQUIRED GRAPH: $model.onnx"; exit 1; }
+            file="$export_dir/$model.onnx"
+            if [ ! -s "$file" ]; then
+              echo "✗ $file (missing or empty)"
+              echo "ERROR: required model verification failed: $file"
+              false
+            fi
+            size=$(stat -c '%s' "$file")
+            echo "✓ $file ($(numfmt --to=iec --suffix=B "$size"))"
           done
+          echo "✓ ALL REQUIRED MODELS PRESENT"
+          trap - ERR
           python - <<'PY'
           from pathlib import Path
           import hashlib
@@ -82,6 +114,8 @@ jobs:
                   f.write(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.as_posix()}\n")
           PY
           ls -lh "sam-models/$VARIANT"
+          echo
+          echo "MODEL EXPORT: SUCCESS"
       - name: Upload model files (also on partial failure)
         if: always()
         uses: actions/upload-artifact@v4

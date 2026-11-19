@@ -261,26 +261,37 @@ def main(argv: list[str]) -> int:
                 output_dict={"cond_frame_outputs": cond, "non_cond_frame_outputs": non}, num_frames=fi + 1,
                 track_in_reverse=False)
 
+    export_index = 0
+
     def export(model, args, path, inputs, outputs):
-        kw = dict(input_names=inputs, output_names=outputs, opset_version=17, do_constant_folding=True)
+        nonlocal export_index
+        export_index += 1
+        print(f"[{export_index}/5] Exporting {path.name}...", flush=True)
         try:
-            torch.onnx.export(model, args, str(path), dynamo=False, **kw)
-        except TypeError:  # older torch has no `dynamo` argument
-            torch.onnx.export(model, args, str(path), **kw)
-        # torch.onnx.export restores the wrapper's original mode (train, as a fresh nn.Module) on ALL children: BatchNorm would then
-        # use batch statistics in the PyTorch reference and every later check would differ. Put everything back in eval.
-        model.eval()
-        sam.eval()
+            kw = dict(input_names=inputs, output_names=outputs, opset_version=17, do_constant_folding=True)
+            try:
+                torch.onnx.export(model, args, str(path), dynamo=False, **kw)
+            except TypeError:  # older torch has no `dynamo` argument
+                torch.onnx.export(model, args, str(path), **kw)
+            # torch.onnx.export restores wrapper/child training modes; restore eval for reference checks.
+            model.eval()
+            sam.eval()
+            if not path.is_file() or path.stat().st_size <= 0:
+                raise RuntimeError(f"exporter returned without creating a non-empty file: {path}")
+            print(f"✓ {path.name} created — {path.stat().st_size / 1e6:.1f} MB", flush=True)
+        except Exception as exc:
+            print(f"✗ {path.name} export failed: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+            raise
 
     def ort_check(path: Path, model, args, names, tol=2e-2) -> None:
         try:
             import onnxruntime as ort
-        except ImportError:
-            print(f"WARNING: onnxruntime missing, {path.name} not checked", file=sys.stderr)
-            return
+        except ImportError as exc:
+            raise RuntimeError("onnxruntime is required for model verification") from exc
         model.eval()
         sam.eval()
         sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        print(f"✓ {path.name}: ONNX Runtime loaded successfully", flush=True)
         got = sess.run(None, {n: a.numpy() for n, a in zip(names, args)})
         ref = model(*args)
         ref = [ref] if isinstance(ref, torch.Tensor) else list(ref)
@@ -294,6 +305,12 @@ def main(argv: list[str]) -> int:
             raise SystemExit(f"ERROR: {path.name} differs from PyTorch: " + ", ".join(bad))
 
     check = "--no-check" not in flags
+    print(f"=== {size.upper()} ===", flush=True)
+    print("Export verification: enabled", flush=True)
+    print("File verification: enabled", flush=True)
+    print("ONNX Runtime verification: enabled" if check else "ONNX Runtime verification: DISABLED", flush=True)
+    if not check:
+        raise SystemExit("ERROR: --no-check is not permitted for release model exports")
     rnd = torch.randn
     with torch.no_grad():
         x = rnd(1, 3, S, S)
@@ -301,6 +318,7 @@ def main(argv: list[str]) -> int:
         print("fpn shapes:", [tuple(f.shape) for f in o["backbone_fpn"]], "image_size:", sam.image_size)
         enc, dec, dtr = (out / n for n in ("sam-encoder.onnx", "sam-decoder.onnx", "sam-decoder-trk.onnx"))
         export(Encoder(sam), (x,), enc, ["image"], ["high_res_feats_0", "high_res_feats_1", "image_embed", "image_feat"])
+        ort_check(enc, Encoder(sam), (x,), ["image"])
         feats = Encoder(sam)(x)
         dnames = ["image_embed", "high_res_feats_0", "high_res_feats_1", "point_coords", "point_labels"]
         onames = ["low_res_masks", "iou_predictions", "obj_ptrs", "object_score"]
@@ -311,8 +329,6 @@ def main(argv: list[str]) -> int:
             export(Decoder(sam, multi), args, path, dnames, onames)
             if check:
                 ort_check(path, Decoder(sam, multi), args, dnames)
-        if check:
-            ort_check(enc, Encoder(sam), (x,), ["image"])
         written = [enc, dec, dtr]
 
         if "--no-memory" not in flags:
@@ -367,9 +383,13 @@ def main(argv: list[str]) -> int:
         want_in, want_out = expected[pth.name]
         if ins != want_in or outs != want_out:
             raise SystemExit(f"ERROR: {pth.name} I/O mismatch: inputs={sorted(ins)}, outputs={sorted(outs)}")
-        print(f"validated: {pth.name} inputs={sorted(ins)} outputs={sorted(outs)}")
-        print(f"ready: {pth} ({pth.stat().st_size / 1e6:.1f} MB)")
+        print(f"✓ File exists: {pth.name} ({pth.stat().st_size / 1e6:.1f} MB)", flush=True)
+        print(f"✓ ONNX structure valid: {pth.name}", flush=True)
+        print(f"✓ MODEL READY: {pth.name}", flush=True)
+    if export_index != 5:
+        raise SystemExit(f"ERROR: expected 5 exports, completed {export_index}")
     ckpt.unlink(missing_ok=True)
+    print(f"✓ {size.upper()} export SUCCESS", flush=True)
     return 0
 
 
