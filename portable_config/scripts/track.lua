@@ -16,6 +16,7 @@ local MODES = { auto = "Otomatik", point = "Nokta", rect = "Dikdörtgen", body =
 local mode = "auto"
 local start_tracker_service -- dosya sonunda tanımlanır (Python otomatik başlatma / yeniden deneme)
 local tp_save, tp_save_show, tp_save_timer, tp_save_clear, tp_request_save -- «Ayarları kaydet» geri bildirimi
+local tp_poll_gen = 0 -- panel açıkken track-cfg-get yeniden isteme turu (eski tur kendini bırakır)
 local tpanel, tp_hot, tp_cfg = nil, false, nil -- panel nesnesi, imleç panel üstünde mi, Python ayar özeti
 local toggle_tp -- Tracker panelini dosya yükleme olayından da açabilmek için ileri bildirim
 local scan -- dosya yükleme olayından erişilen offline işlem durumu
@@ -1827,6 +1828,16 @@ if TRACK_SHOW_MENU ~= false then
           local d = osd_dims()
           if d and d.w and d.w > 0 then tpanel:open(d.w, d.h, menu and menu.bh or 0) else tpanel:open(0, 0, 0) end
           mp.commandv("script-message", "track-cfg-get") -- Python ayar özetini yollar (track-cfg)
+          -- Python o an bağlı değilse (açılıyor / model yüklüyor) tek istek kaybolurdu: panel açık ve özet yokken
+          -- yanıt gelene kadar 1.5 sn'de bir yeniden iste (kartlar, SAM durumu, Kaydet düğmesi bu özetle dolar).
+          tp_poll_gen = tp_poll_gen + 1
+          local gen = tp_poll_gen
+          local function poll()
+            if gen ~= tp_poll_gen or not tpanel:is_open() or tp_cfg then return end
+            mp.commandv("script-message", "track-cfg-get")
+            mp.add_timeout(1.5, poll)
+          end
+          mp.add_timeout(1.5, poll)
         end
         render_tp()
       end

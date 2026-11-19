@@ -21,3 +21,8 @@ def test_required_files_exist_and_not_empty():
 def test_providers_exports_installed_ort_packages():
     src = (ROOT / "tracker" / "providers.py").read_text(encoding="utf-8")
     assert "def installed_ort_packages(" in src
+
+
+def test_panel_retries_cfg_request_while_python_not_connected():
+    lua = (ROOT / "mpv/portable_config/scripts/track.lua").read_text(encoding="utf-8")
+    assert "tp_poll_gen" in lua and lua.count('"track-cfg-get"') >= 2
