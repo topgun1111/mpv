@@ -99,6 +99,12 @@ def test_installer_references_existing_files_and_win10_directml():
     assert 'MessagesFile: "compiler:Languages\\Turkish.isl"' in iss
 
 
+def test_nuitka_output_dir_uses_required_equals_syntax():
+    source = (ROOT / "scripts" / "build_nuitka.py").read_text(encoding="utf-8")
+    assert 'f"--output-dir={out}"' in source
+    assert '"--output-dir", str(out)' not in source
+
+
 def test_build_workflow_orders_steps_and_checks_directml():
     wf = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
     order = [wf.index(k) for k in ("make_package.py", "build_nuitka.py", "fetch_deps.ps1",

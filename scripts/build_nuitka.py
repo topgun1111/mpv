@@ -28,7 +28,7 @@ def build(out: Path) -> Path:
         "--onefile",
         "--assume-yes-for-downloads",
         "--windows-console-mode=force",
-        "--output-dir", str(out),
+        f"--output-dir={out}",
         "--output-filename=tracker.exe",
         "--enable-plugin=numpy",
         "--include-package=tracker",
