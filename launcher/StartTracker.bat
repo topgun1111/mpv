@@ -3,15 +3,20 @@ rem Takipli Oynat - Python takip servisini kontrol et ve gerekirse baslat.
 rem Bu dosya hem Baslat.bat tarafindan hem mpv'nin track.lua otomatik baslatmasindan cagrilir.
 chcp 65001 >nul
 setlocal
+rem E:\Tracking kullanilabiliyorsa veri klasoru orasi; degilse (E: yok) varsayilan %APPDATA%\TakipliOynat (hata vermez).
 set "TAKIPLI_DATA_DIR=E:\Tracking"
-if not exist "%TAKIPLI_DATA_DIR%\" mkdir "%TAKIPLI_DATA_DIR%"
-if not exist "%TAKIPLI_DATA_DIR%\" (echo HATA: E:\Tracking klasoru olusturulamadi. E: surucusunu kontrol edin. & pause & exit /b 1)
+if not exist "%TAKIPLI_DATA_DIR%\" mkdir "%TAKIPLI_DATA_DIR%" 2>nul
+if not exist "%TAKIPLI_DATA_DIR%\" (
+  echo [UYARI] E:\Tracking olusturulamadi; varsayilan veri klasoru kullanilacak.
+  set "TAKIPLI_DATA_DIR="
+)
 set "ROOT=%~dp0.."
 for %%F in ("%ROOT%") do set "ROOT=%%~fF"
 cd /d "%ROOT%"
 set "PY=%ROOT%\python\python.exe"
 set "MPV=%ROOT%\mpv\mpv.exe"
-set "CFG=%TAKIPLI_DATA_DIR%\config.json"
+set "CFG=%APPDATA%\TakipliOynat\config.json"
+if defined TAKIPLI_DATA_DIR set "CFG=%TAKIPLI_DATA_DIR%\config.json"
 
 if not exist "%PY%" (
   echo [HATA] Paketli Python bulunamadi: "%PY%"

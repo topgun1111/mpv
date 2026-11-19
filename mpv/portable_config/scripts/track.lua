@@ -14,6 +14,7 @@ local enabled = false
 -- point = yalnız tık; rect = yalnız alan; body = vücut parçası (G / panel). Parça değişince mod uyar (set_part).
 local MODES = { auto = "Otomatik", point = "Nokta", rect = "Dikdörtgen", body = "Vücut" }
 local mode = "auto"
+local start_tracker_service -- dosya sonunda tanımlanır (Python otomatik başlatma / yeniden deneme)
 local tp_save, tp_save_show, tp_save_timer, tp_save_clear -- «Ayarları kaydet» geri bildirimi
 local tpanel, tp_hot, tp_cfg = nil, false, nil -- panel nesnesi, imleç panel üstünde mi, Python ayar özeti
 local toggle_tp -- Tracker panelini dosya yükleme olayından da açabilmek için ileri bildirim
@@ -1779,7 +1780,7 @@ if TRACK_SHOW_MENU ~= false then
             if tracker_ready then
               tp_save_show("Kaydediliyor…")
               -- Python yanıtı gelmezse (takip programı bağlı değil) bunu düğmede göster
-              tp_save_timer = mp.add_timeout(2, function() tp_save_show("Yanıt yok: takip bağlı mı?", 3) end)
+              tp_save_timer = mp.add_timeout(2, function() tp_save_show("Yanıt yok: takip yeniden başlatılıyor…", 3); if start_tracker_service then start_tracker_service(true) end end)
               mp.commandv("script-message", "track-save")
             else
               -- Python henüz bağlanmadı/modelleri yüklüyor: yanlış "Yanıt yok" gösterme, hazır olunca kaydet.
@@ -1788,7 +1789,7 @@ if TRACK_SHOW_MENU ~= false then
               mp.commandv("script-message", "track-cfg-get") -- yoklama: yanıt gelince hazır sayılır
               tp_save_timer = mp.add_timeout(60, function()
                 tp_save_pending = false
-                tp_save_show("Yanıt yok: takip bağlı mı?", 4)
+                tp_save_show("Yanıt yok: takip yeniden başlatılıyor…", 4); if start_tracker_service then start_tracker_service(true) end
               end)
             end
           elseif act == "defaults" then mp.commandv("script-message", "track-setting", "all", "0") end
@@ -1837,7 +1838,7 @@ if TRACK_SHOW_MENU ~= false then
         tp_save_pending = false
         if tp_save_timer then tp_save_timer:kill() end
         tp_save_show("Kaydediliyor…")
-        tp_save_timer = mp.add_timeout(2, function() tp_save_show("Yanıt yok: takip bağlı mı?", 3) end)
+        tp_save_timer = mp.add_timeout(2, function() tp_save_show("Yanıt yok: takip yeniden başlatılıyor…", 3); if start_tracker_service then start_tracker_service(true) end end)
         mp.commandv("script-message", "track-save")
       end
       if tpanel:is_open() then mp.commandv("script-message", "track-cfg-get") end
@@ -1926,26 +1927,37 @@ function track_over() return panel.hover ~= nil or zoomc.hover ~= nil or menu_ho
 
 -- Otomatik başlatma: mpv dogrudan acilsa bile ortak on-kontrol/servis baslaticisini calistir.
 -- Baslat.bat tarafindan acildiysa TAKIP_PY_STARTED ortami tekrar baslatmayi engeller.
+-- start_tracker_service(force): StartTracker.bat zaten çalışan servisi tekrar başlatmaz (güvenli).
 do
   local utils = require("mp.utils")
-  if not os.getenv("TAKIP_PY_STARTED") then
-    local exe = mp.command_native and mp.command_native({ "expand-path", "~~exe_dir/" })
-    if type(exe) == "string" and exe ~= "" then
-      local root = exe:gsub("[/\\\\]+$", ""):gsub("[/\\\\][^/\\\\]*$", "")
-      local bat = (root .. "/launcher/StartTracker.bat"):gsub("/", "\\\\")
-      if utils.file_info(bat) then
-        mp.command_native({
-          name = "subprocess", playback_only = false, detached = true,
-          capture_stdout = false, capture_stderr = false,
-          args = { "cmd", "/d", "/c", "start", "Takip Baslatma", "/D",
-                   root:gsub("/", "\\\\"), "cmd", "/k", "call", bat }
-        })
-        mp.msg.info("Python takip servisi ortak baslatici ile baslatiliyor: " .. bat)
-      else
-        mp.msg.error("launcher/StartTracker.bat bulunamadi; Python otomatik baslatilamadi")
-      end
+  local function win(p) return (p:gsub("/", "\\")) end -- tek ters bölü (gsub yedeği "\\" = tek "\")
+  start_tracker_service = function(force)
+    if os.getenv("TAKIP_PY_STARTED") and not force then
+      mp.msg.info("Python takip servisi Baslat.bat tarafindan baslatildi")
+      return false
     end
-  else
-    mp.msg.info("Python takip servisi Baslat.bat tarafindan baslatildi")
+    local exe = mp.command_native and mp.command_native({ "expand-path", "~~exe_dir/" })
+    if type(exe) ~= "string" or exe == "" then return false end
+    local root = win(exe):gsub("[\\/]+$", ""):gsub("[\\/][^\\/]*$", "")
+    local bat = root .. "\\launcher\\StartTracker.bat"
+    if not utils.file_info(bat) then
+      mp.msg.error("launcher/StartTracker.bat bulunamadi: " .. bat)
+      mp.osd_message("Takip başlatıcı yok: " .. bat, 6)
+      return false
+    end
+    -- start: yeni görünür konsol; cmd /c yalnız aracı olduğundan tek katman tırnak yeter.
+    local res = mp.command_native({
+      name = "subprocess", playback_only = false, detached = true,
+      capture_stdout = false, capture_stderr = false,
+      args = { "cmd.exe", "/d", "/c", "start", "Takip Baslatma", "/D", root, bat }
+    })
+    if type(res) ~= "table" or (res.status or 0) < 0 or res.error_string and res.error_string ~= "" then
+      mp.msg.error("Python baslatilamadi: " .. tostring(res and res.error_string))
+      mp.osd_message("Python takip servisi başlatılamadı: " .. tostring(res and res.error_string), 6)
+      return false
+    end
+    mp.msg.info("Python takip servisi ortak baslaticiyla baslatiliyor: " .. bat)
+    return true
   end
+  start_tracker_service(false)
 end
