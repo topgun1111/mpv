@@ -836,7 +836,7 @@ show_provisional = function(nx, ny)
     if dot.prov and my == prov_seq and loading then
       osd("modeller hâlâ yükleniyor; tıklaman hazır olunca uygulanacak", 3)
     elseif dot.prov and my == prov_seq then
-      osd("takip programı yanıt vermiyor (Python çalışıyor mu? mpv'yi yeniden aç)", 4)
+      osd("takip programı yanıt vermiyor (Python çalışmıyor; %TEMP%\takipli-start.log dosyasına bak)", 4)
     end
   end)
 end

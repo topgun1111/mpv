@@ -19,21 +19,33 @@ set "CFG=%APPDATA%\TakipliOynat\config.json"
 if defined TAKIPLI_DATA_DIR set "CFG=%TAKIPLI_DATA_DIR%\config.json"
 
 if not exist "%PY%" (
-  echo [HATA] Paketli Python bulunamadi: "%PY%"
-  echo Gelistirme kurulumu icin launcher\Takip.bat kullanin.
-  exit /b 1
+  echo [UYARI] Paketli Python yok: "%PY%" - sistemdeki Python aranacak.
+  call "%~dp0_python.bat"
+  if not defined PY (
+    set "WHY=Python bulunamadi. Python 3.11/3.12 kur (python.org, Add to PATH) ya da python\ klasorunu ekle."
+    goto :fail
+  )
+  goto :havepy
 )
+:havepy
+echo [OK] Python: "%PY%"
 if not exist "%ROOT%\tracker\__init__.py" (
-  echo [HATA] tracker paketi bulunamadi.
-  exit /b 1
+  set "WHY=tracker paketi bulunamadi: %ROOT%\tracker"
+  goto :fail
 )
 
-rem Gerekli paketleri dogrula.
-"%PY%" -c "import numpy,cv2,onnxruntime" >nul 2>nul
+rem Gerekli paketleri dogrula (hata metni gorunur; DLL hatasi = genelde VC++ Runtime eksik).
+set "IMPERR=%TEMP%\takipli-import.txt"
+"%PY%" -c "import numpy,cv2,onnxruntime" >nul 2>"%IMPERR%"
 if errorlevel 1 (
-  echo [HATA] Python paketleri eksik: numpy / opencv / onnxruntime.
-  echo requirements.txt dosyasini kontrol edin.
-  exit /b 1
+  type "%IMPERR%"
+  findstr /i /c:"DLL load failed" /c:"msvcp140" /c:"vcruntime" "%IMPERR%" >nul 2>nul
+  if not errorlevel 1 (
+    set "WHY=DLL yuklenemedi: Microsoft Visual C++ Runtime (x64) eksik. Kur: https://aka.ms/vs/17/release/vc_redist.x64.exe"
+  ) else (
+    set "WHY=Python paketleri eksik/bozuk: numpy / opencv / onnxruntime. Yukaridaki hata metnine bak."
+  )
+  goto :fail
 )
 
 rem Kisi algilama modeli olmadan takip baslatilamaz.
@@ -42,8 +54,8 @@ for %%M in (yolox_s yolov8n yolox_m yolox_tiny yolox_nano) do (
   if exist "%ROOT%\models\%%M.onnx" set "HASMODEL=1"
 )
 if not defined HASMODEL (
-  echo [HATA] models klasorunde kisi algilama modeli bulunamadi.
-  exit /b 1
+  set "WHY=models klasorunde kisi algilama modeli yok (yolox_s/yolov8n .onnx)."
+  goto :fail
 )
 
 rem DirectML varsa kullanilir; yoksa CPU provider ile devam eder.
@@ -55,7 +67,7 @@ rem NOT: "tracker ping" burada KULLANILMAZ; ping mpv IPC ister, mpv ise henuz ac
 rem Bunun yerine bu kurulum klasorune ait calisan "tracker live" sureci aranir (yalniz okuma; hicbir surec sonlandirilmaz).
 call :count_tracker
 if not "%TRK_COUNT%"=="0" (
-  echo [OK] Takip servisi zaten calisiyor ^(%TRK_COUNT% surec^); yenisi baslatilmayacak.
+  echo [OK] Takip servisi zaten calisiyor (%TRK_COUNT% surec); yenisi baslatilmayacak.
   exit /b 0
 )
 
@@ -85,12 +97,19 @@ if not "%TRK_COUNT%"=="0" (
 )
 set /a N+=1
 if %N% LSS 10 goto wait_started
-echo [HATA] Python takip sureci baslatilamadi.
-echo Takip (Python) penceresindeki hata mesajlarini kontrol edin.
-exit /b 1
+set "WHY=Python takip sureci baslatilamadi. 'Takip (Python)' penceresindeki hatayi oku."
+goto :fail
 
 rem Bu kurulum klasorune ait "python -m tracker ... live" islemlerini sayar -> TRK_COUNT. Hicbir sureci sonlandirmaz.
 :count_tracker
 set "TRK_COUNT=0"
 for /f "usebackq delims=" %%C in (`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'Name=''python.exe''' | Where-Object { $_.CommandLine -like ('*'+$env:ROOT+'*') -and $_.CommandLine -like '*-m tracker*live*' } | Measure-Object).Count" 2^>nul`) do set "TRK_COUNT=%%C"
 exit /b 0
+
+:fail
+echo.
+echo [HATA] %WHY%
+>> "%TEMP%\takipli-start.log" echo %DATE% %TIME% [HATA] %WHY%
+echo (Kayit: %TEMP%\takipli-start.log)
+pause
+exit /b 1
