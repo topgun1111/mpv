@@ -49,7 +49,7 @@ jobs:
             if (-not (Test-Path $sumFile)) { throw "SAM checksums missing: $sumFile" }
             foreach ($line in Get-Content $sumFile) {
               $parts = $line -split '\s+', 2
-              if ($parts.Count -ne 2) { throw "Invalid checksum line in $sumFile: $line" }
+              if ($parts.Count -ne 2) { throw "Invalid checksum line in ${sumFile}: $line" }
               $actual = (Get-FileHash (Join-Path $dir $parts[1]) -Algorithm SHA256).Hash.ToLowerInvariant()
               if ($actual -ne $parts[0].ToLowerInvariant()) { throw "SAM checksum mismatch: $variant/$($parts[1])" }
             }
