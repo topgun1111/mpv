@@ -9,7 +9,7 @@ if not exist "%TAKIPLI_DATA_DIR%\" (
   echo [UYARI] E:\Tracking olusturulamadi; varsayilan veri klasoru kullanilacak.
   set "TAKIPLI_DATA_DIR="
 )
-set "ROOT=%~dp0.."
+if exist "%~dp0tracker\__init__.py" (set "ROOT=%~dp0") else (set "ROOT=%~dp0..")
 for %%F in ("%ROOT%") do set "ROOT=%%~fF"
 cd /d "%ROOT%"
 if not exist "%ROOT%\mpv\mpv.exe" (
@@ -18,7 +18,7 @@ if not exist "%ROOT%\mpv\mpv.exe" (
   exit /b 1
 )
 rem 1) Python hazirligi + surecin baslatilmasi (IPC beklenmez). 2) mpv hemen acilir; Python baglantiyi kendisi kurar.
-call "%ROOT%\launcher\StartTracker.bat"
+if exist "%ROOT%\StartTracker.bat" (call "%ROOT%\StartTracker.bat") else call "%ROOT%\launcher\StartTracker.bat"
 if errorlevel 1 (
   echo.
   echo [UYARI] Takip servisi baslatilamadi. mpv yine de acilsin mi?

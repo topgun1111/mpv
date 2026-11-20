@@ -1960,7 +1960,8 @@ do
     local exe = mp.command_native and mp.command_native({ "expand-path", "~~exe_dir/" })
     if type(exe) ~= "string" or exe == "" then return false end
     local root = win(exe):gsub("[\\/]+$", ""):gsub("[\\/][^\\/]*$", "")
-    local bat = root .. "\\launcher\\StartTracker.bat"
+    local bat = root .. "\\StartTracker.bat" -- paket düzeni: .bat dosyaları kökte
+    if not utils.file_info(bat) then bat = root .. "\\launcher\\StartTracker.bat" end -- depo düzeni
     if not utils.file_info(bat) then
       mp.msg.error("launcher/StartTracker.bat bulunamadi: " .. bat)
       mp.osd_message("Takip başlatıcı yok: " .. bat, 6)

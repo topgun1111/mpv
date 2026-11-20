@@ -52,6 +52,9 @@ Source: "dist\TakipliOynat\*"; DestDir: "{app}"; Flags: recursesubdirs createall
 ; mpv\portable_config\watch_later korunur)
 Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\tracker"
+Type: filesandordirs; Name: "{app}\tracker_entry.build"
+Type: filesandordirs; Name: "{app}\tracker_entry.dist"
+Type: filesandordirs; Name: "{app}\tracker_entry.onefile-build"
 Type: filesandordirs; Name: "{app}\ffmpeg"
 Type: filesandordirs; Name: "{app}\sam-models"
 Type: filesandordirs; Name: "{app}\mpv\portable_config\scripts"
