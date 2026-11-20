@@ -50,6 +50,14 @@ def _finish(out: Path, requirements: str) -> None:
 def build_main(out: Path) -> None:
     _copytree(ROOT / "tracker", out / "tracker")
     _copytree(ROOT / "mpv" / "portable_config", out / "mpv" / "portable_config")
+    # The repository's canonical tracker script lives outside the bundled mpv tree.
+    # Overlay it last so packaged builds cannot silently ship an older timeout/readiness
+    # implementation than direct development builds.
+    tracker_script = ROOT / "portable_config" / "scripts" / "track.lua"
+    if tracker_script.is_file():
+        target = out / "mpv" / "portable_config" / "scripts" / "track.lua"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(tracker_script, target)
     (out / "models").mkdir()
     (out / "models" / ".gitkeep").touch()
     for name in ("MODELLER.txt", "manifest.json"):

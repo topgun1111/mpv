@@ -15,7 +15,7 @@ local enabled = false
 local MODES = { auto = "Otomatik", point = "Nokta", rect = "Dikdörtgen", body = "Vücut" }
 local mode = "auto"
 local start_tracker_service -- dosya sonunda tanımlanır (Python otomatik başlatma / yeniden deneme)
-local tp_save, tp_save_show, tp_save_timer, tp_save_clear -- «Ayarları kaydet» geri bildirimi
+local tp_save, tp_save_show, tp_save_timer, tp_save_clear, tp_request_save -- «Ayarları kaydet» geri bildirimi
 local tp_poll_gen = 0 -- panel açıkken track-cfg-get yeniden isteme turu (eski tur kendini bırakır)
 local tpanel, tp_hot, tp_cfg = nil, false, nil -- panel nesnesi, imleç panel üstünde mi, Python ayar özeti
 local toggle_tp -- Tracker panelini dosya yükleme olayından da açabilmek için ileri bildirim
@@ -813,7 +813,9 @@ local function tracker_set_ready()
 end
 mp.register_script_message("track-loading", function(v)
   loading = (v == "1")
-  if loading then osd("modeller yükleniyor… (tıklamalar kuyruğa alınır)", 4)
+  if loading then
+    tracker_ready = false -- yeni/yeniden başlayan Python: önceki "hazır" bilgisi geçersiz (kayıt komutu kuyrukta kalıp "Yanıt yok" verirdi)
+    osd("modeller yükleniyor… (tıklamalar kuyruğa alınır)", 4)
   else tracker_set_ready() end
 end)
 
@@ -1753,6 +1755,32 @@ if TRACK_SHOW_MENU ~= false then
           end
         end
       end
+      -- Python karede/model yüklemede meşgulken olaylar gecikir: kısa süre yanıt gelmemesi "bağlı değil" demek
+      -- değildir. Süre dolunca kayıt bekleyen duruma geçer; Python yanıt verince (`track-cfg`) otomatik gönderilir.
+      tp_request_save = function()
+        if tp_save_timer then tp_save_timer:kill() end
+        if tracker_ready then
+          tp_save_show("Kaydediliyor…", 6)
+          tp_save_timer = mp.add_timeout(6, function()
+            tracker_ready, tp_save_pending = false, true
+            tp_save_show("Takip yanıt vermedi; bağlanınca kaydedilecek", 120)
+            mp.commandv("script-message", "track-cfg-get")
+            tp_save_timer = mp.add_timeout(60, function()
+              tp_save_pending = false
+              tp_save_show("Yanıt yok: takip yeniden başlatılıyor…", 4); if start_tracker_service then start_tracker_service(true) end
+            end)
+          end)
+          mp.commandv("script-message", "track-save")
+        else
+          tp_save_pending = true
+          tp_save_show(loading and "Modeller yükleniyor… hazır olunca kaydedilecek" or "Takip bağlanıyor…", 120)
+          mp.commandv("script-message", "track-cfg-get") -- yoklama: yanıt gelince hazır sayılır
+          tp_save_timer = mp.add_timeout(60, function()
+            tp_save_pending = false
+            tp_save_show("Yanıt yok: takip yeniden başlatılıyor…", 4); if start_tracker_service then start_tracker_service(true) end
+          end)
+        end
+      end
       tp_save_show = function(text, secs)
         tp_save = text
         if tp_save_clear then tp_save_clear:kill() end
@@ -1793,22 +1821,7 @@ if TRACK_SHOW_MENU ~= false then
               tp_save_show("Kartı değiştirmek için tekrar dokun", 3)
             end
           elseif act == "save" then
-            if tp_save_timer then tp_save_timer:kill() end
-            if tracker_ready then
-              tp_save_show("Kaydediliyor…")
-              -- Python yanıtı gelmezse (takip programı bağlı değil) bunu düğmede göster
-              tp_save_timer = mp.add_timeout(2, function() tp_save_show("Yanıt yok: takip yeniden başlatılıyor…", 3); if start_tracker_service then start_tracker_service(true) end end)
-              mp.commandv("script-message", "track-save")
-            else
-              -- Python henüz bağlanmadı/modelleri yüklüyor: yanlış "Yanıt yok" gösterme, hazır olunca kaydet.
-              tp_save_pending = true
-              tp_save_show(loading and "Modeller yükleniyor… hazır olunca kaydedilecek" or "Takip bağlanıyor…", 120)
-              mp.commandv("script-message", "track-cfg-get") -- yoklama: yanıt gelince hazır sayılır
-              tp_save_timer = mp.add_timeout(60, function()
-                tp_save_pending = false
-                tp_save_show("Yanıt yok: takip yeniden başlatılıyor…", 4); if start_tracker_service then start_tracker_service(true) end
-              end)
-            end
+            tp_request_save()
           elseif act == "defaults" then mp.commandv("script-message", "track-setting", "all", "0") end
           if render_tp then render_tp() end
         end,
@@ -1863,10 +1876,7 @@ if TRACK_SHOW_MENU ~= false then
     tracker_on_ready = function()
       if tp_save_pending then
         tp_save_pending = false
-        if tp_save_timer then tp_save_timer:kill() end
-        tp_save_show("Kaydediliyor…")
-        tp_save_timer = mp.add_timeout(2, function() tp_save_show("Yanıt yok: takip yeniden başlatılıyor…", 3); if start_tracker_service then start_tracker_service(true) end end)
-        mp.commandv("script-message", "track-save")
+        tp_request_save() -- tracker_ready artık true: normal kayıt yolu
       end
       if tpanel:is_open() then mp.commandv("script-message", "track-cfg-get") end
     end
@@ -1966,7 +1976,8 @@ do
     local exe = mp.command_native and mp.command_native({ "expand-path", "~~exe_dir/" })
     if type(exe) ~= "string" or exe == "" then return false end
     local root = win(exe):gsub("[\\/]+$", ""):gsub("[\\/][^\\/]*$", "")
-    local bat = root .. "\\launcher\\StartTracker.bat"
+    local bat = root .. "\\StartTracker.bat" -- paket düzeni: .bat dosyaları kökte
+    if not utils.file_info(bat) then bat = root .. "\\launcher\\StartTracker.bat" end -- depo düzeni
     if not utils.file_info(bat) then
       mp.msg.error("launcher/StartTracker.bat bulunamadi: " .. bat)
       mp.osd_message("Takip başlatıcı yok: " .. bat, 6)

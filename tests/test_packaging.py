@@ -65,6 +65,11 @@ def test_make_package_copies_launchers_with_crlf(tmp_path, monkeypatch):
         assert (out / name).is_file(), name
     raw = (out / "Baslat.bat").read_bytes()
     assert b"\r\n" in raw and b"\n" not in raw.replace(b"\r\n", b"")  # tüm satır sonları CRLF
+    # Packaged MPV must receive the canonical tracker script, not the stale bundled copy.
+    canonical = (ROOT / "portable_config" / "scripts" / "track.lua").read_bytes()
+    packaged = (out / "mpv" / "portable_config" / "scripts" / "track.lua").read_bytes()
+    assert packaged == canonical
+    assert b"tp_request_save" in packaged and b"add_timeout(6" in packaged
     assert not list(out.rglob("__pycache__"))
 
 

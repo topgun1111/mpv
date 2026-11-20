@@ -1634,37 +1634,53 @@ if TRACK_SHOW_MENU ~= false then
         osd("güncelleme indiriliyor…", 4)
         mp.add_timeout(1, poll_update)
       end
-      FILES.update = function()
-        if upd.running then osd("güncelleme sürüyor", 2); return end
+      -- auto=true: açılışta sessiz denetim (VLC gibi). Hata/güncel → hiçbir şey göstermez; yeni sürüm → Evet/Hayır
+      -- sorar (bir sürüm için açılışta yalnız bir kez; Yardım → Güncellemeleri denetle her zaman sorar).
+      local function check_update(auto)
+        local function say(text, sec) if not auto then osd(text, sec) end end
+        if upd.running then say("güncelleme sürüyor", 2); return end
         local py = console_python()
-        if not py then osd("güncelleme denetlenemedi: python/ bulunamadı", 4); return end
+        if not py then say("güncelleme denetlenemedi: python/ bulunamadı", 4); return end
         upd.running = true
-        osd("güncellemeler denetleniyor…", 10)
+        say("güncellemeler denetleniyor…", 10)
         mp.command_native_async({ name = "subprocess", playback_only = false, capture_stdout = true,
           args = { py, "-m", "tracker", "--config", cfg_path(), "update", "check" } }, function(ok, res)
           local info = ok and res and res.status == 0 and utils.parse_json(TF.clean_all(res.stdout) or "")
           if type(info) ~= "table" then
             upd.running = false
-            osd("güncelleme denetlenemedi", 5)
+            say("güncelleme denetlenemedi", 5)
             return
           end
           if info.state == "uptodate" then
             upd.running = false
-            osd("Takipli Oynat güncel (" .. tostring(info.current) .. ")", 5)
+            say("Takipli Oynat güncel (" .. tostring(info.current) .. ")", 5)
           elseif info.state == "available" then
+            upd.running = false
+            if auto then
+              local skip_path = (sdir or ".") .. "/update_asked.txt"
+              local asked = read_file(skip_path)
+              if asked and asked:gsub("%s+", "") == tostring(info.latest) then return end -- bu sürüm için zaten soruldu
+              local f = io.open(skip_path, "wb")
+              if f then f:write(tostring(info.latest)); f:close() end
+            end
             local mb = (tonumber(info.size) or 0) / 1048576
             local text = string.format("Yeni sürüm var: %s (şu an %s)\nİndirme: %.0f MB\n\n%s\n\nİndirip kurulsun mu? Kurulum sırasında program kapanır.",
               tostring(info.latest), tostring(info.current), mb, tostring(info.notes or ""):sub(1, 400))
-            upd.running = false
             mp.osd_message("", 0)
             dialog(TF.confirm_script("Güncelleme", text), function(a)
               if a == "yes" then upd.running = true; start_install(info) end
             end)
           else
             upd.running = false
-            osd(tostring(info.message or "güncelleme denetlenemedi"), 7)
+            say(tostring(info.message or "güncelleme denetlenemedi"), 7)
           end
         end)
+      end
+      FILES.update = function() check_update(false) end
+      -- Açılışta (pencere açıldıktan ~8 sn sonra) arka planda GitHub'da yeni sürüm var mı bakar (VLC gibi).
+      -- Kapatmak için ortam değişkeni TRACK_NO_AUTO_UPDATE=1. Yalnız Windows + gerçek mpv (sahte mp'de yok).
+      if WIN and mp.command_native_async and not os.getenv("TRACK_NO_AUTO_UPDATE") then
+        mp.add_timeout(8, function() check_update(true) end)
       end
       FILES.open_folder = function() dialog(TF.folder_script(fstate.dir), function(p) open_target(p, true) end) end
       FILES.open_url = function()
