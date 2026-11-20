@@ -75,18 +75,16 @@ jobs:
       - name: Güncelleme deposu (Yardım → Güncellemeleri denetle)
         run: |
           python -c "import json,os; json.dump({'repo': os.environ['GITHUB_REPOSITORY'], 'build': int(os.environ['GITHUB_RUN_NUMBER'])}, open('dist/TakipliOynat/update.json','w'))"
-      - name: Nuitka önbelleği
-        uses: actions/cache@v4
-        with:
-          path: ~\AppData\Local\Nuitka
-          key: nuitka-${{ runner.os }}-${{ hashFiles('requirements.txt', 'scripts/build_nuitka.py') }}
-          restore-keys: nuitka-${{ runner.os }}-
-      - name: Nuitka tek dosya tracker.exe derlemesi
+      - name: Gömülü Python + bağımlılıklar (python\\python.exe)
         shell: pwsh
         timeout-minutes: 30
+        run: python scripts/build_embedded.py --out dist/TakipliOynat
+      - name: Rust gözetmen testi + tracker.exe derlemesi
+        shell: pwsh
         run: |
-          python -m pip install -r requirements.txt
-          python scripts/build_nuitka.py --out dist/TakipliOynat
+          cargo test --release --manifest-path supervisor/Cargo.toml
+          cargo build --release --manifest-path supervisor/Cargo.toml
+          Copy-Item supervisor/target/release/tracker.exe dist/TakipliOynat/tracker.exe -Force
       - name: mpv indir
         shell: pwsh
         env:
@@ -133,7 +131,7 @@ jobs:
           python scripts/model_report.py dist/TakipliOynat --preset pc --summary --json model-logs/pc.json
       - name: Model/araç bütünlüğü (models/manifest.json) + SHA256SUMS
         run: python scripts/verify_models.py dist/TakipliOynat --write-sums
-      - name: Nuitka tracker.exe duman testi
+      - name: tracker.exe (gözetmen + gömülü Python) duman testi
         shell: pwsh
         working-directory: dist/TakipliOynat
         run: |

@@ -475,9 +475,18 @@ def _logged(name: str, cfg: Config, args: argparse.Namespace, fn) -> int:
         return rc
 
 
-def _respawn_live(args: argparse.Namespace, cfg: Config) -> None:
-    """Ekran kartı seçimi değişti: aynı argümanlarla yeni takip programı başlat (config'ten yeni kartı okur);
-    eski süreç çıkar, kilit dosyası sahipliği yenisine geçer."""
+EXIT_RESTART = 75  # tracker.exe (Rust gözetmeni) bu kodla çıkışı "yeniden başlat" diye okur
+
+
+def _respawn_live(args: argparse.Namespace, cfg: Config) -> int:
+    """Ekran kartı seçimi değişti: yeni kartla yeniden başlat; dönen değer çıkış kodudur.
+
+    Gözetmen (tracker.exe, TAKIPLI_SUPERVISED=1) altında: yalnız EXIT_RESTART döner; gözetmen bu süreç
+    tamamen bitince (kilit dosyası bırakıldıktan sonra) yenisini başlatır. Elle `python -m tracker`
+    çalıştırılırsa: aynı argümanlarla yeni süreç başlatılır (config'ten yeni kartı okur), eski süreç
+    çıkar, kilit dosyası sahipliği yenisine geçer."""
+    if os.environ.get("TAKIPLI_SUPERVISED"):
+        return EXIT_RESTART
     import subprocess
 
     argv, skip = [], False
@@ -503,6 +512,7 @@ def _respawn_live(args: argparse.Namespace, cfg: Config) -> None:
     if getattr(args, "headless", False):
         kw["stdout"] = kw["stderr"] = subprocess.DEVNULL
     subprocess.Popen(cmd, **kw)  # noqa: S603 (kendi arayüzümüz)
+    return 0
 
 
 def _notify_loading(ipc_path: str, on: bool) -> None:
@@ -703,7 +713,7 @@ def run_live_cmd(cfg: Config, args: argparse.Namespace) -> int:
         inst.release()
         tracklog.activate(None)
     if restart:  # panelden ekran kartı değişti: yeni kart için modeller baştan yüklenir
-        _respawn_live(args, cfg)
+        return _respawn_live(args, cfg)
     return 0
 
 

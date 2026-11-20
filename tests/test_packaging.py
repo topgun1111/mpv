@@ -68,7 +68,7 @@ def test_make_package_copies_launchers_with_crlf(tmp_path, monkeypatch):
     assert not list(out.rglob("__pycache__"))
 
 
-def test_launchers_use_nuitka_exe_and_wait_for_mpv():
+def test_launchers_use_supervisor_exe_and_wait_for_mpv():
     live = (ROOT / "launcher" / "Baslat.bat").read_text(encoding="utf-8")
     assert "mpv\\mpv.exe" in live  # takip programını track.lua kendisi başlatır
     lua = (ROOT / "mpv" / "portable_config" / "scripts" / "track.lua").read_text(encoding="utf-8")
@@ -99,15 +99,28 @@ def test_installer_references_existing_files_and_win10_directml():
     assert 'MessagesFile: "compiler:Languages\\Turkish.isl"' in iss
 
 
-def test_nuitka_output_dir_uses_required_equals_syntax():
-    source = (ROOT / "scripts" / "build_nuitka.py").read_text(encoding="utf-8")
-    assert 'f"--output-dir={out}"' in source
-    assert '"--output-dir", str(out)' not in source
+def test_supervisor_crate_matches_python_restart_protocol():
+    src = (ROOT / "supervisor" / "src" / "main.rs").read_text(encoding="utf-8")
+    toml = (ROOT / "supervisor" / "Cargo.toml").read_text(encoding="utf-8")
+    from tracker.main import EXIT_RESTART
+
+    assert f"const EXIT_RESTART: i32 = {EXIT_RESTART};" in src
+    assert 'name = "tracker"' in toml and "[workspace]" in toml  # tracker.exe, ana depodan bağımsız
+    assert "TAKIPLI_SUPERVISED" in src and "KILL_ON_JOB_CLOSE" in src
+
+
+def test_live_restart_exit_code_only_when_supervised(monkeypatch):
+    import argparse
+
+    from tracker import main as m
+
+    monkeypatch.setenv("TAKIPLI_SUPERVISED", "1")
+    assert m._respawn_live(argparse.Namespace(argv=[], headless=False), object()) == m.EXIT_RESTART
 
 
 def test_build_workflow_orders_steps_and_checks_directml():
     wf = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
-    order = [wf.index(k) for k in ("make_package.py", "build_nuitka.py", "fetch_deps.ps1",
+    order = [wf.index(k) for k in ("make_package.py", "build_embedded.py", "cargo build", "fetch_deps.ps1",
                                    "fetch_model.ps1", "DmlExecutionProvider", "Compress-Archive",
                                    "iscc")]
     assert order == sorted(order)

@@ -5,7 +5,7 @@ setlocal
 cd /d "%~dp0"
 set "TRACKER=%~dp0tracker.exe"
 if not exist "%TRACKER%" (
-  echo HATA: tracker.exe bulunamadi. Nuitka paket derlemesi eksik.
+  echo HATA: tracker.exe bulunamadi. Paket eksik; uygulamayi yeniden kur.
   pause
   exit /b 1
 )

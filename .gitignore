@@ -11,3 +11,4 @@ track.json
 .venv/
 validation/
 klipler/
+supervisor/target/

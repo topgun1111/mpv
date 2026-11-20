@@ -1,5 +1,5 @@
-; Takipli Oynat - tam kurulum (Nuitka tracker.exe + mpv + DirectML + YOLOX-S modeli). Derleme: iscc /DAppVersion=x installer.iss
-; Önkoşul: dist\TakipliOynat içinde tracker.exe (scripts/build_nuitka.py), mpv\mpv.exe (fetch_deps.ps1)
+; Takipli Oynat - tam kurulum (Rust tracker.exe gözetmeni + gömülü Python + mpv + DirectML + YOLOX-S modeli). Derleme: iscc /DAppVersion=x installer.iss
+; Önkoşul: dist\TakipliOynat içinde tracker.exe (supervisor/, cargo build --release), python\\ (scripts/build_embedded.py), mpv\mpv.exe (fetch_deps.ps1)
 ; models\yolox_s.onnx (fetch_model.ps1), models\yolov8s-pose.onnx (export_pose.py), ffmpeg\ffmpeg.exe (fetch_ffmpeg.ps1). Kurulumdan sonra elle bir şey kurmak/kopyalamak gerekmez.
 ;
 ; GÜNCELLEME: yeni setup.exe'yi çalıştırmak yeter. AppId aynı olduğundan eski kurulumun üstüne (aynı klasör,

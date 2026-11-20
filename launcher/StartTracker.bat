@@ -19,7 +19,7 @@ set "CFG=%APPDATA%\TakipliOynat\config.json"
 if defined TAKIPLI_DATA_DIR set "CFG=%TAKIPLI_DATA_DIR%\config.json"
 
 if not exist "%TRACKER%" (
-  set "WHY=tracker.exe bulunamadi. Nuitka paket derlemesi eksik; uygulamayi yeniden indir/kur."
+  set "WHY=tracker.exe bulunamadi. Paket eksik; uygulamayi yeniden indir/kur."
   goto :fail
 )
 echo [OK] Tracker: "%TRACKER%"
