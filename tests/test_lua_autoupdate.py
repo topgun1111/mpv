@@ -1,4 +1,7 @@
-"""Açılışta sessiz güncelleme denetimi (track.lua → `tracker update check`), sahte `mp` ve sahte alt süreçle."""
+"""Açılışta sessiz güncelleme denetimi (track.lua → `tracker update check`).
+
+Sahte `mp` ve sahte alt süreçle çalışır.
+"""
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,9 +20,12 @@ def test_startup_update_check(tmp_path):
     data.write_text("return {}", encoding="utf-8")
     state = tmp_path / "appdata"
     (state / "TakipliOynat").mkdir(parents=True)
-    env = {"TRACK_LUA": str(PC / "scripts" / "track.lua"), "TRACK_MODULES": str(PC / "script-modules"),
-           "VIDEO": "", "TRACK_PYTHON": "/fake/python.exe", "DATA_LUA": str(data),
-           "TRACK_STATE_DIR": str(state)}
+    env = {
+        "TRACK_LUA": str(PC / "scripts" / "track.lua"),
+        "TRACK_MODULES": str(PC / "script-modules"),
+        "VIDEO": "", "TRACK_PYTHON": "/fake/python.exe", "DATA_LUA": str(data),
+        "TRACK_STATE_DIR": str(state),
+    }
     r = subprocess.run([LUA, str(HARNESS)], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
     d = {ln.split("\t")[0]: ln.split("\t")[1:] for ln in r.stdout.splitlines()}
