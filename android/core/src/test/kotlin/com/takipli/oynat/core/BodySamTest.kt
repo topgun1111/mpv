@@ -44,4 +44,28 @@ class BodySamTest {
         assertEquals(0.50, fused.getValue(2)[0], 1e-9) // reliable pose wins
         assertFalse(3 in fused, "a distant mask must not silently steal the target")
     }
+
+    @Test fun recoveryOnlyPlansShortInternalGaps() {
+        val samples = (0..110).map { i ->
+            sample(i / 10.0, knee = i in 10..19 || i in 29..59 || i in 65..89 || i in 95..100)
+        }
+        val doc = TrackDoc(2, VideoInfo(w = 1000, h = 1000), samples = samples)
+        val windows = bodySamWindows(doc, target, 5.0, Config())
+        assertEquals(2, windows.size)
+        assertTrue(windows.all { it.endS - it.startS <= 4.0 })
+        assertTrue(windows.all { it.seed.t in 1.9..9.4 })
+        assertTrue(windows.any { it.seed.t == 5.9 })
+        assertTrue(windows.any { it.seed.t == 1.9 })
+        // Missing keypoints at the beginning and end cannot seed a safe pass.
+        assertTrue(windows.none { it.startS < 1.0 || it.endS > 10.0 })
+    }
+
+    @Test fun recoveryNeverCrossesCutsOrLongOcclusions() {
+        val frames = (0..80).map { i ->
+            sample(i / 10.0, knee = i in 0..10 || i in 55..60 || i in 65..80)
+                .copy(cut = if (i == 63) 1 else 0)
+        }
+        val doc = TrackDoc(2, VideoInfo(w = 1000, h = 1000), samples = frames)
+        assertTrue(bodySamWindows(doc, target, 1.0, Config()).isEmpty())
+    }
 }

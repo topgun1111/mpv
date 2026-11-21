@@ -20,9 +20,10 @@ import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.Formats
 import com.takipli.oynat.core.TargetPick
 import com.takipli.oynat.core.TrackDoc
+import com.takipli.oynat.core.PointTrack
 import com.takipli.oynat.core.applyPicks
 import com.takipli.oynat.core.buildTargetViews
-import com.takipli.oynat.core.bodySamSeed
+import com.takipli.oynat.core.bodySamWindows
 import com.takipli.oynat.core.occlusionStats
 import com.takipli.oynat.core.rangeTag
 import com.takipli.oynat.core.scanSig
@@ -91,6 +92,7 @@ class ScanService : Service() {
 
     private suspend fun run(i: Intent) {
         cancelCtx = null; seenRepicks.clear(); lastProgress = null
+        var completedPose: TrackDoc? = null
         try {
             val uri = Uri.parse(i.getStringExtra(X_URI))
             val videoId = i.getStringExtra(X_VIDEO_ID).orEmpty()
@@ -123,6 +125,7 @@ class ScanService : Service() {
                     if (now - lastNote >= 1000) { lastNote = now; notify(note(getString(R.string.scan_notify_run, p.samples, p.total), p)) }
                 }
             }
+            completedPose = res.doc
             var picked = applyPicks(if (pick.free) res.doc.copy(pt = null) else res.doc, pick, res.repicks, cfg, robust = true) // repicks: the user picked again after the target was lost
             val fp = picked?.target?.free
             if (picked != null && fp != null && (SamEngine.hasModels(this) || OpenCvFlow.available)) { // SAM can work even without OpenCV
@@ -132,22 +135,52 @@ class ScanService : Service() {
                     picked = d2.copy(views = buildTargetViews(d2, d2.target!!, cfg, robust = true))
                 } catch (e: CancellationException) { throw e } catch (e: Throwable) { ErrorLog.record(this, "point", e) } // keeps the anchor-only views
             }
-            // Android SAM flavour: when actual limb keypoints disappear, use SAM's
-            // object memory as a secondary source. It is an offline pass and must
-            // never overwrite confident pose observations in buildTargetViews.
-            val seed = picked?.target?.let { bodySamSeed(picked!!, it, pick.t, cfg) }
-            if (seed != null && picked != null && SamEngine.hasModels(this)) {
+            // A full-video SAM pass could take minutes after the pose scan had
+            // already finished, leaving the UI apparently frozen at 50%. Run
+            // only on short, internal keypoint gaps, at a reduced sample rate.
+            val windows = picked?.target?.let { bodySamWindows(requireNotNull(picked), it, pick.t, cfg) }.orEmpty()
+            if (windows.isNotEmpty() && picked != null && SamEngine.hasModels(this)) {
                 try {
                     val base = requireNotNull(picked)
-                    Diag.note(this, "body-sam", "RECOVERY_START", "${base.target?.preset ?: base.target?.part} at ${seed.t}s")
-                    val sam = SamEngine.track(this, uri, base, seed) { d, tot, t ->
-                        post(ScanUi.Running(ScanProgress(d, tot, t, 0, 0), null))
+                    val combined = MutableList(base.samples.size) { emptyList<Double>() }
+                    var recovered = 0
+                    for ((wi, window) in windows.withIndex()) {
+                        Diag.note(this, "body-sam", "RECOVERY_START", "window ${wi + 1}/${windows.size} ${window.startS}..${window.endS}s, seed ${window.seed.t}s")
+                        val sam = kotlinx.coroutines.withTimeoutOrNull(BODY_SAM_WINDOW_MAX_MS) {
+                            SamEngine.trackRange(this@ScanService, uri, base, window.seed,
+                                window.startS, window.endS, BODY_SAM_FPS) { d, tot, t ->
+                                val decodeTotal = tot / 2
+                                val decoding = d <= decodeTotal
+                                val stageProgress = ScanProgress(
+                                    if (decoding) d else d - decodeTotal,
+                                    if (decoding) decodeTotal else tot - decodeTotal,
+                                    t, 0, 0, if (decoding) ScanStage.SAM_DECODE else ScanStage.SAM_TRACK,
+                                    wi + 1, windows.size,
+                                )
+                                post(ScanUi.Running(stageProgress, null))
+                                val now = SystemClock.elapsedRealtime()
+                                if (now - lastNote >= 1000) {
+                                    lastNote = now
+                                    val label = getString(if (decoding) R.string.scan_sam_decode else R.string.scan_sam_track,
+                                        wi + 1, windows.size, stageProgress.samples, stageProgress.total)
+                                    notify(note(label, stageProgress))
+                                }
+                            }
+                        }
+                        if (sam == null) {
+                            Diag.note(this, "body-sam", "RECOVERY_SKIPPED", "window ${wi + 1} timed out or returned no masks; pose views preserved", com.takipli.oynat.core.Sev.WARN)
+                            continue
+                        }
+                        for ((j, row) in sam.a.withIndex()) {
+                            if (j >= combined.size || row.size < 5 || row[2] < 0.6) continue
+                            if (combined[j].size < 5 || row[2] > combined[j][2]) { combined[j] = row; recovered++ }
+                        }
                     }
-                    if (sam != null) {
-                        val merged = base.copy(pt = sam, samSeedT = seed.t)
+                    if (recovered > 0) {
+                        val merged = base.copy(pt = PointTrack(a = combined), samSeedT = windows.first().seed.t)
                         picked = merged.copy(views = buildTargetViews(merged, merged.target!!, cfg, robust = true))
-                        Diag.note(this, "body-sam", "RECOVERY_END", "${sam.a.count { it.size >= 5 }} usable mask rows")
                     }
+                    Diag.note(this, "body-sam", "RECOVERY_END", "$recovered usable rows across ${windows.size} bounded windows")
                 } catch (e: CancellationException) { throw e }
                 catch (e: Throwable) { ErrorLog.record(this, "body-sam", e) }
             }
@@ -170,7 +203,24 @@ class ScanService : Service() {
             val sp = lastProgress
             post(ScanUi.Saving(sp?.samples ?: 0, sp?.t ?: 0.0)) // no-op look if cancel() already showed it; also covers the notification's Cancel button
             runCatching { notify(note(getString(R.string.scan_saving_partial), null)) }
-            post(withContext(NonCancellable) { c?.let { partialResult(it) } } ?: ScanUi.Cancelled(0, 0.0, null, null))
+            val saved = withContext(NonCancellable) {
+                val partial = c?.let { partialResult(it) }
+                if (partial != null) partial else if (c != null && completedPose != null) {
+                    // The pose scan was already finished when the optional SAM
+                    // pass was cancelled. Preserve its usable views for export.
+                    runCatching {
+                        val doc = requireNotNull(completedPose)
+                        val ready = applyPicks(if (c.pick.free) doc.copy(pt = null) else doc,
+                            c.pick, c.repicks.toList(), c.cfg, robust = true) ?: doc
+                        val dst = cancelledFile(c.file)
+                        Scanner.writeAtomic(dst, ready)
+                        val target = ready.target
+                        val desc = target?.let { "#${it.id} " + (it.preset ?: it.part?.let { j -> "joint $j" } ?: "person") }
+                        ScanUi.Cancelled(ready.samples.size, ready.samples.last().t, dst.path, desc)
+                    }.getOrNull()
+                } else null
+            }
+            post(saved ?: ScanUi.Cancelled(0, 0.0, null, null))
         } catch (e: Throwable) {
             ErrorLog.record(this, "scan", e)
             post(ScanUi.Failed(Safety.friendly(this, e), false))
@@ -256,6 +306,8 @@ class ScanService : Service() {
         private const val CHANNEL = "scan"
         private const val NOTE_ID = 11
         private const val WAKE_MAX_MS = 4 * 60 * 60 * 1000L
+        private const val BODY_SAM_FPS = 3.0
+        private const val BODY_SAM_WINDOW_MAX_MS = 75_000L
         private const val ACTION_CANCEL = "com.takipli.oynat.SCAN_CANCEL"
         private const val X_A = "range_a"; private const val X_B = "range_b"
         private const val X_URI = "uri"; private const val X_VIDEO_ID = "video_id"; private const val X_FPS = "fps"

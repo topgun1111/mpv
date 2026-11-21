@@ -28,6 +28,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 
+enum class ScanStage { POSE, SAM_DECODE, SAM_TRACK }
+
 class ScanProgress(
     /** samples so far, including the ones loaded from an interrupted scan */
     val samples: Int,
@@ -37,6 +39,9 @@ class ScanProgress(
     val cuts: Int,
     /** samples that came from the interrupted scan this run resumed */
     val resumed: Int,
+    val stage: ScanStage = ScanStage.POSE,
+    val stageIndex: Int = 1,
+    val stageCount: Int = 1,
 )
 
 class ScanResult(val doc: TrackDoc, val cached: Boolean, val wallS: Double, val newSamples: Int, val videoS: Double, val repicks: List<TargetPick> = emptyList()) {
