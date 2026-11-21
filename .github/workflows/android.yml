@@ -89,12 +89,13 @@ jobs:
       - name: Validate exported Android models before packaging
         run: |
           python -m pip install onnx==1.17.0 onnxruntime==1.20.1
+          mkdir -p model-logs
           python scripts/model_report.py "android/app/src/${{ matrix.flavor }}/assets/models" --preset "android-${{ matrix.flavor }}" --summary --json "model-logs/android-${{ matrix.flavor }}.json"
       - name: int8 EdgeTAM encoder for the NPU (only if android/calib has frames AND the accuracy gate passes; optional)
         if: matrix.flavor == 'sam'
         continue-on-error: true
         run: |
-          n=$(ls android/calib/*.jpg android/calib/*.jpeg android/calib/*.png 2>/dev/null | wc -l)
+          n=$(find android/calib -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \) | wc -l)
           if [ "$n" -lt 10 ]; then echo "android/calib has $n frames (<10): keeping the fp16 encoder"; exit 0; fi
           pip install onnxruntime opencv-python-headless
           d=android/app/src/sam/assets/models
@@ -107,7 +108,7 @@ jobs:
       - name: int8 QDQ pose models for the NPU (only if android/calib has frames; optional)
         continue-on-error: true
         run: |
-          n=$(ls android/calib/*.jpg android/calib/*.jpeg android/calib/*.png 2>/dev/null | wc -l)
+          n=$(find android/calib -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \) | wc -l)
           if [ "$n" -lt 10 ]; then echo "android/calib has $n frames (<10): skipping int8"; exit 0; fi
           pip install onnxruntime opencv-python-headless
           d=android/app/src/${{ matrix.flavor }}/assets/models
@@ -117,7 +118,7 @@ jobs:
       - name: Android SDK (accepts licences)
         uses: android-actions/setup-android@v3
         with:
-          packages: ""  # default `tools platform-tools` fails: package `tools` no longer exists
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
       - name: Gradle (installs the pinned version and caches it)
         uses: gradle/actions/setup-gradle@v4
         with:
