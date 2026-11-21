@@ -341,6 +341,7 @@ fun lowerBodyBoxes(doc: TrackDoc, ids: Set<Int>, boxes: Map<Int, DoubleArray>, c
     val out = HashMap<Int, DoubleArray>()
     var last: DoubleArray? = null; var lastT = 0.0
     for ((i, s) in doc.samples.withIndex()) {
+        if (s.cut == 1) last = null // a new shot must never inherit the previous person's framing
         val b = boxes[i]
         if (b != null) { out[i] = b; last = b; lastT = s.t }
         else if (last != null && s.t - lastT <= holdS) out[i] = last.copyOf()
@@ -371,7 +372,11 @@ fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Dire
             val part = target.preset != "person"
             if (part) minFit = PART_FIT
             val kps = if (part && cfg.kpFilter) smoothKeypoints(doc, ids, cfg) else null
-            val b = presetBoxes(doc, ids, target.preset, cfg, kps)
+            val observed = presetBoxes(doc, ids, target.preset, cfg, kps)
+            // When a person detector drops a frame entirely, presetBoxes has no row
+            // to update. Carry the last anatomical lower-body box for a bounded gap.
+            val b = if (robust && target.preset in setOf("legs", "left_leg", "right_leg", "feet", "left_foot", "right_foot"))
+                lowerBodyBoxes(doc, ids, observed, cfg, holdS = 2.0) else observed
             if (part && cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
         }
         target.part != null -> jointBoxes(doc, ids, target.part, cfg)

@@ -18,4 +18,17 @@ class LowerBodyViewsTest {
         assertTrue(2 !in boxes, "long loss should be left to the normal lost/zoom-out handling")
         assertEquals(boxes.getValue(0)[2], boxes.getValue(1)[2], 1e-9)
     }
+
+    @Test
+    fun occlusionHoldDoesNotCarryTargetAcrossVideoCut() {
+        val doc = TrackDoc(
+            version = 2,
+            video = VideoInfo("", 1000, 1000),
+            samples = listOf(Sample(0.0), Sample(0.4), Sample(0.5, cut = 1), Sample(0.7)),
+        )
+        val boxes = lowerBodyBoxes(doc, setOf(1), mapOf(0 to doubleArrayOf(0.5, 0.65, 0.3, 0.4)), Config(), holdS = 2.0)
+        assertTrue(1 in boxes)
+        assertTrue(2 !in boxes, "a new shot must not inherit the previous subject")
+        assertTrue(3 !in boxes)
+    }
 }

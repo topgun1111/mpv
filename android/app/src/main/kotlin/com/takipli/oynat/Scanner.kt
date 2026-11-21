@@ -48,6 +48,10 @@ class ScanResult(val doc: TrackDoc, val cached: Boolean, val wallS: Double, val 
  */
 object Scanner {
     private const val SAVE_EVERY_MS = 30_000L
+    // Allow the six-second ByteTrack lost-track window and the eight-second ID relinker
+    // to recover automatically before interrupting a pose scan for a manual re-pick.
+    private const val AUTO_RECOVERY_S = 8.0
+    private const val PREVIEW_OCCLUSION_HOLD_S = 3.0
 
     private fun readDoc(f: File, sig: String): TrackDoc? =
         runCatching { Formats.parseTrack(f.readText()) }.getOrNull()?.takeIf { it.sig == sig && it.samples.isNotEmpty() }
@@ -97,7 +101,7 @@ object Scanner {
         }
         val prior = readDoc(partial, sig)?.samples.orEmpty()
         val pipe = ScanPipeline(cfg, ByteTracker.fromConfig(cfg, fps)) // loss window in seconds, not samples: a few seconds of occlusion keep the ID at any scan fps
-        val pvHold = PreviewHold(cfg.kpHoldS)
+        val pvHold = PreviewHold(maxOf(cfg.kpHoldS, PREVIEW_OCCLUSION_HOLD_S))
         pipe.resume(prior)
         val startS = prior.lastOrNull()?.let { it.t + 0.5 / fps } ?: (rangeA ?: 0.0).coerceAtLeast(0.0) // half a grid step: next grid time, no repeat
         val endS = rangeB ?: Double.POSITIVE_INFINITY
@@ -113,7 +117,7 @@ object Scanner {
         var liveRef: com.takipli.oynat.core.FreeRef? = null
         var curPick = pick
         val repicks = ArrayList<TargetPick>()
-        val lostWatch = LostWatch()
+        val lostWatch = LostWatch(alertS = AUTO_RECOVERY_S)
         // Debug Part 1: predictive watch (throttling, memory, battery) + where the time goes per frame
         val watch = ScanWatch(ctx, "scan", total, fps)
         var lastCb = 0L
@@ -150,7 +154,9 @@ object Scanner {
                 if (liveTarget != null && pipe.samples.size % 3 == 0) liveTarget = liveRelink(pipe.samples, bmp.width, bmp.height, liveTarget, s)
                 // Target gone for a few seconds: vibrate + let the user jump to a clear frame and pick again, then go on
                 val lt = liveTarget
-                if (onLost != null && lt != null && lt.id >= 0) {
+                // Free-point/region targets have their own SAM/optical-flow pass AFTER the
+                // pose scan. A missing pose anchor is not evidence that that target was lost.
+                if (onLost != null && curPick?.free != true && lt != null && lt.id >= 0) {
                     val ids = setOf(lt.id) + lt.linked
                     val present = s.d.any { it.size >= 6 && it[0].toInt() in ids }
                     if (lostWatch.update(s.t, present)) {

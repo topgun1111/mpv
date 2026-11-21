@@ -93,7 +93,9 @@ class ScanService : Service() {
             val uri = Uri.parse(i.getStringExtra(X_URI))
             val videoId = i.getStringExtra(X_VIDEO_ID).orEmpty()
             val fps = i.getDoubleExtra(X_FPS, 10.0)
-            val cfg = Config()
+            // Android scans keep the crop through short occlusions; the core default stays
+            // unchanged for PC/golden compatibility. ResultScreen can still tune this value.
+            val cfg = Config(lostBridgeS = 4.0)
             val pick = Formats.json.decodeFromString<TargetPick>(i.getStringExtra(X_PICK).orEmpty())
             val ra = i.getDoubleExtra(X_A, Double.NaN).takeIf { !it.isNaN() }; val rb = i.getDoubleExtra(X_B, Double.NaN).takeIf { !it.isNaN() }
             val file = scanFile(this, videoId, ra, rb)
