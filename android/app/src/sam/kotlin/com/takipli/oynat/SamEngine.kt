@@ -408,8 +408,9 @@ object SamEngine {
                     // just until the first frame. Memory attention starts on
                     // the second frame and may be the one that stalls.
                     val sp = ctx.getSharedPreferences("sam", Context.MODE_PRIVATE)
-                    if (sp.getBoolean("npu_inflight", false)) { setNpuEnabled(ctx, false); sp.edit().putBoolean("npu_inflight", false).commit(); Diag.note(ctx, "sam", "SAM_NPU_DISABLED", "last run never finished its first frame on the NPU: using CPU now (re-enable in the SAM settings)", Sev.WARN) }
+                    if (sp.getBoolean("npu_inflight", false)) { setNpuEnabled(ctx, false); sp.edit().putBoolean("npu_inflight", false).commit(); Diag.note(ctx, "sam", "SAM_NPU_DISABLED", "last run stopped during NPU inference: using CPU now (re-enable in the SAM settings)", Sev.WARN) }
                     if (npuEnabled(ctx)) sp.edit().putBoolean("npu_inflight", true).commit()
+                    onProgress(files.size, total, ts[p]) // frame preparation finished; the potentially slow model load begins now
                     open(ctx, memory).use { s ->
                         Diag.note(ctx, "sam", "SAM_MODELS_OPEN", "memory=$memory in ${ms() - t0} ms (progress stays at ${files.size} until the first frame finishes) | ${Diag.vitals(ctx)}")
                         val tick: (Int) -> Unit = { fi ->
@@ -419,7 +420,6 @@ object SamEngine {
                         }
                         val gate = TrackGate()
                         val walk: suspend (List<Int>) -> Map<Int, Step> = { order -> if (memory) walkMemory(s, files, order, pick, ms, tick, gate) else walkPrompt(s, files, order, pick, ms, tick) }
-                        onProgress(files.size, total, ts[p]) // frame decoding finished; model loading/tracking starts now
                         val steps = HashMap<Int, Step>(walk((p until files.size).toList()))
                         steps += walk((p downTo 0).toList()).filterKeys { it != p }
                         if (memory) steps += reverseFill(s, files, ts, steps, ms, gate)
@@ -442,11 +442,11 @@ object SamEngine {
                     val hi = keys.firstOrNull { ts[it] >= t }
                     val lo = keys.lastOrNull { ts[it] <= t }
                     when {
-                        lo == null || hi == null -> if ((lo ?: hi)?.let { abs(ts[it] - t) <= 0.5 / SAM_FPS } == true) steps[lo ?: hi]!!.row() else emptyList()
+                        lo == null || hi == null -> if ((lo ?: hi)?.let { abs(ts[it] - t) <= 0.5 / sampleFps } == true) steps[lo ?: hi]!!.row() else emptyList()
                         lo == hi -> steps[lo]!!.row()
                         ts[hi] - ts[lo] > MAX_GAP_S -> { // inside a long lost span: only the near-edge frames count
                             val near = if (t - ts[lo] <= ts[hi] - t) lo else hi
-                            if (abs(ts[near] - t) <= 0.5 / SAM_FPS) steps[near]!!.row() else emptyList()
+                            if (abs(ts[near] - t) <= 0.5 / sampleFps) steps[near]!!.row() else emptyList()
                         }
                         else -> {
                             val a = steps[lo]!!; val b = steps[hi]!!; val u = (t - ts[lo]) / (ts[hi] - ts[lo])

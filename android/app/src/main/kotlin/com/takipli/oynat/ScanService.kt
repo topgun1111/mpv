@@ -150,7 +150,7 @@ class ScanService : Service() {
                             SamEngine.trackRange(this@ScanService, uri, base, window.seed,
                                 window.startS, window.endS, BODY_SAM_FPS) { d, tot, t ->
                                 val decodeTotal = tot / 2
-                                val decoding = d <= decodeTotal
+                                val decoding = d < decodeTotal
                                 val stageProgress = ScanProgress(
                                     if (decoding) d else d - decodeTotal,
                                     if (decoding) decodeTotal else tot - decodeTotal,
