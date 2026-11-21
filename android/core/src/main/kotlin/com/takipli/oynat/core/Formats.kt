@@ -68,6 +68,8 @@ data class TrackDoc(
     val emb: JsonElement? = null,
     /** Optional Android clothing-colour evidence (ID -> 48 bins); no pixels or neural embeddings. */
     val appearance: Map<String, List<Double>>? = null,
+    /** Optional Android OSNet identity embeddings (ID -> normalized 512 values). */
+    val reid: Map<String, List<Double>>? = null,
     val team: JsonElement? = null,
     val pt: PointTrack? = null,
     /** The video time of the user's body-part prompt for an optional SAM recovery pass. */

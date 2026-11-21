@@ -8,6 +8,7 @@ import kotlin.test.assertTrue
 class RelinkTest {
     private val n = 100
     private fun row(id: Int, cx: Double, cy: Double = 0.5, h: Double = 0.10) = listOf(id.toDouble(), cx - 0.02, cy - h / 2, cx + 0.02, cy + h / 2, 0.9)
+    private fun identity(axis: Int) = List(REID_DIM) { if (it == axis) 1.0 else 0.0 }
 
     /** `rows[i]` = detections of sample i; ids are tracked in `present`. */
     private fun doc(cutAt: Int? = null, f: (Int) -> List<List<Double>>) =
@@ -34,6 +35,37 @@ class RelinkTest {
         val d = s.copy(appearance = mapOf("1" to a, "2" to b))
         assertEquals(setOf(1), relinkIds(d, setOf(1)))
         assertEquals(setOf(1, 2), relinkIds(d.copy(appearance = mapOf("1" to a, "2" to a)), setOf(1)))
+    }
+
+    @Test fun neuralEvidencePreventsMergingDifferentPeopleInTheSameClothes() {
+        val shirt = List(APPEARANCE_BINS) { if (it % 8 == 2) 1.0 else 0.0 }
+        val d = scene().copy(
+            appearance = mapOf("1" to shirt, "2" to shirt),
+            reid = mapOf("1" to identity(0), "2" to identity(1)),
+        )
+        assertEquals(setOf(1), relinkIds(d, setOf(1)))
+        assertEquals(setOf(2), relinkIdsBidirectional(d, setOf(2)))
+        assertEquals(setOf(1, 2), relinkIds(d.copy(reid = null), setOf(1))) // old files still work
+    }
+
+    @Test fun strongNeuralEvidenceCanOverruleAnUnreliableColourHistogram() {
+        val shirtA = List(APPEARANCE_BINS) { if (it % 8 == 1) 1.0 else 0.0 }
+        val shirtB = List(APPEARANCE_BINS) { if (it % 8 == 6) 1.0 else 0.0 }
+        val d = scene().copy(
+            appearance = mapOf("1" to shirtA, "2" to shirtB),
+            reid = mapOf("1" to identity(0), "2" to identity(0)),
+        )
+        assertEquals(setOf(1, 2), relinkIds(d, setOf(1)))
+        assertEquals(setOf(1, 2), relinkIdsBidirectional(d, setOf(2)))
+    }
+
+    @Test fun neuralEvidenceDisambiguatesTwoGeometricallySimilarCandidates() {
+        val d = doc { i -> buildList {
+            if (i < 30) add(row(1, 0.30))
+            if (i >= 60) { add(row(2, 0.31)); add(row(3, 0.315)) }
+        } }.copy(reid = mapOf("1" to identity(0), "2" to identity(0), "3" to identity(1)))
+        assertEquals(setOf(1, 2), relinkIds(d, setOf(1)))
+        assertEquals(setOf(1), relinkIds(d.copy(reid = null), setOf(1)))
     }
 
     @Test fun farAwayNewcomerOrCutOrLateIdIsNotLinked() {
