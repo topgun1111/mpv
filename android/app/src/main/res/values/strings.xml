@@ -157,6 +157,8 @@
     <string name="pick_obj_spot">Tap the spot you want to follow. Smart object select is not in this app version, so the spot is followed with simple motion tracking.</string>
     <string name="pick_draw_instead">Draw around it instead</string>
     <string name="pick_tap_instead">Tap to select instead</string>
+    <string name="pick_sam_model_active">SAM model: %1$s</string>
+    <string name="pick_sam_model_choose">Choose SAM model</string>
     <string name="pick_adv_show">Advanced settings</string>
     <string name="pick_adv_hide">Hide advanced settings</string>
     <string name="status_version">App version %1$s</string>

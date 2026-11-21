@@ -150,8 +150,15 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
     var objectMode by remember { mutableStateOf(initialMode != "body") } // false = person / body part (pose model), true = any object or spot
     val free = objectMode // "any object" = the free-point path (SAM when installed, optical flow otherwise)
     var adv by remember { mutableStateOf(false) }
-    val samOk = remember { SamEngine.hasModels(ctx) }
-    val samMem = remember { SamEngine.hasMemory(ctx) }
+    val samVariants = remember { SamEngine.availableVariants(ctx) }
+    var samVariant by remember { mutableStateOf(SamEngine.selectedVariant(ctx)) }
+    val samOk = samVariants.isNotEmpty()
+    val samMem = remember(samVariant) { SamEngine.hasMemory(ctx) }
+    val samVariantName = when (samVariant) {
+        "edgetam" -> "EdgeTAM"
+        "small" -> "SAM 2.1 Small"
+        else -> samVariant
+    }
     var samCache by remember { mutableStateOf<SamFrameCache?>(null) }
     var samMask by remember { mutableStateOf<SamMask?>(null) }
     var segBusy by remember { mutableStateOf(false) }
@@ -213,7 +220,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
     }
 
     // Smart select ("Any object", sam build): encode the shown frame once, then every tap only runs the small decoder.
-    LaunchedEffect(frame, objectMode, draw) {
+    LaunchedEffect(frame, objectMode, draw, samVariant) {
         samMask = null; samCache = null
         val f = frame ?: return@LaunchedEffect
         if (!objectMode || !samOk || draw) return@LaunchedEffect
@@ -354,6 +361,13 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
             FilterChip(selected = objectMode && draw && rectMode, enabled = !running, onClick = {
                 objectMode = true; draw = true; rectMode = true; tap = null; extra.clear(); strokes.clear(); curStroke = emptyList()
             }, label = { Text(stringResource(R.string.mode_tab_rect)) })
+        }
+        if (objectMode && samOk) {
+            Text(
+                stringResource(R.string.pick_sam_model_active, samVariantName),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         OutlinedButton(enabled = !running, onClick = { picker.launch(arrayOf("video/*")) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.decode_pick)) }
         if (error.isNotEmpty()) Text(error)
@@ -639,6 +653,32 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 if (models.isEmpty()) Text(stringResource(R.string.bench_no_models), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         }
+                if (samVariants.isNotEmpty()) {
+                    Text(stringResource(R.string.pick_sam_model_choose), style = MaterialTheme.typography.labelLarge)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        samVariants.forEach { variant ->
+                            FilterChip(
+                                selected = samVariant == variant,
+                                enabled = !running && !segBusy,
+                                onClick = {
+                                    if (samVariant != variant) {
+                                        SamEngine.setSelectedVariant(ctx, variant)
+                                        samVariant = variant
+                                        samCache = null
+                                        samMask = null
+                                    }
+                                },
+                                label = {
+                                    Text(when (variant) {
+                                        "edgetam" -> "EdgeTAM"
+                                        "small" -> "SAM 2.1 Small"
+                                        else -> variant
+                                    })
+                                },
+                            )
+                        }
+                    }
+                }
                 if (!objectMode) FilterChip(selected = exact, enabled = preset == null, onClick = { exact = !exact }, label = { Text(stringResource(R.string.pick_exact)) })
                 if (models.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     models.forEach { m -> FilterChip(selected = m == model, onClick = { model = m }, label = { Text(m.removeSuffix(".onnx")) }) }

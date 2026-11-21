@@ -157,6 +157,8 @@
     <string name="pick_obj_spot">Takip etmek istediğin noktaya dokun. Akıllı nesne seçimi bu uygulama sürümünde yok; nokta basit hareket takibiyle izlenir.</string>
     <string name="pick_draw_instead">Bunun yerine etrafını çiz</string>
     <string name="pick_tap_instead">Bunun yerine dokunarak seç</string>
+    <string name="pick_sam_model_active">SAM modeli: %1$s</string>
+    <string name="pick_sam_model_choose">SAM modelini seç</string>
     <string name="pick_adv_show">Gelişmiş ayarlar</string>
     <string name="pick_adv_hide">Gelişmiş ayarları gizle</string>
     <string name="status_version">Uygulama sürümü %1$s</string>
