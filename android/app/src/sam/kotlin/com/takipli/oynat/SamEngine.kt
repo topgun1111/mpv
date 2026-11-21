@@ -12,6 +12,7 @@ import com.takipli.oynat.core.BenchStats
 import com.takipli.oynat.core.FreePick
 import com.takipli.oynat.core.MemoryBank
 import com.takipli.oynat.core.PointTrack
+import com.takipli.oynat.core.SamPassCounter
 import com.takipli.oynat.core.TrackGate
 import com.takipli.oynat.core.TrackDoc
 import com.takipli.oynat.core.benchStats
@@ -203,7 +204,7 @@ object SamEngine {
     private fun sigmoid(x: Double) = 1.0 / (1.0 + exp(-x))
 
     // ---------------------------------------------------------------- memory tracker
-    private suspend fun walkMemory(s: Models, files: List<File>, order: List<Int>, pick: FreePick, ms: MutableMap<String, Double>, onFrame: () -> Unit, gate: TrackGate = TrackGate()): Map<Int, Step> {
+    private suspend fun walkMemory(s: Models, files: List<File>, order: List<Int>, pick: FreePick, ms: MutableMap<String, Double>, onFrame: (Int) -> Unit, gate: TrackGate = TrackGate()): Map<Int, Step> {
         val env = s.env
         val trk = s.trk!!; val memEnc = s.memEnc!!; val memAttn = s.memAttn!!
         val memShape = memAttn.inputShape("mem_feats")           // [K, ...] static
@@ -281,7 +282,7 @@ object SamEngine {
                     }
                 }
             } finally { imgT.close() }
-            onFrame()
+            onFrame(fi)
         }
         return res
     }
@@ -311,7 +312,7 @@ object SamEngine {
     }
 
     // ---------------------------------------------------------------- previous design: prompt per frame (encoder + decoder only)
-    private suspend fun walkPrompt(s: Models, files: List<File>, order: List<Int>, pick: FreePick, ms: MutableMap<String, Double>, onFrame: () -> Unit): Map<Int, Step> {
+    private suspend fun walkPrompt(s: Models, files: List<File>, order: List<Int>, pick: FreePick, ms: MutableMap<String, Double>, onFrame: (Int) -> Unit): Map<Int, Step> {
         val env = s.env
         val res = HashMap<Int, Step>()
         var box: Box? = null; var area = 0.0; var vx = 0.0; var vy = 0.0; var lastCx = 0.0; var lastCy = 0.0
@@ -358,48 +359,65 @@ object SamEngine {
                     ms[DEC] = (ms[DEC] ?: 0.0) + (System.nanoTime() - t1) / 1e6
                 }
             } finally { imgT.close() }
-            onFrame()
+            onFrame(fi)
         }
         return res
     }
 
     /** Rows aligned to `doc.samples` (`[x, y, conf, w, h]`), or null when SAM cannot run (the caller falls back to the optical-flow tracker). */
     suspend fun track(ctx: Context, uri: Uri, doc: TrackDoc, pick: FreePick, onProgress: (Int, Int, Double) -> Unit): PointTrack? =
+        trackRange(ctx, uri, doc, pick, 0.0, (doc.samples.lastOrNull()?.t ?: 0.0) + 1.0 / SAM_FPS, SAM_FPS, onProgress)
+
+    /** A bounded recovery pass. Outside the requested interval every output row is empty. */
+    suspend fun trackRange(ctx: Context, uri: Uri, doc: TrackDoc, pick: FreePick,
+                           startS: Double, endS: Double, sampleFps: Double,
+                           onProgress: (Int, Int, Double) -> Unit): PointTrack? =
         withContext(Dispatchers.Default) {
-            if (!hasModels(ctx)) return@withContext null
+            if (!hasModels(ctx) || doc.samples.isEmpty() || !startS.isFinite() || !endS.isFinite() ||
+                !sampleFps.isFinite() || sampleFps <= 0.0 || startS < 0.0 || endS <= startS ||
+                pick.t < startS || pick.t > endS) return@withContext null
             val dir = File(ctx.cacheDir, "sam-${System.nanoTime()}").also { it.mkdirs() }
             try {
                 val files = ArrayList<File>(); val ts = ArrayList<Double>()
                 val tStart = System.nanoTime(); fun ms() = (System.nanoTime() - tStart) / 1_000_000
-                Diag.note(ctx, "sam", "SAM_START", "decode to ${doc.samples.lastOrNull()?.t} s at $SAM_FPS fps | ${Diag.vitals(ctx)}")
-                val estFrames = ((doc.samples.lastOrNull()?.t ?: 0.0) * SAM_FPS).toInt() + 1 // decode phase shows "n / total" (total = 2 x frames, like the tracking phase) instead of "n / 0"
+                Diag.note(ctx, "sam", "SAM_START", "decode $startS..$endS s at $sampleFps fps | ${Diag.vitals(ctx)}")
+                val estFrames = ((endS - startS) * sampleFps).toInt() + 1
                 // endS: a partial (cancelled) scan covers only the start of the video; decoding the rest at ~1.5 s/frame looked like a freeze (progress passed its total) and filled cache/RAM.
-                VideoDecoder.sample(ctx, uri, SAM_FPS, 0.0, endS = (doc.samples.lastOrNull()?.t ?: 0.0) + 1.0 / SAM_FPS, maxSide = S, userRot = UserRot.forDoc(ctx, doc)) { f ->
+                VideoDecoder.sample(ctx, uri, sampleFps, startS, endS = endS, maxSide = S, userRot = UserRot.forDoc(ctx, doc)) { f ->
                     currentCoroutineContext().ensureActive()
                     val file = File(dir, "${files.size}.jpg")
                     file.outputStream().use { f.bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                     files += file; ts += f.t
                     f.bitmap.recycle()
-                    onProgress(files.size.coerceAtMost(estFrames), estFrames * 2, f.t)
+                    onProgress(files.size.coerceAtMost(estFrames), estFrames * 2 + 1, f.t)
                     true
                 }
                 Diag.note(ctx, "sam", "SAM_DECODED", "${files.size} frames in ${ms()} ms | ${Diag.vitals(ctx)}")
                 if (files.size < 2) return@withContext null
-                val total = files.size * 2
+                // The pick frame is visited twice (forward and backward). Count
+                // it twice instead of resetting progress halfway through tracking.
+                val total = SamPassCounter(files.size).total
                 var p = 0
                 for (i in ts.indices) if (abs(ts[i] - pick.t) < abs(ts[p] - pick.t)) p = i
 
                 suspend fun run(memory: Boolean): Map<Int, Step> {
-                    var done = files.size
+                    val counter = SamPassCounter(files.size)
                     val ms = HashMap<String, Double>()
                     val t0 = ms()
-                    // Hang breaker: the flag is set while the NPU models load and the first frame runs. If a scan was cancelled/killed in that window (stuck at "n / 2n"), the next run goes straight to CPU.
+                    // Keep the NPU hang marker throughout model execution, not
+                    // just until the first frame. Memory attention starts on
+                    // the second frame and may be the one that stalls.
                     val sp = ctx.getSharedPreferences("sam", Context.MODE_PRIVATE)
-                    if (sp.getBoolean("npu_inflight", false)) { setNpuEnabled(ctx, false); sp.edit().putBoolean("npu_inflight", false).commit(); Diag.note(ctx, "sam", "SAM_NPU_DISABLED", "last run never finished its first frame on the NPU: using CPU now (re-enable in the SAM settings)", Sev.WARN) }
+                    if (sp.getBoolean("npu_inflight", false)) { setNpuEnabled(ctx, false); sp.edit().putBoolean("npu_inflight", false).commit(); Diag.note(ctx, "sam", "SAM_NPU_DISABLED", "last run stopped during NPU inference: using CPU now (re-enable in the SAM settings)", Sev.WARN) }
                     if (npuEnabled(ctx)) sp.edit().putBoolean("npu_inflight", true).commit()
+                    onProgress(files.size, total, ts[p]) // frame preparation finished; the potentially slow model load begins now
                     open(ctx, memory).use { s ->
                         Diag.note(ctx, "sam", "SAM_MODELS_OPEN", "memory=$memory in ${ms() - t0} ms (progress stays at ${files.size} until the first frame finishes) | ${Diag.vitals(ctx)}")
-                        val tick = { done++; if (done == files.size + 1) { ctx.getSharedPreferences("sam", Context.MODE_PRIVATE).edit().putBoolean("npu_inflight", false).apply(); Diag.note(ctx, "sam", "SAM_FIRST_FRAME", "at ${ms()} ms") }; onProgress(done, total, ts[(done - files.size - 1).coerceIn(0, ts.size - 1)]) }
+                        val tick: (Int) -> Unit = { fi ->
+                            val done = counter.next()
+                            if (done == files.size + 1) Diag.note(ctx, "sam", "SAM_FIRST_FRAME", "at ${ms()} ms")
+                            onProgress(done, total, ts[fi])
+                        }
                         val gate = TrackGate()
                         val walk: suspend (List<Int>) -> Map<Int, Step> = { order -> if (memory) walkMemory(s, files, order, pick, ms, tick, gate) else walkPrompt(s, files, order, pick, ms, tick) }
                         val steps = HashMap<Int, Step>(walk((p until files.size).toList()))
@@ -407,6 +425,7 @@ object SamEngine {
                         if (memory) steps += reverseFill(s, files, ts, steps, ms, gate)
                         val n = max(1, files.size)
                         lastRun = (if (memory) "${selectedVariant(ctx)} memory tracker: " else "${selectedVariant(ctx)} prompt tracker: ") + s.summary(ms.mapValues { it.value / n }, files.size) + (if (memory) " | " + gate.summary() else "")
+                        sp.edit().putBoolean("npu_inflight", false).apply()
                         return steps
                     }
                 }
@@ -423,11 +442,11 @@ object SamEngine {
                     val hi = keys.firstOrNull { ts[it] >= t }
                     val lo = keys.lastOrNull { ts[it] <= t }
                     when {
-                        lo == null || hi == null -> if ((lo ?: hi)?.let { abs(ts[it] - t) <= 0.5 / SAM_FPS } == true) steps[lo ?: hi]!!.row() else emptyList()
+                        lo == null || hi == null -> if ((lo ?: hi)?.let { abs(ts[it] - t) <= 0.5 / sampleFps } == true) steps[lo ?: hi]!!.row() else emptyList()
                         lo == hi -> steps[lo]!!.row()
                         ts[hi] - ts[lo] > MAX_GAP_S -> { // inside a long lost span: only the near-edge frames count
                             val near = if (t - ts[lo] <= ts[hi] - t) lo else hi
-                            if (abs(ts[near] - t) <= 0.5 / SAM_FPS) steps[near]!!.row() else emptyList()
+                            if (abs(ts[near] - t) <= 0.5 / sampleFps) steps[near]!!.row() else emptyList()
                         }
                         else -> {
                             val a = steps[lo]!!; val b = steps[hi]!!; val u = (t - ts[lo]) / (ts[hi] - ts[lo])

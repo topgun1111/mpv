@@ -25,6 +25,41 @@ fun needsBodySam(doc: TrackDoc, target: Target, cfg: Config): Boolean =
     target.free == null && (target.part != null || (target.preset != null && target.preset != "person")) &&
         doc.samples.any { !bodyPartVisible(it, target, cfg) }
 
+/** A short, internal keypoint gap with a reliable pose anchor immediately before it. */
+data class BodySamWindow(val seed: FreePick, val startS: Double, val endS: Double)
+
+/**
+ * Never launch SAM over an entire video merely because one joint was hidden.
+ * Recover at most two short gaps, chosen near the user's pick. Leading/trailing
+ * absences, scene cuts and long disappearances are not safe SAM prompts.
+ */
+fun bodySamWindows(doc: TrackDoc, target: Target, pickT: Double, cfg: Config): List<BodySamWindow> {
+    if (doc.samples.size < 3 || !needsBodySam(doc, target, cfg)) return emptyList()
+    val samples = doc.samples
+    val seen = samples.map { bodyPartVisible(it, target, cfg) }
+    val windows = ArrayList<BodySamWindow>()
+    var i = 1
+    while (i < samples.lastIndex) {
+        if (seen[i] || !seen[i - 1]) { i++; continue }
+        val before = i - 1
+        var after = i
+        while (after < samples.size && !seen[after]) after++
+        if (after >= samples.size) break
+        val gap = samples[after].t - samples[before].t
+        val start = (samples[before].t - 0.3).coerceAtLeast(0.0)
+        val end = samples[after].t + 0.3
+        if (gap >= 0.3 && end - start <= 4.0 &&
+            (before + 1..after).none { (samples[it].cut ?: 0) != 0 }
+        ) {
+            bodySamSeed(doc, target, samples[before].t, cfg)?.let { seed ->
+                windows += BodySamWindow(seed, start, end)
+            }
+        }
+        i = after + 1
+    }
+    return windows.sortedBy { abs((it.startS + it.endS) / 2 - pickT) }.take(2)
+}
+
 /** Convert the user-selected joint/region into a bounded box prompt for SAM 2. */
 fun bodySamSeed(doc: TrackDoc, target: Target, pickT: Double, cfg: Config): FreePick? {
     if (doc.samples.isEmpty() || !needsBodySam(doc, target, cfg)) return null

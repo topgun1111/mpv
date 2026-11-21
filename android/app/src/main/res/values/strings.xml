@@ -186,4 +186,6 @@
     <string name="scan_notify_lost">Target lost: tap to fix and resume the scan</string>
     <string name="scan_lost_resume">Resume with this target</string>
     <string name="scan_lost_skip">Resume without changing</string>
+    <string name="scan_sam_decode">SAM recovery %1$d/%2$d: prepare frames %3$d/%4$d</string>
+    <string name="scan_sam_track">SAM recovery %1$d/%2$d: analyze masks %3$d/%4$d (slower)</string>
 </resources>

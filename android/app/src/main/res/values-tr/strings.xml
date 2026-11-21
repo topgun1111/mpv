@@ -186,4 +186,6 @@
     <string name="scan_notify_lost">Hedef kayboldu: düzeltmek ve taramayı sürdürmek için dokunun</string>
     <string name="scan_lost_resume">Bu hedefle devam et</string>
     <string name="scan_lost_skip">Değiştirmeden devam et</string>
+    <string name="scan_sam_decode">SAM kurtarma %1$d/%2$d: kare hazırlığı %3$d/%4$d</string>
+    <string name="scan_sam_track">SAM kurtarma %1$d/%2$d: maske analizi %3$d/%4$d (yavaş)</string>
 </resources>

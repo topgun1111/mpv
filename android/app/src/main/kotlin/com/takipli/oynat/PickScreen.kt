@@ -773,8 +773,13 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Text(
-                        p?.let { String.format(Locale.ROOT, "%d / %d samples | t %.1f s | cuts %d", it.samples, it.total, it.t, it.cuts) }
-                            ?: stringResource(R.string.pick_preparing),
+                        p?.let {
+                            when (it.stage) {
+                                ScanStage.POSE -> String.format(Locale.ROOT, "%d / %d samples | t %.1f s | cuts %d", it.samples, it.total, it.t, it.cuts)
+                                ScanStage.SAM_DECODE -> stringResource(R.string.scan_sam_decode, it.stageIndex, it.stageCount, it.samples, it.total)
+                                ScanStage.SAM_TRACK -> stringResource(R.string.scan_sam_track, it.stageIndex, it.stageCount, it.samples, it.total)
+                            }
+                        } ?: stringResource(R.string.pick_preparing),
                         Modifier.weight(1f), fontFamily = FontFamily.Monospace, fontSize = 13.sp,
                     )
                     OutlinedButton(onClick = { ScanService.cancel(ctx) }) { Text(stringResource(R.string.scan_cancel)) }

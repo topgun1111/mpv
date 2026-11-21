@@ -27,6 +27,11 @@ object SamEngine {
     suspend fun track(ctx: Context, uri: Uri, doc: TrackDoc, pick: FreePick, onProgress: (Int, Int, Double) -> Unit): PointTrack? = null
 
     @Suppress("UNUSED_PARAMETER")
+    suspend fun trackRange(ctx: Context, uri: Uri, doc: TrackDoc, pick: FreePick,
+                           startS: Double, endS: Double, sampleFps: Double,
+                           onProgress: (Int, Int, Double) -> Unit): PointTrack? = null
+
+    @Suppress("UNUSED_PARAMETER")
     suspend fun encodeFrame(ctx: Context, bmp: Bitmap): SamFrameCache? = null
 
     @Suppress("UNUSED_PARAMETER")
