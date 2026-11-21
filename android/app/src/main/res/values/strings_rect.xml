@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="mode_tab_rect">Rectangle</string>
-    <string name="pick_rect_hint">Drag a box around the object. Drag a corner to resize, drag inside to move, drag outside to draw a new one. The camera follows the box area.</string>
-</resources>
