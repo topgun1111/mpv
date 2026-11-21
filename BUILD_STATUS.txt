@@ -1,20 +1,4 @@
-Native Windows application status (2026-11-21)
-
-Verified on Linux with C++17 and BUILD_NATIVE_GUI=OFF:
-  camera_math: PASS
-  target_tracker: PASS
-
-Unverified:
-  Qt GUI compilation (Qt 6 dev packages unavailable here)
-  Windows runtime
-  GPU inference
-  Video export
-
-Not implemented:
-  Native person/pose detector and ONNX Runtime inference
-  Connection of target tracker to video frames
-  Skeleton overlay
-  Animated crop preview and target-following export
-
-The tracker module is an isolated primitive and does not yet process video.
-The included Android files are copied without modification.
+Native Windows Qt/OpenCV pipeline implemented at source level, with YOLO pose ONNX optional and HOG fallback.
+NOT VERIFIED: Windows GUI compilation, OpenCV/Qt dependency resolution, real video decoding, model inference, Windows MP4 export.
+KNOWN LIMITATIONS: no audio in export; no CUDA; no limb-specific selection; preview selection not retained for export; no Windows DLL deployment.
+Run GitHub Actions Windows workflow and inspect uploaded diagnostics.

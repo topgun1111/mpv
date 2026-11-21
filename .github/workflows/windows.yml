@@ -1,0 +1,46 @@
+name: Windows native build and diagnostics
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      VCPKG_DEFAULT_TRIPLET: x64-windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: vcpkg.json
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTING=ON
+      - name: Build
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 2
+      - name: Unit tests
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Collect diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          cmake --version | Out-File diagnostics/environment.txt
+          Get-ChildItem build -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.log','.txt','.json','.xml' } | ForEach-Object { $dst = Join-Path diagnostics ($_.Name + '-' + [guid]::NewGuid().ToString('N').Substring(0,6)); Copy-Item $_.FullName $dst -ErrorAction SilentlyContinue }
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-diagnostics
+          path: diagnostics/
+          if-no-files-found: warn
+      - name: Upload executable
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows-executable-unbundled
+          path: build/Release/TakipliOynatNative.exe

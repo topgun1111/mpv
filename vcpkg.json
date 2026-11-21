@@ -1,0 +1,8 @@
+{
+  "name": "takipli-oynat-native",
+  "version-string": "0.2.0",
+  "dependencies": [
+    { "name": "qtbase", "default-features": false, "features": ["widgets"] },
+    { "name": "opencv4", "default-features": false, "features": ["dnn", "jpeg", "png", "ffmpeg"] }
+  ]
+}
