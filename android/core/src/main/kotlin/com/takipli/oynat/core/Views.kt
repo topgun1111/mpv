@@ -341,6 +341,7 @@ fun lowerBodyBoxes(doc: TrackDoc, ids: Set<Int>, boxes: Map<Int, DoubleArray>, c
     val out = HashMap<Int, DoubleArray>()
     var last: DoubleArray? = null; var lastT = 0.0
     for ((i, s) in doc.samples.withIndex()) {
+        if (s.cut == 1) last = null // a new shot must never inherit the previous person's framing
         val b = boxes[i]
         if (b != null) { out[i] = b; last = b; lastT = s.t }
         else if (last != null && s.t - lastT <= holdS) out[i] = last.copyOf()
@@ -354,7 +355,7 @@ fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Dire
     val base = setOf(target.id) + target.linked
     // robust (Android app): re-link the target to the ID it got after an occlusion, and ignore samples where its ID teleported
     // onto something else (a blocker that took the ID). Off by default = the PC / golden behaviour.
-    val ids = if (robust && target.free == null) relinkIds(doc0, base) else base
+    val ids = if (robust && target.free == null) relinkIdsBidirectional(doc0, base) else base
     val bad = if (robust && target.free == null) suspectSamples(doc0, ids) else emptySet()
     val doc = if (bad.isEmpty()) doc0 else dropSamples(doc0, ids, bad)
     var minFit = 0.0
@@ -362,7 +363,7 @@ fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Dire
         target.free != null -> {
             // Part 16a: any tapped spot; fused multi-pass point, then the same camera-compensated off-screen propagation
             // the anchor person may have a new ID after an occlusion: let the anchor follow it
-            val alt = (if (robust) makeAnchor(doc, target.free, cfg)?.id?.let { relinkIds(doc, setOf(it)) - it }.orEmpty() else emptySet()) + target.linked
+            val alt = (if (robust) makeAnchor(doc, target.free, cfg)?.id?.let { relinkIdsBidirectional(doc, setOf(it)) - it }.orEmpty() else emptySet()) + target.linked
             val b = freePointBoxes(doc, target.free, cfg, alt)
             if (cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
         }
@@ -371,10 +372,18 @@ fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Dire
             val part = target.preset != "person"
             if (part) minFit = PART_FIT
             val kps = if (part && cfg.kpFilter) smoothKeypoints(doc, ids, cfg) else null
-            val b = presetBoxes(doc, ids, target.preset, cfg, kps)
+            val observed = presetBoxes(doc, ids, target.preset, cfg, kps)
+            val fused = if (robust && doc.samSeedT != null) fuseBodySam(doc, target, observed, cfg, doc.samSeedT) else observed
+            // When a person detector drops a frame entirely, presetBoxes has no row
+            // to update. Carry the last anatomical lower-body box for a bounded gap.
+            val b = if (robust && target.preset in LEG_PRESETS)
+                lowerBodyBoxes(doc, ids, fused, cfg, holdS = 2.0) else fused
             if (part && cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
         }
-        target.part != null -> jointBoxes(doc, ids, target.part, cfg)
+        target.part != null -> {
+            val observed = jointBoxes(doc, ids, target.part, cfg)
+            if (robust && doc.samSeedT != null) fuseBodySam(doc, target, observed, cfg, doc.samSeedT) else observed
+        }
         else -> personBoxes(doc, ids)
     }
     // a drawn region is framed to fill the screen (`regionFill`), not to 30% like a tapped spot or a person

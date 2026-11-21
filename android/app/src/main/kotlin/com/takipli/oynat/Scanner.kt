@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
 import com.takipli.oynat.core.ByteTracker
+import com.takipli.oynat.core.AppearanceGallery
+import com.takipli.oynat.core.BBox
 import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.Formats
 import com.takipli.oynat.core.LostWatch
@@ -15,6 +17,7 @@ import com.takipli.oynat.core.TrackDoc
 import com.takipli.oynat.core.buildScanDoc
 import com.takipli.oynat.core.livePickTarget
 import com.takipli.oynat.core.liveRelink
+import com.takipli.oynat.core.iouMatrix
 import com.takipli.oynat.core.previewOverlay
 import com.takipli.oynat.core.rangeTag
 import com.takipli.oynat.core.scanSig
@@ -48,6 +51,10 @@ class ScanResult(val doc: TrackDoc, val cached: Boolean, val wallS: Double, val 
  */
 object Scanner {
     private const val SAVE_EVERY_MS = 30_000L
+    // Allow the six-second ByteTrack lost-track window and the eight-second ID relinker
+    // to recover automatically before interrupting a pose scan for a manual re-pick.
+    private const val AUTO_RECOVERY_S = 8.0
+    private const val PREVIEW_OCCLUSION_HOLD_S = 3.0
 
     private fun readDoc(f: File, sig: String): TrackDoc? =
         runCatching { Formats.parseTrack(f.readText()) }.getOrNull()?.takeIf { it.sig == sig && it.samples.isNotEmpty() }
@@ -95,9 +102,11 @@ object Scanner {
             val d = if (it.video.rot < 0) it.copy(video = it.video.copy(rot = info.userRot)) else it
             return@withContext ScanResult(d, true, 0.0, 0, 0.0)
         }
-        val prior = readDoc(partial, sig)?.samples.orEmpty()
+        val previous = readDoc(partial, sig)
+        val prior = previous?.samples.orEmpty()
+        val appearance = AppearanceGallery().also { it.restore(previous?.appearance) }
         val pipe = ScanPipeline(cfg, ByteTracker.fromConfig(cfg, fps)) // loss window in seconds, not samples: a few seconds of occlusion keep the ID at any scan fps
-        val pvHold = PreviewHold(cfg.kpHoldS)
+        val pvHold = PreviewHold(maxOf(cfg.kpHoldS, PREVIEW_OCCLUSION_HOLD_S))
         pipe.resume(prior)
         val startS = prior.lastOrNull()?.let { it.t + 0.5 / fps } ?: (rangeA ?: 0.0).coerceAtLeast(0.0) // half a grid step: next grid time, no repeat
         val endS = rangeB ?: Double.POSITIVE_INFINITY
@@ -113,7 +122,7 @@ object Scanner {
         var liveRef: com.takipli.oynat.core.FreeRef? = null
         var curPick = pick
         val repicks = ArrayList<TargetPick>()
-        val lostWatch = LostWatch()
+        val lostWatch = LostWatch(alertS = AUTO_RECOVERY_S)
         // Debug Part 1: predictive watch (throttling, memory, battery) + where the time goes per frame
         val watch = ScanWatch(ctx, "scan", total, fps)
         var lastCb = 0L
@@ -122,7 +131,7 @@ object Scanner {
         fun snapshot() = buildScanDoc(
             uri.toString(), info.width, info.height, info.frameRate ?: fps, info.durationS, fps,
             pipe.samples.toList(), sig, videoId, info.userRot, // the turn is stored so later stages use the scan's own orientation
-        ).copy(range = clipRange)
+        ).copy(range = clipRange, appearance = appearance.snapshot().ifEmpty { null })
 
         try {
             VideoDecoder.sample(ctx, uri, fps, startS, endS, maxSide = maxSide, userRot = info.userRot) { f ->
@@ -139,6 +148,16 @@ object Scanner {
                 val cut = cfg.cutDetect && a?.cut == true
                 val motion = if (cfg.gmc && a != null && !cut && a.motionOk) a.motion else null
                 val s = pipe.step(f.t, bmp.width, bmp.height, poses, motion, cut)
+                // Conservative colour signatures: only high-score, isolated persons can
+                // teach the identity bank. A blocker overlapping the person is ignored.
+                for (d in s.d) {
+                    if (d.size < 6 || d[5] < 0.65 || d[4] - d[2] < 0.2) continue
+                    val b = BBox(d[1], d[2], d[3], d[4])
+                    val others = s.d.filter { it.size >= 6 && it[0].toInt() != d[0].toInt() }
+                        .map { BBox(it[1], it[2], it[3], it[4]) }
+                    if (others.isNotEmpty() && iouMatrix(listOf(b), others)[0].any { it > 0.20 }) continue
+                    PersonAppearance.describe(bmp, d.subList(1, 5))?.let { appearance.observe(d[0].toInt(), s.t, it) }
+                }
                 // Live target: resolved once the scan has reached the pick frame (independent of the preview, the loss alert needs it too)
                 val cp = curPick
                 if (liveTarget == null && !liveTried && cp != null && s.t >= cp.t - 0.5 / fps) {
@@ -147,10 +166,13 @@ object Scanner {
                     liveRef = com.takipli.oynat.core.freeRef(pipe.samples, liveTarget)
                 }
                 // The tracker may give the person a new ID: link it (cheap check, the relink search runs on every 3rd sample while absent)
-                if (liveTarget != null && pipe.samples.size % 3 == 0) liveTarget = liveRelink(pipe.samples, bmp.width, bmp.height, liveTarget, s)
+                if (liveTarget != null && pipe.samples.size % 3 == 0)
+                    liveTarget = liveRelink(pipe.samples, bmp.width, bmp.height, liveTarget, s, appearance.snapshot())
                 // Target gone for a few seconds: vibrate + let the user jump to a clear frame and pick again, then go on
                 val lt = liveTarget
-                if (onLost != null && lt != null && lt.id >= 0) {
+                // Free-point/region targets have their own SAM/optical-flow pass AFTER the
+                // pose scan. A missing pose anchor is not evidence that that target was lost.
+                if (onLost != null && curPick?.free != true && lt != null && lt.id >= 0) {
                     val ids = setOf(lt.id) + lt.linked
                     val present = s.d.any { it.size >= 6 && it[0].toInt() in ids }
                     if (lostWatch.update(s.t, present)) {

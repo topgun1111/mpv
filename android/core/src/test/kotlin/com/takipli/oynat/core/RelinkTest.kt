@@ -27,6 +27,15 @@ class RelinkTest {
         assertEquals(Target(1, linked = listOf(2)), relinkTarget(scene(), Target(1)))
     }
 
+    @Test fun appearanceEvidenceRejectsACloserDifferentPerson() {
+        val s = scene(newX = 0.32)
+        val a = List(APPEARANCE_BINS) { if (it % 8 == 1) 1.0 else 0.0 }
+        val b = List(APPEARANCE_BINS) { if (it % 8 == 5) 1.0 else 0.0 }
+        val d = s.copy(appearance = mapOf("1" to a, "2" to b))
+        assertEquals(setOf(1), relinkIds(d, setOf(1)))
+        assertEquals(setOf(1, 2), relinkIds(d.copy(appearance = mapOf("1" to a, "2" to a)), setOf(1)))
+    }
+
     @Test fun farAwayNewcomerOrCutOrLateIdIsNotLinked() {
         assertEquals(setOf(1), relinkIds(scene(newX = 0.9, newY = 0.1), setOf(1)))
         assertEquals(setOf(1), relinkIds(scene(cutAt = 45), setOf(1)))
@@ -37,6 +46,26 @@ class RelinkTest {
     @Test fun chainOfTwoBlocks() {
         val d = doc { i -> buildList { if (i < 20) add(row(1, 0.3)); if (i in 40..59) add(row(2, 0.31)); if (i >= 80) add(row(5, 0.33)) } }
         assertEquals(setOf(1, 2, 5), relinkIds(d, setOf(1)))
+    }
+
+    @Test fun offlineRelinkRecoversTheSamePersonBeforeAndAfterTheSelectedFrame() {
+        val a = List(APPEARANCE_BINS) { if (it % 8 == 2) 1.0 else 0.0 }
+        val d = doc { i -> buildList {
+            if (i < 25) add(row(1, 0.30))
+            if (i in 45..60) add(row(2, 0.31))
+            if (i >= 80) add(row(4, 0.32))
+        } }.copy(appearance = mapOf("1" to a, "2" to a, "4" to a))
+        assertEquals(setOf(2, 4), relinkIds(d, setOf(2)))
+        assertEquals(setOf(1, 2, 4), relinkIdsBidirectional(d, setOf(2)))
+        assertEquals(setOf(2, 4), relinkIdsBidirectional(d.copy(samples = d.samples.mapIndexed { i, s -> if (i == 35) s.copy(cut = 1) else s }), setOf(2)))
+    }
+
+    @Test fun ambiguousPeopleAreNotSilentlyLinked() {
+        val d = doc { i -> buildList {
+            if (i < 30) add(row(1, 0.30))
+            if (i >= 60) { add(row(2, 0.31)); add(row(3, 0.315)) }
+        } }
+        assertEquals(setOf(1), relinkIds(d, setOf(1)))
     }
 
     @Test fun viewsKeepZoomAfterTheBlockOnlyWhenRobust() {

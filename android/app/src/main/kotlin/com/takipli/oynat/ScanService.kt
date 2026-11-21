@@ -22,6 +22,8 @@ import com.takipli.oynat.core.TargetPick
 import com.takipli.oynat.core.TrackDoc
 import com.takipli.oynat.core.applyPicks
 import com.takipli.oynat.core.buildTargetViews
+import com.takipli.oynat.core.bodySamSeed
+import com.takipli.oynat.core.occlusionStats
 import com.takipli.oynat.core.rangeTag
 import com.takipli.oynat.core.scanSig
 import kotlinx.coroutines.CancellationException
@@ -93,7 +95,9 @@ class ScanService : Service() {
             val uri = Uri.parse(i.getStringExtra(X_URI))
             val videoId = i.getStringExtra(X_VIDEO_ID).orEmpty()
             val fps = i.getDoubleExtra(X_FPS, 10.0)
-            val cfg = Config()
+            // Android scans keep the crop through short occlusions; the core default stays
+            // unchanged for PC/golden compatibility. ResultScreen can still tune this value.
+            val cfg = Config(lostBridgeS = 4.0)
             val pick = Formats.json.decodeFromString<TargetPick>(i.getStringExtra(X_PICK).orEmpty())
             val ra = i.getDoubleExtra(X_A, Double.NaN).takeIf { !it.isNaN() }; val rb = i.getDoubleExtra(X_B, Double.NaN).takeIf { !it.isNaN() }
             val file = scanFile(this, videoId, ra, rb)
@@ -121,18 +125,38 @@ class ScanService : Service() {
             }
             var picked = applyPicks(if (pick.free) res.doc.copy(pt = null) else res.doc, pick, res.repicks, cfg, robust = true) // repicks: the user picked again after the target was lost
             val fp = picked?.target?.free
-            if (picked != null && fp != null && OpenCvFlow.available) { // Part 16b: tracker passes for the tapped spot
+            if (picked != null && fp != null && (SamEngine.hasModels(this) || OpenCvFlow.available)) { // SAM can work even without OpenCV
                 try {
                     val pt = PointScanner.run(this, uri, picked, fp) { d, tot, t -> post(ScanUi.Running(ScanProgress(d, tot, t, 0, 0), null)) }
                     val d2 = picked.copy(pt = pt)
                     picked = d2.copy(views = buildTargetViews(d2, d2.target!!, cfg, robust = true))
                 } catch (e: CancellationException) { throw e } catch (e: Throwable) { ErrorLog.record(this, "point", e) } // keeps the anchor-only views
             }
+            // Android SAM flavour: when actual limb keypoints disappear, use SAM's
+            // object memory as a secondary source. It is an offline pass and must
+            // never overwrite confident pose observations in buildTargetViews.
+            val seed = picked?.target?.let { bodySamSeed(picked!!, it, pick.t, cfg) }
+            if (seed != null && picked != null && SamEngine.hasModels(this)) {
+                try {
+                    val base = requireNotNull(picked)
+                    Diag.note(this, "body-sam", "RECOVERY_START", "${base.target?.preset ?: base.target?.part} at ${seed.t}s")
+                    val sam = SamEngine.track(this, uri, base, seed) { d, tot, t ->
+                        post(ScanUi.Running(ScanProgress(d, tot, t, 0, 0), null))
+                    }
+                    if (sam != null) {
+                        val merged = base.copy(pt = sam, samSeedT = seed.t)
+                        picked = merged.copy(views = buildTargetViews(merged, merged.target!!, cfg, robust = true))
+                        Diag.note(this, "body-sam", "RECOVERY_END", "${sam.a.count { it.size >= 5 }} usable mask rows")
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (e: Throwable) { ErrorLog.record(this, "body-sam", e) }
+            }
             val out = picked ?: res.doc
             if (picked != null) Scanner.writeAtomic(file, picked)
             // Debug Part 2: is the chosen target actually trackable? (joint confidence, presence, camera jumps)
             if (picked == null) Diag.note(this, "scan", "PICK_NO_TARGET", "nobody at the picked point (t=${pick.t}); the scan is kept, pick again", com.takipli.oynat.core.Sev.WARN)
             else runCatching { com.takipli.oynat.core.targetFindings(picked).forEach { Diag.event(this, "scan", it) } }
+            picked?.let { pk -> Diag.note(this, "scan", "OCCLUSION_SUMMARY", occlusionStats(pk, cfg).summary()) }
             // zoom range of the built views (flat = a part target that never zooms)
             picked?.let { pk -> runCatching { val z = pk.views.map { it[1] }; Diag.note(this, "scan", "VIEWS_ZOOM", "target=${pk.target?.preset ?: pk.target?.part ?: (if (pk.target?.free != null) "free" else "person")} keys=${z.size} zoom(log2) min=${"%.2f".format(java.util.Locale.ROOT, z.minOrNull() ?: 0.0)} max=${"%.2f".format(java.util.Locale.ROOT, z.maxOrNull() ?: 0.0)} fill=${cfg.targetFill} maxZoom=${cfg.maxZoom}") } }
             Diag.note(this, "scan", "SCAN_SPEED", "${"%.2f".format(java.util.Locale.ROOT, res.xRealtime)} x realtime, ${res.newSamples} new samples, model ${i.getStringExtra(X_MODEL)} npu=${i.getBooleanExtra(X_NPU, false)} preview=$withPreview")
@@ -171,7 +195,7 @@ class ScanService : Service() {
         val last = part.samples.last().t
         var picked = applyPicks(if (c.pick.free) part.copy(pt = null) else part, c.pick, c.repicks.toList(), c.cfg, robust = true)
         val fp = picked?.target?.free
-        if (picked != null && fp != null && OpenCvFlow.available) { // free point: tracker passes over the processed part only (PointScanner stops after the last sample)
+        if (picked != null && fp != null && (SamEngine.hasModels(this) || OpenCvFlow.available)) { // SAM can work without OpenCV
             try {
                 // Bounded: this runs NonCancellable after the user pressed Cancel, and the tracker decodes the whole scanned part again
                 // (4K HEVC ~0.4 s per frame): unbounded it left the screen on "preparing..." for minutes. On timeout the anchor-only views are kept.

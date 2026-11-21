@@ -154,9 +154,9 @@ fun livePickTarget(samples: List<Sample>, w: Int, h: Int, pick: TargetPick, cfg:
  * ID that continues it, with the same rule the final views use (`relinkIds`), so the preview does not show LOST for the rest of the
  * scan. Returns `target` itself when it is present, free-form, or nothing can be linked. Cheap: runs only while the target is absent.
  */
-fun liveRelink(samples: List<Sample>, w: Int, h: Int, target: Target?, current: Sample): Target? {
+fun liveRelink(samples: List<Sample>, w: Int, h: Int, target: Target?, current: Sample, appearance: Map<String, List<Double>>? = null): Target? {
     if (target == null || target.free != null) return target
     val ids = setOf(target.id) + target.linked
     if (current.d.any { it.size >= 6 && it[0].toInt() in ids }) return target
-    return relinkTarget(TrackDoc(version = 2, video = VideoInfo(w = w, h = h), samples = samples), target)
+    return relinkTarget(TrackDoc(version = 2, video = VideoInfo(w = w, h = h), samples = samples, appearance = appearance), target)
 }
