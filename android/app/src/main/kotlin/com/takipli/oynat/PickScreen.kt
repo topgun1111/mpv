@@ -108,7 +108,7 @@ private fun partColor(preset: String?): Color = Color(0xFF000000.toInt() or ((pr
 fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (String) -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val models = remember { ModelStore.list(ctx).filterNot { it.startsWith("sam-") } } // sam-* graphs are not pose models
+    val models = remember { ModelStore.listPose(ctx) }
     val ui by ScanService.state.collectAsState()
     var uri by remember { mutableStateOf<Uri?>(null) }
     var videoId by remember { mutableStateOf("") }

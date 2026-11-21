@@ -112,7 +112,9 @@ object Scanner {
         val prior = previous?.samples.orEmpty()
         val appearance = AppearanceGallery().also { it.restore(previous?.appearance) }
         val identities = ReidGallery().also { it.restore(previous?.reid) }
-        var neural: NeuralReid? = if ("osnet-reid.onnx" in ModelStore.list(ctx)) {
+        // Free-point/region targets do not use person IDs: avoid needless Re-ID
+        // inference during their scan and leave CPU time for SAM/optical flow.
+        var neural: NeuralReid? = if (pick?.free != true && "osnet-reid.onnx" in ModelStore.list(ctx)) {
             runCatching { NeuralReid(ctx) }
                 .onFailure { Diag.note(ctx, "reid", "MODEL_UNAVAILABLE", "OSNet disabled: ${(it.message ?: it.javaClass.simpleName).take(160)}", com.takipli.oynat.core.Sev.WARN) }
                 .getOrNull()
