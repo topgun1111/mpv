@@ -48,6 +48,26 @@ class RelinkTest {
         assertEquals(setOf(1, 2, 5), relinkIds(d, setOf(1)))
     }
 
+    @Test fun offlineRelinkRecoversTheSamePersonBeforeAndAfterTheSelectedFrame() {
+        val a = List(APPEARANCE_BINS) { if (it % 8 == 2) 1.0 else 0.0 }
+        val d = doc { i -> buildList {
+            if (i < 25) add(row(1, 0.30))
+            if (i in 45..60) add(row(2, 0.31))
+            if (i >= 80) add(row(4, 0.32))
+        } }.copy(appearance = mapOf("1" to a, "2" to a, "4" to a))
+        assertEquals(setOf(2, 4), relinkIds(d, setOf(2)))
+        assertEquals(setOf(1, 2, 4), relinkIdsBidirectional(d, setOf(2)))
+        assertEquals(setOf(2, 4), relinkIdsBidirectional(d.copy(samples = d.samples.mapIndexed { i, s -> if (i == 35) s.copy(cut = 1) else s }), setOf(2)))
+    }
+
+    @Test fun ambiguousPeopleAreNotSilentlyLinked() {
+        val d = doc { i -> buildList {
+            if (i < 30) add(row(1, 0.30))
+            if (i >= 60) { add(row(2, 0.31)); add(row(3, 0.315)) }
+        } }
+        assertEquals(setOf(1), relinkIds(d, setOf(1)))
+    }
+
     @Test fun viewsKeepZoomAfterTheBlockOnlyWhenRobust() {
         val d = scene()
         val cfg = Config(lostBridgeS = 0.0)
