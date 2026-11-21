@@ -70,8 +70,11 @@ def test_missing_folder_is_reported_not_crashed(tmp_path, monkeypatch, capsys):
 def test_presets_list_exactly_what_the_apk_and_package_need():
     sam = {s.path for s in mr.preset("android-sam")}
     graphs = {"sam-encoder", "sam-decoder", "sam-decoder-trk", "sam-memenc", "sam-memattn"}
-    assert sam == {"yolov8s-pose.onnx"} | {f"{v}/{g}.onnx" for v in ("edgetam", "small") for g in graphs}
-    assert {s.path for s in mr.preset("android-pose")} == {"yolov8s-pose.onnx", "yolo11m-pose.onnx"}
+    assert sam == {"yolov8s-pose.onnx", "osnet-reid.onnx"} | {f"{v}/{g}.onnx" for v in ("edgetam", "small") for g in graphs}
+    assert {s.path for s in mr.preset("android-pose")} == {"yolov8s-pose.onnx", "yolo11m-pose.onnx", "osnet-reid.onnx"}
+    for flavor in ("android-pose", "android-sam"):
+        reid = next(s for s in mr.preset(flavor) if s.path == "osnet-reid.onnx")
+        assert reid.want_in == {"image"} and reid.want_out == {"embeddings"}
     pc = {s.path: s.required for s in mr.preset("pc")}
     assert pc["models/yolox_s.onnx"] and pc["models/yolov8s-pose.onnx"]
     assert not pc["models/osnet_x0_25.onnx"] and not pc["models/rtmpose-wholebody.onnx"]
