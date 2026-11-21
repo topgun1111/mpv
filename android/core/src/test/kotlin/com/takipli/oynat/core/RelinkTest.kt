@@ -27,6 +27,15 @@ class RelinkTest {
         assertEquals(Target(1, linked = listOf(2)), relinkTarget(scene(), Target(1)))
     }
 
+    @Test fun appearanceEvidenceRejectsACloserDifferentPerson() {
+        val s = scene(newX = 0.32)
+        val a = List(APPEARANCE_BINS) { if (it % 8 == 1) 1.0 else 0.0 }
+        val b = List(APPEARANCE_BINS) { if (it % 8 == 5) 1.0 else 0.0 }
+        val d = s.copy(appearance = mapOf("1" to a, "2" to b))
+        assertEquals(setOf(1), relinkIds(d, setOf(1)))
+        assertEquals(setOf(1, 2), relinkIds(d.copy(appearance = mapOf("1" to a, "2" to a)), setOf(1)))
+    }
+
     @Test fun farAwayNewcomerOrCutOrLateIdIsNotLinked() {
         assertEquals(setOf(1), relinkIds(scene(newX = 0.9, newY = 0.1), setOf(1)))
         assertEquals(setOf(1), relinkIds(scene(cutAt = 45), setOf(1)))

@@ -373,13 +373,17 @@ fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Dire
             if (part) minFit = PART_FIT
             val kps = if (part && cfg.kpFilter) smoothKeypoints(doc, ids, cfg) else null
             val observed = presetBoxes(doc, ids, target.preset, cfg, kps)
+            val fused = if (robust && doc.samSeedT != null) fuseBodySam(doc, target, observed, cfg, doc.samSeedT) else observed
             // When a person detector drops a frame entirely, presetBoxes has no row
             // to update. Carry the last anatomical lower-body box for a bounded gap.
-            val b = if (robust && target.preset in setOf("legs", "left_leg", "right_leg", "feet", "left_foot", "right_foot"))
-                lowerBodyBoxes(doc, ids, observed, cfg, holdS = 2.0) else observed
+            val b = if (robust && target.preset in LEG_PRESETS)
+                lowerBodyBoxes(doc, ids, fused, cfg, holdS = 2.0) else fused
             if (part && cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
         }
-        target.part != null -> jointBoxes(doc, ids, target.part, cfg)
+        target.part != null -> {
+            val observed = jointBoxes(doc, ids, target.part, cfg)
+            if (robust && doc.samSeedT != null) fuseBodySam(doc, target, observed, cfg, doc.samSeedT) else observed
+        }
         else -> personBoxes(doc, ids)
     }
     // a drawn region is framed to fill the screen (`regionFill`), not to 30% like a tapped spot or a person

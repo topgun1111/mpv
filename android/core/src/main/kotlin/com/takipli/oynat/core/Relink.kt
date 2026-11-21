@@ -40,12 +40,15 @@ fun relinkIds(doc: TrackDoc, ids: Set<Int>, windowS: Double = RELINK_WINDOW_S): 
     val group = LinkedHashSet(ids)
     for (step in 0 until RELINK_MAX_CHAIN) {
         var last: Obs? = null
-        for (id in group) obs[id]?.lastOrNull()?.let { o -> if (last == null || o.i > last!!.i || (o.i == last!!.i && o.score > last!!.score)) last = o }
+        var lastId: Int? = null
+        for (id in group) obs[id]?.lastOrNull()?.let { o ->
+            if (last == null || o.i > last!!.i || (o.i == last!!.i && o.score > last!!.score)) { last = o; lastId = id }
+        }
         val l = last ?: return group
         val lh = (l.b[3] - l.b[1]) * h
         if (lh <= 1.0) return group
         val lcx = (l.b[0] + l.b[2]) / 2 * w; val lcy = (l.b[1] + l.b[3]) / 2 * h
-        var best: Int? = null; var bestScore = Double.MAX_VALUE
+        var best: Int? = null; var bestScore = Double.MAX_VALUE; var runnerUp = Double.MAX_VALUE
         for ((id, list) in obs) {
             if (id in group) continue
             val o = list.first()
@@ -58,9 +61,15 @@ fun relinkIds(doc: TrackDoc, ids: Set<Int>, windowS: Double = RELINK_WINDOW_S): 
             if (ratio < 0.5 || ratio > 2.0) continue
             val d = hypot((o.b[0] + o.b[2]) / 2 * w - lcx, (o.b[1] + o.b[3]) / 2 * h - lcy) / lh
             if (d > min(1.0 + 0.5 * gap, 3.5)) continue
-            val score = d + 0.1 * gap
-            if (score < bestScore) { bestScore = score; best = id }
+            val sim = appearanceSimilarity(doc.appearance?.get(lastId.toString()), doc.appearance?.get(id.toString()))
+            if (sim != null && sim < MIN_APPEARANCE_SIMILARITY) continue
+            val score = d + 0.1 * gap + (sim?.let { 1.0 - it } ?: 0.0)
+            if (score < bestScore) { runnerUp = bestScore; bestScore = score; best = id }
+            else if (score < runnerUp) runnerUp = score
         }
+        // Two nearly identical candidates: keep the old identity unlinked rather than
+        // silently jumping to the wrong person. The user can still re-pick manually.
+        if (runnerUp - bestScore < 0.10) return group
         group.add(best ?: return group)
     }
     return group

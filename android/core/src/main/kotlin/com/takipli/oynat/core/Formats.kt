@@ -25,7 +25,7 @@ data class VideoInfo(
 
 /**
  * `part` = COCO joint index (null = whole person); `preset` = body-part group name (`PRESETS`, Part 10; at most one of
- * `part`/`preset`); `linked` = Re-ID chained IDs (PC only).
+ * `part`/`preset`); `linked` = IDs confirmed as the same target after a temporary disappearance.
  */
 @Serializable
 data class Target(val id: Int, val part: Int? = null, val linked: List<Int> = emptyList(), val preset: String? = null, val free: FreePick? = null)
@@ -66,8 +66,12 @@ data class TrackDoc(
     val vsig: String? = null,
     val cuts: List<Double> = emptyList(),
     val emb: JsonElement? = null,
+    /** Optional Android clothing-colour evidence (ID -> 48 bins); no pixels or neural embeddings. */
+    val appearance: Map<String, List<Double>>? = null,
     val team: JsonElement? = null,
     val pt: PointTrack? = null,
+    /** The video time of the user's body-part prompt for an optional SAM recovery pass. */
+    val samSeedT: Double? = null,
     /** A-B scan: `[startS, endS]` of the video that was scanned (null = whole clip). Export / preview of the result are cut to it. */
     val range: List<Double>? = null,
 )
