@@ -11,13 +11,19 @@ jobs:
       VCPKG_DEFAULT_TRIPLET: x64-windows
     steps:
       - uses: actions/checkout@v4
-      - uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgJsonGlob: vcpkg.json
+      - name: Install vcpkg dependencies (classic mode; no baseline required)
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE/vcpkg"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:GITHUB_WORKSPACE/vcpkg/vcpkg.exe" install "qtbase[widgets]:x64-windows" "opencv4[dnn,ffmpeg,jpeg,png]:x64-windows" --classic
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Configure
         shell: pwsh
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTING=ON
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_MANIFEST_MODE=OFF -DBUILD_TESTING=ON
       - name: Build
         shell: pwsh
         run: cmake --build build --config Release --parallel 2
