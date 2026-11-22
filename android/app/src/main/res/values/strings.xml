@@ -71,6 +71,7 @@
     <string name="tune_maxzoom">Max zoom (log2): %1$s</string>
     <string name="tune_follow">Follow speed (higher = tighter): %1$s</string>
     <string name="tune_bridge">Keep zoom when covered (s): %1$s</string>
+    <string name="tune_memory">Predict position while hidden (s): %1$s</string>
     <string name="tune_hold">Hold when lost (s): %1$s</string>
     <string name="tune_reset">Reset sliders</string>
     <string name="export_title">Export tracked video (MP4, original audio)</string>

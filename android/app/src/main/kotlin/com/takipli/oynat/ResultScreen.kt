@@ -483,6 +483,7 @@ private fun ResultBody(doc: TrackDoc, base: Target, file: File) {
                         }
                         tune(R.string.tune_box, tuning.kpBox, 0.04f..0.4f) { tuning.copy(kpBox = it) }
                     }
+                    tune(R.string.tune_memory, tuning.occlusionMemoryS, 0f..6f) { tuning.copy(occlusionMemoryS = it) }
                     tune(R.string.tune_hold, tuning.lostHoldS, 0f..3f) { tuning.copy(lostHoldS = it) }
                     tune(R.string.tune_bridge, tuning.lostBridgeS, 0f..15f) { tuning.copy(lostBridgeS = it) }
                 }

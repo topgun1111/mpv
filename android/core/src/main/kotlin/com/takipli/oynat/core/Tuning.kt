@@ -18,14 +18,18 @@ data class Tuning(
     val director: Director = Director(),
     /** Keep the zoom through an occlusion of up to this many seconds (`Config.lostBridgeS`). */
     val lostBridgeS: Double = 0.0,
+    /** Short-lived position/size memory, independent of the broader zoom bridge. */
+    val occlusionMemoryS: Double = DEFAULT_OCCLUSION_MEMORY_S,
 ) {
     companion object
 }
 
 fun Config.withTuning(t: Tuning): Config =
-    copy(targetFill = t.targetFill, kpBox = t.kpBox, maxZoom = t.maxZoom, offlineAlpha = t.followAlpha, lostHoldS = t.lostHoldS, lostBridgeS = t.lostBridgeS)
+    copy(targetFill = t.targetFill, kpBox = t.kpBox, maxZoom = t.maxZoom, offlineAlpha = t.followAlpha,
+        lostHoldS = t.lostHoldS, lostBridgeS = t.lostBridgeS, occlusionMemoryS = t.occlusionMemoryS)
 
-fun Tuning.Companion.of(c: Config) = Tuning(c.targetFill, c.kpBox, c.maxZoom, c.offlineAlpha, c.lostHoldS, lostBridgeS = c.lostBridgeS)
+fun Tuning.Companion.of(c: Config) = Tuning(c.targetFill, c.kpBox, c.maxZoom, c.offlineAlpha, c.lostHoldS,
+    lostBridgeS = c.lostBridgeS, occlusionMemoryS = c.occlusionMemoryS)
 
 /** Scan doc + (possibly changed) target + tuning -> new views; the doc is not modified. Same call the export will use. */
 fun rebuildViews(doc: TrackDoc, target: Target, cfg: Config, t: Tuning, robust: Boolean = false): List<ViewKey> = buildTargetViews(doc, target, cfg.withTuning(t), t.director, robust)
