@@ -47,6 +47,8 @@ class SamCameraMotionTest {
         near(0.535, f[0]); near(0.255, f[1])
         val reverse = assertNotNull(motion.project(f[0], f[1], 1, 0))
         near(0.5, reverse[0]); near(0.25, reverse[1])
+        near(1.05, assertNotNull(motion.scale(0, 1)))
+        near(1.0 / 1.05, assertNotNull(motion.scale(1, 0)))
     }
 
     @Test fun unsafeMissingOrNonAdjacentEstimatesDoNotMoveTarget() {
@@ -54,10 +56,13 @@ class SamCameraMotionTest {
         val invalid = doubleArrayOf(1.0, 0.0, Double.NaN, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
         val motion = SamCameraMotion(listOf(null, good, null, invalid), 1000, 800)
         assertNull(motion.project(0.5, 0.5, 1, 2))
+        assertNull(motion.scale(1, 2))
         assertNull(motion.project(0.5, 0.5, 0, 2))
+        assertNull(motion.scale(0, 2))
         assertNull(motion.project(0.5, 0.5, 2, 3))
         assertEquals(listOf(0.5, 0.5), assertNotNull(motion.project(0.5, 0.5, 1, 1)).toList())
         val hugeRoll = SamCameraMotion(listOf(null, rotated(PI * 0.8, 1000, 800)), 1000, 800)
         assertNull(hugeRoll.project(0.5, 0.5, 0, 1))
+        assertNull(hugeRoll.scale(0, 1))
     }
 }
