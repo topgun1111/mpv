@@ -101,13 +101,13 @@ class ByteTracker(
 
         // Stage 1: high-score detections
         val pool = tracks.toList()
-        val m1 = if (robustMotion) matchMotion(pool, high, highIndices, appearances, false)
+        val m1 = if (robustMotion) matchMotion(pool, high, highIndices, appearances, false, motion != null)
             else match(pool.map { it.bbox }, high.map { it.bbox }, matchIou)
         applyMatches(pool, high, highIndices, m1.pairs)
         val rest = m1.unmatchedTracks.map { pool[it] }
 
         // Stage 2: low-score detections vs remaining tracks (the heart of ByteTrack)
-        val m2 = if (robustMotion) matchMotion(rest, low, lowIndices, appearances, true)
+        val m2 = if (robustMotion) matchMotion(rest, low, lowIndices, appearances, true, motion != null)
             else match(rest.map { it.bbox }, low.map { it.bbox }, secondIou)
         applyMatches(rest, low, lowIndices, m2.pairs)
 
@@ -130,28 +130,36 @@ class ByteTracker(
     /** Joint box-motion and appearance assignment. A doubtful match becomes a missing frame, never a forced ID switch. */
     private fun matchMotion(
         pool: List<Internal>, dets: List<Detection>, indices: List<Int>, appearances: List<List<Double>?>?, lowScore: Boolean,
+        motionKnown: Boolean,
     ): MatchResult {
         if (pool.isEmpty() || dets.isEmpty()) return MatchResult(emptyList(), pool.indices.toList(), dets.indices.toList())
         val overlaps = iouMatrix(pool.map { it.bbox }, dets.map { it.bbox })
         val impossible = 1e6
         val multiple = pool.size > 1 || dets.size > 1
         val cost = Array(pool.size) { i -> DoubleArray(dets.size) { j ->
-            val tr = pool[i]; val b = tr.bbox; val d = dets[j].bbox
+            val tr = pool[i]; val d = dets[j].bbox
+            // With intermittent optical flow, Kalman velocity is often *less* reliable than
+            // the last actually seen box (especially for a handheld camera reversing direction).
+            val predicted = tr.bbox
+            val last = tr.observed
+            val useLast = !motionKnown && tr.lost <= 2 &&
+                hypot(last.cx - d.cx, last.cy - d.cy) < hypot(predicted.cx - d.cx, predicted.cy - d.cy)
+            val b = if (useLast) last else predicted
             val heightRatio = d.h / max(1.0, b.h)
             val widthRatio = d.w / max(1.0, b.w)
             val distance = hypot(b.cx - d.cx, b.cy - d.cy) / max(1.0, max(b.h, d.h))
             val overlap = overlaps[i][j]
             val app = appearanceSimilarity(tr.appearance, appearances?.get(indices[j]))
             val maxDistance = when {
-                lowScore -> if (multiple) 0.42 else 1.15
-                app != null && app >= 0.87 -> if (multiple) 1.00 else 1.50
+                lowScore -> if (multiple) 0.42 else if (tr.lost <= 1) 1.80 else 1.15
+                app != null && app >= 0.87 -> if (multiple) 1.00 else if (tr.lost <= 1) 1.80 else 1.50
                 multiple -> 0.62
-                else -> 1.10
+                else -> if (tr.lost <= 1) 1.80 else 1.10
             }
             if (!distance.isFinite() || !heightRatio.isFinite() || !widthRatio.isFinite() ||
                 heightRatio !in 0.38..2.65 || widthRatio !in 0.32..3.1 ||
                 (overlap < if (lowScore) secondIou else matchIou) && distance > maxDistance ||
-                (app != null && app < 0.76 && tr.hits >= 2 && !lowScore)) impossible
+                (app != null && app < 0.76 && !lowScore)) impossible
             else {
                 val sizePenalty = abs(ln(heightRatio)) + 0.35 * abs(ln(widthRatio))
                 val colorBonus = if (app != null && app >= 0.87) 0.24 * (app - 0.87) / 0.13 else 0.0
