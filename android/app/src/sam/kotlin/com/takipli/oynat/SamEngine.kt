@@ -12,6 +12,7 @@ import com.takipli.oynat.core.BenchStats
 import com.takipli.oynat.core.FreePick
 import com.takipli.oynat.core.MemoryBank
 import com.takipli.oynat.core.PointTrack
+import com.takipli.oynat.core.SamCameraMotion
 import com.takipli.oynat.core.SamPassCounter
 import com.takipli.oynat.core.TrackGate
 import com.takipli.oynat.core.TrackDoc
@@ -204,7 +205,7 @@ object SamEngine {
     private fun sigmoid(x: Double) = 1.0 / (1.0 + exp(-x))
 
     // ---------------------------------------------------------------- memory tracker
-    private suspend fun walkMemory(s: Models, files: List<File>, order: List<Int>, pick: FreePick, ms: MutableMap<String, Double>, onFrame: (Int) -> Unit, gate: TrackGate = TrackGate()): Map<Int, Step> {
+    private suspend fun walkMemory(s: Models, files: List<File>, order: List<Int>, pick: FreePick, ms: MutableMap<String, Double>, onFrame: (Int) -> Unit, gate: TrackGate = TrackGate(), motion: SamCameraMotion? = null): Map<Int, Step> {
         val env = s.env
         val trk = s.trk!!; val memEnc = s.memEnc!!; val memAttn = s.memAttn!!
         val memShape = memAttn.inputShape("mem_feats")           // [K, ...] static
@@ -215,6 +216,10 @@ object SamEngine {
         var started = false; var area = 0.0
         var anchorPtr = FloatArray(0); var lastPtr: FloatArray? = null // object pointers: the prompted one and the last clean one
         var stableW = 0.0; var stableH = 0.0; var lastCx = 0.0; var lastCy = 0.0; var lost = 0; var unclean = 0
+        // Propagate the last *accepted* position using background flow, including
+        // camera roll, while SAM is temporarily uncertain. Never write a position
+        // into the output unless SAM itself provides a verified mask.
+        var prevFi = -1; var predictedCx = 0.0; var predictedCy = 0.0
         fun <T> timed(name: String, f: () -> T): T { val t0 = System.nanoTime(); val r = f(); ms[name] = (ms[name] ?: 0.0) + (System.nanoTime() - t0) / 1e6; return r }
         fun encodeMemory(imageFeat: OnnxTensor, mask: FloatArray, off: Int, score: Float): FloatArray {
             val mt = tensor(env, mask.copyOfRange(off, off + M * M), 1, 1, M.toLong(), M.toLong()); val st = tensor(env, floatArrayOf(score), 1, 1)
@@ -227,6 +232,9 @@ object SamEngine {
         for ((step, fi) in order.withIndex()) {
             currentCoroutineContext().ensureActive()
             val bmp = BitmapFactory.decodeFile(files[fi].path) ?: continue
+            val cameraPred = if (started && prevFi >= 0) motion?.project(predictedCx, predictedCy, prevFi, fi) else null
+            if (cameraPred != null) { predictedCx = cameraPred[0]; predictedCy = cameraPred[1] }
+            else if (started) { predictedCx = lastCx; predictedCy = lastCy }
             val img = try { chw(bmp) } finally { bmp.recycle() }
             val imgT = tensor(env, img, 1, 3, S.toLong(), S.toLong())
             try {
@@ -245,6 +253,7 @@ object SamEngine {
                         started = true; area = cd.area
                         anchorPtr = d.ptrs.copyOfRange(b * 256, b * 256 + 256)
                         stableW = cd.box.w; stableH = cd.box.h; lastCx = cd.cx; lastCy = cd.cy
+                        predictedCx = cd.cx; predictedCy = cd.cy
                         res[fi] = Step(cd.cx, cd.cy, cd.iouPred, cd.box.w, cd.box.h)
                     } else {
                         val slots = bank.memSlots(); val ptrSlots = bank.ptrSlots()
@@ -260,7 +269,12 @@ object SamEngine {
                                 if (d.score > 0f && cd.area > 0 && conf >= MIN_CONF) {
                                     val ptr = d.ptrs.copyOfRange(0, 256)
                                     val sim = max(TrackGate.cosine(ptr, anchorPtr), lastPtr?.let { TrackGate.cosine(ptr, it) } ?: -1.0)
-                                    val dist = hypot(cd.cx - lastCx, cd.cy - lastCy)
+                                    val rawDist = hypot(cd.cx - lastCx, cd.cy - lastCy)
+                                    // Camera rotation moves a stationary leg along an arc.
+                                    // Compare against the background-motion prediction as
+                                    // well as the original distance; keep the legacy path
+                                    // if the estimate is missing or untrustworthy.
+                                    val dist = if (cameraPred != null) min(rawDist, hypot(cd.cx - predictedCx, cd.cy - predictedCy)) else rawDist
                                     if (gate.accept(dist, max(stableW, stableH), lost, sim)) {
                                         // only clean frames become memory (a half-hidden subject or the blocker must not); never deadlock on a real size change
                                         val clean = TrackGate.remember(conf, ratio) || unclean >= TrackGate.FORCE_CLEAN_FRAMES
@@ -275,6 +289,7 @@ object SamEngine {
                                         val (w, h) = TrackGate.size(ratio, cd.box.w, cd.box.h, stableW, stableH) // partly covered: keep the clean size, no zoom pumping
                                         res[fi] = Step(cd.cx, cd.cy, conf.coerceAtMost(1.0), w, h)
                                         lastCx = cd.cx; lastCy = cd.cy; lost = 0; gate.note()
+                                        predictedCx = cd.cx; predictedCy = cd.cy
                                     } else lost++ // looks like something else (the blocker): treated as lost
                                 } else lost++
                             }
@@ -282,6 +297,7 @@ object SamEngine {
                     }
                 }
             } finally { imgT.close() }
+            prevFi = fi
             onFrame(fi)
         }
         return res
@@ -292,7 +308,7 @@ object SamEngine {
      * The forward walk only re-finds the subject once it is clean again; this picks it up while it is still coming out from behind the blocker,
      * so the camera arrives with it instead of after it. Frames that already have a row are never changed; extra frames are capped.
      */
-    private suspend fun reverseFill(s: Models, files: List<File>, ts: List<Double>, steps: Map<Int, Step>, ms: MutableMap<String, Double>, gate: TrackGate): Map<Int, Step> {
+    private suspend fun reverseFill(s: Models, files: List<File>, ts: List<Double>, steps: Map<Int, Step>, ms: MutableMap<String, Double>, gate: TrackGate, motion: SamCameraMotion?): Map<Int, Step> {
         val keys = steps.keys.sorted()
         val out = HashMap<Int, Step>(); var budget = FILL_MAX_FRAMES
         for (q in 0 until keys.size - 1) {
@@ -304,7 +320,7 @@ object SamEngine {
             val x1 = (st.cx - st.w / 2).coerceIn(0.0, 1.0); val x2 = (st.cx + st.w / 2).coerceIn(0.0, 1.0)
             val y1 = (st.cy - st.h / 2).coerceIn(0.0, 1.0); val y2 = (st.cy + st.h / 2).coerceIn(0.0, 1.0)
             val pick = FreePick(ts[b], st.cx, st.cy, shapes = listOf(listOf(listOf(x1, y1), listOf(x2, y1), listOf(x2, y2), listOf(x1, y2))))
-            val got = walkMemory(s, files, (b downTo b - m).toList(), pick, ms, {}, gate)
+            val got = walkMemory(s, files, (b downTo b - m).toList(), pick, ms, {}, gate, motion)
             for ((fi, step) in got) if (fi != b && fi !in steps) out[fi] = step
             budget -= m
         }
@@ -312,11 +328,12 @@ object SamEngine {
     }
 
     // ---------------------------------------------------------------- previous design: prompt per frame (encoder + decoder only)
-    private suspend fun walkPrompt(s: Models, files: List<File>, order: List<Int>, pick: FreePick, ms: MutableMap<String, Double>, onFrame: (Int) -> Unit): Map<Int, Step> {
+    private suspend fun walkPrompt(s: Models, files: List<File>, order: List<Int>, pick: FreePick, ms: MutableMap<String, Double>, onFrame: (Int) -> Unit, motion: SamCameraMotion? = null): Map<Int, Step> {
         val env = s.env
         val res = HashMap<Int, Step>()
         var box: Box? = null; var area = 0.0; var vx = 0.0; var vy = 0.0; var lastCx = 0.0; var lastCy = 0.0
         var px = pick.x; var py = pick.y; var lost = 0
+        var prevFi = -1
         for ((step, fi) in order.withIndex()) {
             currentCoroutineContext().ensureActive()
             val bmp = BitmapFactory.decodeFile(files[fi].path) ?: continue
@@ -343,22 +360,31 @@ object SamEngine {
                         res[fi] = Step(pc.cx, pc.cy, pc.iouPred, pc.box.w, pc.box.h)
                     } else {
                         val b0 = box!!
-                        val pred = b0.shift(vx, vy).grow(1.2 + 0.3 * lost.coerceAtMost(4))
-                        val (c, l) = prompt3(pred, px, py)
+                        val cameraBox = if (prevFi >= 0) motion?.projectBounds(b0.x1, b0.y1, b0.x2, b0.y2, prevFi, fi)?.let { b ->
+                            Box(b[0].coerceIn(0.0, 1.0), b[1].coerceIn(0.0, 1.0), b[2].coerceIn(0.0, 1.0), b[3].coerceIn(0.0, 1.0))
+                        } else null
+                        val cameraPoint = if (prevFi >= 0) motion?.project(px, py, prevFi, fi) else null
+                        val pred = (cameraBox ?: b0).shift(vx, vy).grow(1.2 + 0.3 * lost.coerceAtMost(4))
+                        val (c, l) = prompt3(pred, cameraPoint?.get(0)?.coerceIn(0.0, 1.0) ?: px, cameraPoint?.get(1)?.coerceIn(0.0, 1.0) ?: py)
                         val ratio = { a: Double -> if (area > 0) a / area else 1.0 }
                         val best = cands(c, l).map { cd -> cd to cd.iouPred * sqrt(cd.box.iou(pred)) * (if (ratio(cd.area) in 0.4..2.5) 1.0 else 0.5) }.maxByOrNull { it.second }
                         val conf = best?.second ?: 0.0
                         if (best != null && conf >= MIN_CONF) {
                             val cd = best.first
-                            vx = (cd.cx - lastCx).coerceIn(-b0.w, b0.w); vy = (cd.cy - lastCy).coerceIn(-b0.h, b0.h)
+                            vx = (cd.cx - (cameraBox?.cx ?: lastCx)).coerceIn(-b0.w, b0.w)
+                            vy = (cd.cy - (cameraBox?.cy ?: lastCy)).coerceIn(-b0.h, b0.h)
                             lastCx = cd.cx; lastCy = cd.cy; box = cd.box; area = 0.7 * area + 0.3 * cd.area
                             px = cd.inPx.toDouble() / M; py = cd.inPy.toDouble() / M; lost = 0
                             res[fi] = Step(cd.cx, cd.cy, conf.coerceAtMost(1.0), cd.box.w, cd.box.h)
-                        } else { lost++; vx *= 0.7; vy *= 0.7; box = pred }
+                        } else {
+                            lost++; vx *= 0.7; vy *= 0.7; box = pred
+                            if (cameraPoint != null) { px = cameraPoint[0].coerceIn(0.0, 1.0); py = cameraPoint[1].coerceIn(0.0, 1.0) }
+                        }
                     }
                     ms[DEC] = (ms[DEC] ?: 0.0) + (System.nanoTime() - t1) / 1e6
                 }
             } finally { imgT.close() }
+            prevFi = fi
             onFrame(fi)
         }
         return res
@@ -379,12 +405,23 @@ object SamEngine {
             val dir = File(ctx.cacheDir, "sam-${System.nanoTime()}").also { it.mkdirs() }
             try {
                 val files = ArrayList<File>(); val ts = ArrayList<Double>()
+                // Estimate global camera rotation from background details at the
+                // same grid as SAM. Only drawn-region tracking uses this extra
+                // optical-flow pass, preserving Point mode and its throughput.
+                val analyzer = if (pick.shapes.any { it.size >= 3 } && OpenCvFlow.available) FrameAnalyzer() else null
+                val cameraSteps = ArrayList<DoubleArray?>()
+                var imageW = 0; var imageH = 0; var motionFrames = 0
                 val tStart = System.nanoTime(); fun ms() = (System.nanoTime() - tStart) / 1_000_000
                 Diag.note(ctx, "sam", "SAM_START", "decode $startS..$endS s at $sampleFps fps | ${Diag.vitals(ctx)}")
                 val estFrames = ((endS - startS) * sampleFps).toInt() + 1
                 // endS: a partial (cancelled) scan covers only the start of the video; decoding the rest at ~1.5 s/frame looked like a freeze (progress passed its total) and filled cache/RAM.
                 VideoDecoder.sample(ctx, uri, sampleFps, startS, endS = endS, maxSide = S, userRot = UserRot.forDoc(ctx, doc)) { f ->
                     currentCoroutineContext().ensureActive()
+                    imageW = f.bitmap.width; imageH = f.bitmap.height
+                    val estimate = analyzer?.let { runCatching { it.analyze(f.bitmap) }.getOrNull() }
+                    val cam = estimate?.takeIf { it.motionOk && !it.cut }?.motion
+                    cameraSteps += cam
+                    if (cam != null) motionFrames++
                     val file = File(dir, "${files.size}.jpg")
                     file.outputStream().use { f.bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                     files += file; ts += f.t
@@ -394,6 +431,8 @@ object SamEngine {
                 }
                 Diag.note(ctx, "sam", "SAM_DECODED", "${files.size} frames in ${ms()} ms | ${Diag.vitals(ctx)}")
                 if (files.size < 2) return@withContext null
+                val cameraMotion = if (analyzer != null && imageW > 0 && imageH > 0) SamCameraMotion(cameraSteps, imageW, imageH) else null
+                if (analyzer != null) Diag.note(ctx, "sam", "SAM_CAMERA_ROTATION", "reliable=$motionFrames/${files.size} frames; affects mask gating/prompts only, not zoom")
                 // The pick frame is visited twice (forward and backward). Count
                 // it twice instead of resetting progress halfway through tracking.
                 val total = SamPassCounter(files.size).total
@@ -419,10 +458,10 @@ object SamEngine {
                             onProgress(done, total, ts[fi])
                         }
                         val gate = TrackGate()
-                        val walk: suspend (List<Int>) -> Map<Int, Step> = { order -> if (memory) walkMemory(s, files, order, pick, ms, tick, gate) else walkPrompt(s, files, order, pick, ms, tick) }
+                        val walk: suspend (List<Int>) -> Map<Int, Step> = { order -> if (memory) walkMemory(s, files, order, pick, ms, tick, gate, cameraMotion) else walkPrompt(s, files, order, pick, ms, tick, cameraMotion) }
                         val steps = HashMap<Int, Step>(walk((p until files.size).toList()))
                         steps += walk((p downTo 0).toList()).filterKeys { it != p }
-                        if (memory) steps += reverseFill(s, files, ts, steps, ms, gate)
+                        if (memory) steps += reverseFill(s, files, ts, steps, ms, gate, cameraMotion)
                         val n = max(1, files.size)
                         lastRun = (if (memory) "${selectedVariant(ctx)} memory tracker: " else "${selectedVariant(ctx)} prompt tracker: ") + s.summary(ms.mapValues { it.value / n }, files.size) + (if (memory) " | " + gate.summary() else "")
                         sp.edit().putBoolean("npu_inflight", false).apply()
