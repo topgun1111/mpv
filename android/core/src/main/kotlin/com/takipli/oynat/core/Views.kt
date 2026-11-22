@@ -268,7 +268,12 @@ fun jointBoxes(doc: TrackDoc, ids: Set<Int>, part: Int, cfg: Config): Map<Int, D
  * a missing ankle/wrist is estimated from its two upper joints (`inferJoint`) before the slice is used. `kps`
  * (Part 10b): per-sample rows from `smoothKeypoints`; null = the raw `kp`.
  */
-fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config, kps: List<Map<String, List<Double>>>? = null): Map<Int, DoubleArray> {
+fun presetBoxes(
+    doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config,
+    kps: List<Map<String, List<Double>>>? = null,
+    /** Output indices where the best box is only an unverified person-box slice. */
+    weakFrames: MutableSet<Int>? = null,
+): Map<Int, DoubleArray> {
     val joints = requireNotNull(PRESETS[preset]) { "unknown part preset: $preset" }
     val (w, h) = videoSize(doc)
     val boxes = HashMap<Int, DoubleArray>(); val best = HashMap<Int, Double>()
@@ -285,6 +290,7 @@ fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config, kps: 
         val x1 = d[1]; val y1 = d[2]; val x2 = d[3]; val y2 = d[4]; val score = d[5]
         var box: DoubleArray? = null
         var q = 0.0
+        var weak = false
         if (preset == "person") {
             box = doubleArrayOf((x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1); q = score
         } else {
@@ -292,7 +298,9 @@ fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config, kps: 
             val row = if (raw != null && raw.size >= 3 * N_KPT && cfg.kpRobust) sanitizeRow(raw, w, h, cfg.kpMinConf, (y2 - y1) * h) else raw
             val stableLowerBody = if (cfg.kpRobust && preset in lowerBodyPresets) {
                 val estimate = estimateLowerBody(raw, w, h, (y2 - y1) * h, cfg.kpMinConf, preset)
-                lowerBodyFilters.getOrPut(id) { LowerBodyTemporalFilter() }.update(estimate)
+                val stable = lowerBodyFilters.getOrPut(id) { LowerBodyTemporalFilter() }.update(estimate)
+                if (estimate == null && stable != null) weak = true // held anatomy is memory, not a fresh observation
+                stable
             } else null
             val xs = ArrayList<Double>(); val ys = ArrayList<Double>(); val cs = ArrayList<Double>()
             var distal = false // a limb-end joint (knee/ankle, elbow/wrist) survived
@@ -319,9 +327,13 @@ fun presetBoxes(doc: TrackDoc, ids: Set<Int>, preset: String, cfg: Config, kps: 
                 val (top, bot) = REGION.getValue(preset)
                 val ry1 = y1 + (y2 - y1) * top; val ry2 = y1 + (y2 - y1) * bot
                 box = doubleArrayOf((x1 + x2) / 2, (ry1 + ry2) / 2, x2 - x1, ry2 - ry1); q = -1.0 + score
+                weak = true // no reliable joint or anatomical hip anchor survived
             }
         }
-        if (q >= (best[i] ?: -2.0)) { boxes[i] = box!!; best[i] = q }
+        if (q >= (best[i] ?: -2.0)) {
+            boxes[i] = box!!; best[i] = q
+            if (weak) weakFrames?.add(i) else weakFrames?.remove(i)
+        }
         }
     }
     return boxes
@@ -359,26 +371,37 @@ fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Dire
     val bad = if (robust && target.free == null) suspectSamples(doc0, ids) else emptySet()
     val doc = if (bad.isEmpty()) doc0 else dropSamples(doc0, ids, bad)
     var minFit = 0.0
+    var weakFrames: Set<Int> = emptySet()
     val boxes = when {
         target.free != null -> {
             // Part 16a: any tapped spot; fused multi-pass point, then the same camera-compensated off-screen propagation
             // the anchor person may have a new ID after an occlusion: let the anchor follow it
             val alt = (if (robust) makeAnchor(doc, target.free, cfg)?.id?.let { relinkIdsBidirectional(doc, setOf(it)) - it }.orEmpty() else emptySet()) + target.linked
             val b = freePointBoxes(doc, target.free, cfg, alt)
-            if (cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
+            if (robust && cfg.occlusionMemoryS > 0.0) temporalMemoryBoxes(doc, b, cfg.occlusionMemoryS)
+            else if (cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
         }
         target.preset != null -> {
             // Part 10b (`offline.py::build_preset_views`): per-joint One-Euro, then off-screen propagation
             val part = target.preset != "person"
             if (part) minFit = PART_FIT
             val kps = if (part && cfg.kpFilter) smoothKeypoints(doc, ids, cfg) else null
-            val observed = presetBoxes(doc, ids, target.preset, cfg, kps)
+            val uncertain = if (robust && part) HashSet<Int>() else null
+            val observed = presetBoxes(doc, ids, target.preset, cfg, kps, uncertain)
             val fused = if (robust && doc.samSeedT != null) fuseBodySam(doc, target, observed, cfg, doc.samSeedT) else observed
-            // When a person detector drops a frame entirely, presetBoxes has no row
-            // to update. Carry the last anatomical lower-body box for a bounded gap.
-            val b = if (robust && target.preset in LEG_PRESETS)
-                lowerBodyBoxes(doc, ids, fused, cfg, holdS = 2.0) else fused
-            if (part && cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, b, cfg) else b
+            // A SAM-recovered part is more trustworthy than a detector's generic
+            // fallback slice. During robust scans, temporal memory handles both
+            // absent rows and weak slices; older PC propagation is unchanged.
+            weakFrames = uncertain.orEmpty().filter { i ->
+                val before = observed[i]; val after = fused[i]
+                before != null && after != null && before.contentEquals(after)
+            }.toSet()
+            if (!robust || cfg.occlusionMemoryS <= 0.0) {
+                // The slider's zero position restores the exact pre-memory path.
+                val legacy = if (robust && target.preset in LEG_PRESETS)
+                    lowerBodyBoxes(doc, ids, fused, cfg, holdS = 2.0) else fused
+                if (part && cfg.kpWorld && cfg.kpHoldS > 0) propagateBoxes(doc, legacy, cfg) else legacy
+            } else fused
         }
         target.part != null -> {
             val observed = jointBoxes(doc, ids, target.part, cfg)
@@ -390,7 +413,9 @@ fun buildTargetViews(doc0: TrackDoc, target: Target, cfg: Config, director: Dire
     // (fixed zoom = `free.zoom` set: boxes are squares sized for exactly that zoom, so the normal fill applies)
     val fp = target.free
     val viewCfg = if (fp != null && fp.framed && fp.zoom == null) cfg.copy(targetFill = regionFill(cfg.targetFill, fp.fill ?: 0.90)) else cfg
-    return viewsFromBoxes(ts, boxes, viewCfg, cutIndices(doc), minFit, director)
+    val remembered = if (robust && fp == null)
+        temporalMemoryBoxes(doc, boxes, cfg.occlusionMemoryS, weakFrames) else boxes
+    return viewsFromBoxes(ts, remembered, viewCfg, cutIndices(doc), minFit, director)
 }
 
 /** `live.py::pick_track` on pixel boxes: inside a box -> smallest centre offset (then area); else nearest within `tol`. */

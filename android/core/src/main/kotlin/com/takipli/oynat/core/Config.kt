@@ -27,6 +27,8 @@ data class Config(
     val lostZoomoutS: Double = 2.0,
     /** Android-only: a gap (occluded subject) up to this long, with the subject back afterwards, keeps the zoom and glides to the new place; 0 = old hold + zoom-out (PC parity). */
     val lostBridgeS: Double = 0.0,
+    /** Android robust views only: maximum time to predict the last trustworthy target box through a missing/weak detection. */
+    val occlusionMemoryS: Double = DEFAULT_OCCLUSION_MEMORY_S,
     val kfAccel: Double = 0.5,
     val kfMeas: Double = 0.01,
     val gmc: Boolean = true,
