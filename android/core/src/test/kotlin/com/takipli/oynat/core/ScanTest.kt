@@ -109,6 +109,25 @@ class ScanTest {
     }
 
     @Test
+    fun motionRecoveryKeepsLegKeypointsAttachedToTheSamePerson() {
+        val pipe = ScanPipeline(Config(), ByteTracker.fromConfig(Config(), 10.0))
+        fun legPose(x: Double, y: Double, scale: Double): Pose {
+            val b = BBox.fromXywh(x, y, 50.0 * scale, 120.0 * scale)
+            val kp = DoubleArray(51)
+            for (k in 0 until 17) {
+                kp[3 * k] = b.cx
+                kp[3 * k + 1] = b.cy
+                kp[3 * k + 2] = 0.9
+            }
+            return Pose(b, 0.9, kp)
+        }
+        pipe.step(0.0, 800, 600, listOf(legPose(100.0, 120.0, 1.0)))
+        val s = pipe.step(0.1, 800, 600, listOf(legPose(190.0, 160.0, 1.3)))
+        assertEquals(listOf(1), s.d.map { it[0].toInt() })
+        assertTrue(s.kp?.containsKey("1") == true, "legs must not vanish from pose association after a camera jump")
+    }
+
+    @Test
     fun signatureIsStableAndKeyedOnFpsAndModel() {
         assertEquals("c1ab80b43f92e057", scanSig("v1", 10.0, "m.onnx:123"))
         assertEquals("38b94dcc838f22e5", scanSig("abc", 7.5, ""))

@@ -69,9 +69,13 @@ class ScanPipeline(private val cfg: Config = Config(), private val tracker: Byte
         tracker.setNextId(maxId + 1)
     }
 
-    fun step(t: Double, w: Int, h: Int, poses: List<Pose>, motion: DoubleArray? = null, cut: Boolean = false): Sample {
+    fun step(t: Double, w: Int, h: Int, poses: List<Pose>, motion: DoubleArray? = null, cut: Boolean = false,
+             appearances: List<List<Double>?>? = null): Sample {
+        require(appearances == null || appearances.size == poses.size) { "appearance count must match poses" }
         if (cut) tracker.clear()
-        val tracks = tracker.update(poses.toDetections(cfg.liveDetConf), if (cut) null else motion)
+        val detIndices = poses.indices.filter { poses[it].score >= cfg.liveDetConf }
+        val tracks = tracker.update(poses.toDetections(cfg.liveDetConf), if (cut) null else motion,
+            appearances?.let { descriptors -> detIndices.map { descriptors[it] } })
         val d = tracks.map { tr ->
             val b = tr.bbox
             listOf(tr.id.toDouble(), round(b.x1 / w, 4), round(b.y1 / h, 4), round(b.x2 / w, 4), round(b.y2 / h, 4), round(tr.score, 3))

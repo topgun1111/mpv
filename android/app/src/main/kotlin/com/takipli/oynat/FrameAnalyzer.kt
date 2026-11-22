@@ -87,7 +87,11 @@ class FrameAnalysis(
 class FrameAnalyzer(camSide: Int = 480, histThr: Double = 0.35, diffThr: Double = 0.18, flow: FlowTracker = OpenCvFlow()) {
     private val camSideLocal = camSide
     private val motion = CameraMotion(flow, camSide)
-    private val cuts = CutDetector(histThr, diffThr)
+    // Rapid handheld pans and zooms can make optical flow temporarily fail. The PC
+    // cut detector lowers both thresholds in that case (relax=0.7), but on a phone
+    // this can misclassify camera movement as a cut and immediately erase person IDs.
+    // Keep the original thresholds until both histogram and luminance indicate a cut.
+    private val cuts = CutDetector(histThr, diffThr, relax = 1.0)
     val world: DoubleArray get() = motion.world
 
     fun reset() { motion.reset(); cuts.reset() }
