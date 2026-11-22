@@ -201,4 +201,82 @@ class TrackingTest {
         assertEquals(1, run(ByteTracker.fromConfig(Config(), 10.0)))  // 6 s window = 60 samples
         assertEquals(1, run(ByteTracker.fromConfig(Config(), 20.0)))
     }
+
+    @Test
+    fun androidMotionRecoversLargePanAndDepthChangeWithoutOpticalFlow() {
+        val tracker = ByteTracker.fromConfig(Config(), 10.0)
+        val first = tracker.update(listOf(det(100.0, 100.0))).single()
+        // No usable background features: the camera translates nearly one full person height
+        // while approaching the subject. The old 0.3-IoU matcher creates a second ID here.
+        val shifted = Detection(BBox.fromXywh(175.0, 130.0, 57.0, 143.0), 0.91)
+        val recovered = tracker.update(listOf(shifted)).single()
+        assertEquals(first.id, recovered.id)
+        assertEquals(shifted.bbox, recovered.bbox) // downstream keypoints can still associate
+        assertTrue(tracker.lostTracks.isEmpty())
+    }
+
+    @Test
+    fun androidMotionPreservesIdentityDuringSustainedUnsteadyHandheldMovement() {
+        val tracker = ByteTracker.fromConfig(Config(), 10.0)
+        for (frame in 0..79) {
+            val x = 200.0 + 83 * Math.sin(frame * 1.2)
+            val y = 150.0 + 62 * Math.cos(frame * 0.87)
+            val scale = 1.0 + 0.33 * Math.sin(frame * 0.4)
+            val box = BBox.fromXywh(x, y, 40.0 * scale, 100.0 * scale)
+            val score = if (frame % 7 == 3) 0.32 else 0.9
+            val result = tracker.update(listOf(Detection(box, score))).single()
+            assertEquals(1, result.id, "identity changed at moving frame $frame")
+            assertEquals(box, result.bbox, "frame $frame must provide the observed box")
+        }
+    }
+
+    @Test
+    fun androidMotionCompensatesCameraRollScaleAndVerticalDrift() {
+        val tracker = ByteTracker.fromConfig(Config(), 10.0)
+        tracker.update(listOf(det(180.0, 160.0)))
+        val radians = Math.toRadians(13.0)
+        val scale = 1.24
+        val a = Math.cos(radians) * scale
+        val b = Math.sin(radians) * scale
+        val motion = doubleArrayOf(a, -b, 62.0, b, a, -48.0, 0.0, 0.0, 1.0)
+        val center = doubleArrayOf(a * 200 - b * 210 + 62, b * 200 + a * 210 - 48)
+        val nextBox = BBox.fromXywh(center[0] - 26.0, center[1] - 62.0, 52.0, 124.0)
+        val result = tracker.update(listOf(Detection(nextBox, 0.9)), motion).single()
+        assertEquals(1, result.id)
+        assertEquals(nextBox, result.bbox)
+    }
+
+    @Test
+    fun androidMotionUsesAppearanceToAvoidSwitchingPeopleAfterCrossing() {
+        val tracker = ByteTracker.fromConfig(Config(), 10.0)
+        fun signature(bin: Int) = List(APPEARANCE_BINS) { if (it % 8 == bin) 1.0 else 0.0 }
+        val red = signature(0); val blue = signature(7)
+        val start = listOf(det(0.0, 100.0), det(100.0, 100.0))
+        assertEquals(listOf(1, 2), tracker.update(start, appearances = listOf(red, blue)).map { it.id })
+        // People exchange positions in a fast camera move: IoU alone follows positions,
+        // whereas the visual signatures preserve the original identities.
+        val after = listOf(det(100.0, 100.0), det(0.0, 100.0))
+        val seen = tracker.update(after, appearances = listOf(red, blue))
+        assertEquals(listOf(1, 2), seen.map { it.id })
+        assertEquals(after[0].bbox, seen[0].bbox)
+        assertEquals(after[1].bbox, seen[1].bbox)
+    }
+
+    @Test
+    fun androidMotionRejectsIndistinguishableCrossingAndDoesNotStealAnOldId() {
+        val tracker = ByteTracker.fromConfig(Config(), 10.0)
+        tracker.update(listOf(det(0.0, 100.0), det(100.0, 100.0)))
+        val uncertain = tracker.update(listOf(det(50.0, 100.0)))
+        assertEquals(listOf(3), uncertain.map { it.id })
+        assertEquals(setOf(1, 2), tracker.lostTracks.map { it.id }.toSet())
+    }
+
+    @Test
+    fun androidMotionStillResetsAtExplicitCutsAndValidatesInputAlignment() {
+        val tracker = ByteTracker.fromConfig(Config(), 10.0)
+        tracker.update(listOf(det(100.0, 100.0)))
+        assertFailsWith<IllegalArgumentException> { tracker.update(listOf(det(100.0, 100.0)), appearances = emptyList()) }
+        tracker.clear()
+        assertEquals(2, tracker.update(listOf(det(100.0, 100.0))).single().id)
+    }
 }

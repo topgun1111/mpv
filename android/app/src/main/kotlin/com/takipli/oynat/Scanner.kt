@@ -101,7 +101,8 @@ object Scanner {
         val t0 = SystemClock.elapsedRealtime()
         val info = VideoDecoder.probe(ctx, uri)
         val modelTag = "${runner.modelName}:${(runner.modelMb * 1e6).toLong()}" + if (runner.npu) ":npu" else ""
-        val sig = scanSig(videoId + (if (info.userRot != 0) "|rot${info.userRot}" else "") + rangeTag(rangeA, rangeB), fps, modelTag) // a manual rotation changes every frame: new cache key
+        // Invalidate old IoU-only scans: otherwise an existing cache hides the improved tracker entirely.
+        val sig = scanSig(videoId + (if (info.userRot != 0) "|rot${info.userRot}" else "") + rangeTag(rangeA, rangeB), fps, "$modelTag:body-motion-v2")
         val partial = File(trackFile.path + ".partial")
 
         readDoc(trackFile, sig)?.takeIf { it.version >= 2 }?.let { // the signature includes the turn, so an older cached file without the stored value was made with the current one
@@ -162,7 +163,15 @@ object Scanner {
                 var pvMs = 0.0
                 val cut = cfg.cutDetect && a?.cut == true
                 val motion = if (cfg.gmc && a != null && !cut && a.motionOk) a.motion else null
-                val s = pipe.step(f.t, bmp.width, bmp.height, poses, motion, cut)
+                // Describe each pose BEFORE matching. Re-ID applied after assignment cannot stop an
+                // ID switch caused by a fast pan, camera roll or change in subject distance.
+                val descriptions = poses.map { p ->
+                    if (p.score < 0.5) null else PersonAppearance.describe(bmp, listOf(
+                        p.bbox.x1 / bmp.width, p.bbox.y1 / bmp.height,
+                        p.bbox.x2 / bmp.width, p.bbox.y2 / bmp.height,
+                    ))
+                }
+                val s = pipe.step(f.t, bmp.width, bmp.height, poses, motion, cut, descriptions)
                 // Conservative colour signatures: only high-score, isolated persons can
                 // teach the identity bank. A blocker overlapping the person is ignored.
                 var reidQuota = 3
