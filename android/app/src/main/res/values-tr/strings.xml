@@ -194,5 +194,5 @@
     <string name="scan_sam_track">SAM kurtarma %1$d/%2$d: maske analizi %3$d/%4$d (yavaş)</string>
     <string name="scan_point_decode">Nokta: kare hazırlığı %1$d/%2$d</string>
     <string name="scan_point_track">Nokta: hedef takibi %1$d/%2$d (SAM yavaş olabilir)</string>
-    <string name="scan_stall_hint">90 saniyedir ilerleme yok. Video çözme veya yapay zekâ işlemi takılmış olabilir. İptal'i deneyin; yanıt vermezse uygulamayı zorla durdurup kayıtlı ilerlemeden devam etmek için yeniden açın.</string>
+    <string name="scan_stall_hint">90 saniyedir ilerleme yok. Video çözme veya yapay zekâ işlemi takılmış olabilir. İptal düğmesini deneyin; yanıt vermezse uygulamayı zorla durdurup kayıtlı ilerlemeden devam etmek için yeniden açın.</string>
 </resources>
