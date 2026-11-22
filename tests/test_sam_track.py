@@ -513,10 +513,13 @@ def test_cli_sam_track_saves_a_partial_file_on_interrupt(tmp_path, monkeypatch, 
 def test_graph_tensor_names_used_by_the_loop_match_the_export_script_and_kotlin():
     export = (ROOT / "scripts/export_sam2.py").read_text(encoding="utf-8")
     kotlin = (ROOT / "android/app/src/sam/kotlin/com/takipli/oynat/SamEngine.kt").read_text(encoding="utf-8")
+    scale_memory = (ROOT / "android/core/src/main/kotlin/com/takipli/oynat/core/SamScaleMemory.kt").read_text(encoding="utf-8")
     for n in ("image_feat", "low_res_mask", "object_score", "mem_feat", "mem_feats", "ptrs", "image_embed"):
         assert n in export and f'"{n}"' in kotlin, n
     assert (st.MIN_CONF, st.RATIO_LO, st.RATIO_HI) == (0.35, 0.25, 4.0)
-    assert "MIN_CONF = 0.35" in kotlin and "ratio in 0.25..4.0" in kotlin and "0.8 * area + 0.2 * cd.area" in kotlin
+    assert "MIN_CONF = 0.35" in kotlin and "ratio in 0.25..4.0" in kotlin
+    assert "sizeMemory.areaRatio(cd.area)" in kotlin and "sizeMemory.observeClean(cd.area, cd.box.w, cd.box.h)" in kotlin
+    assert "cleanArea = 0.8 * cleanArea + 0.2 * area" in scale_memory
     assert re.search(r"d\.score > 0f && cd\.area > 0 && conf >= MIN_CONF", kotlin)
 
 
