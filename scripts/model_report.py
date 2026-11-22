@@ -67,9 +67,11 @@ class Result:
 def preset(name: str) -> list[Spec]:
     if name == "android-pose":
         return [Spec("yolov8s-pose.onnx", 5 * MB, kind="pose"),
-                Spec("yolo11m-pose.onnx", 30 * MB, kind="pose")]
+                Spec("yolo11m-pose.onnx", 30 * MB, kind="pose"),
+                Spec("osnet-reid.onnx", 8 * MB, want_in={"image"}, want_out={"embeddings"})]
     if name == "android-sam":
-        specs = [Spec("yolov8s-pose.onnx", 5 * MB, kind="pose")]
+        specs = [Spec("yolov8s-pose.onnx", 5 * MB, kind="pose"),
+                 Spec("osnet-reid.onnx", 8 * MB, want_in={"image"}, want_out={"embeddings"})]
         for variant in ("edgetam", "small"):
             for graph, (ins, outs) in SAM_GRAPHS.items():
                 specs.append(Spec(f"{variant}/{graph}", MB, kind="sam", want_in=ins, want_out=outs))

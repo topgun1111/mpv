@@ -393,6 +393,10 @@ object Diag {
                 ensureActive()
                 val prov = if (npu) "NPU" else "CPU"
                 val label = "${name.removeSuffix(".onnx")} $prov"
+                if (npu && name == "osnet-reid.onnx") {
+                    add(Finding(Sev.INFO, "SKIP_NPU", "$label skipped: the identity encoder is intentionally CPU-only"))
+                    continue
+                }
                 if (npu && !haveQnn) { add(Finding(Sev.INFO, "SKIP_NPU", "$label skipped: QNN libs missing")); continue }
                 onStatus(label)
                 Trace.step(ctx, "selfcheck $label")

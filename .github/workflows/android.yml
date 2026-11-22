@@ -55,6 +55,13 @@ jobs:
           for m in $models; do python scripts/export_pose.py "$d" "$m"; done
           ls -l "$d"
           for m in $models; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
+      - name: Qualcomm OSNet identity model (MIT, verified offline export)
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 3 -o "$RUNNER_TEMP/osnet-onnx.zip" \
+            'https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/osnet/releases/v0.66.0/osnet-onnx-float.zip'
+          python scripts/prepare_osnet.py "$RUNNER_TEMP/osnet-onnx.zip" \
+            "android/app/src/${{ matrix.flavor }}/assets/models/osnet-reid.onnx"
       - name: Export EdgeTAM and SAM 2.1 Small (five graphs each, isolated environments)
         if: matrix.flavor == 'sam'
         shell: bash
@@ -133,6 +140,7 @@ jobs:
           apk=android/app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk
           test -s "$apk" || { echo "release APK was not produced (unsigned?)"; ls -l "$(dirname "$apk")"; exit 1; }
           entries=$(unzip -Z1 "$apk")
+          grep -Fxq 'assets/models/osnet-reid.onnx' <<< "$entries" || { echo 'APK missing OSNet ReID'; exit 1; }
           if [ "${{ matrix.flavor }}" = "pose" ]; then
             for model in yolov8s-pose.onnx yolo11m-pose.onnx; do
               grep -Fxq "assets/models/$model" <<< "$entries" || { echo "APK missing $model"; exit 1; }

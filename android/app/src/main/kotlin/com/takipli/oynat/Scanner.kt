@@ -10,6 +10,7 @@ import com.takipli.oynat.core.Config
 import com.takipli.oynat.core.Formats
 import com.takipli.oynat.core.LostWatch
 import com.takipli.oynat.core.PreviewHold
+import com.takipli.oynat.core.ReidGallery
 import com.takipli.oynat.core.ScanPipeline
 import com.takipli.oynat.core.Target
 import com.takipli.oynat.core.TargetPick
@@ -110,6 +111,15 @@ object Scanner {
         val previous = readDoc(partial, sig)
         val prior = previous?.samples.orEmpty()
         val appearance = AppearanceGallery().also { it.restore(previous?.appearance) }
+        val identities = ReidGallery().also { it.restore(previous?.reid) }
+        // Free-point/region targets do not use person IDs: avoid needless Re-ID
+        // inference during their scan and leave CPU time for SAM/optical flow.
+        var neural: NeuralReid? = if (pick?.free != true && "osnet-reid.onnx" in ModelStore.list(ctx)) {
+            runCatching { NeuralReid(ctx) }
+                .onFailure { Diag.note(ctx, "reid", "MODEL_UNAVAILABLE", "OSNet disabled: ${(it.message ?: it.javaClass.simpleName).take(160)}", com.takipli.oynat.core.Sev.WARN) }
+                .getOrNull()
+        } else null
+        if (neural != null) Diag.note(ctx, "reid", "MODEL_READY", "OSNet 512-dim person embeddings on CPU; conservative matching")
         val pipe = ScanPipeline(cfg, ByteTracker.fromConfig(cfg, fps)) // loss window in seconds, not samples: a few seconds of occlusion keep the ID at any scan fps
         val pvHold = PreviewHold(maxOf(cfg.kpHoldS, PREVIEW_OCCLUSION_HOLD_S))
         pipe.resume(prior)
@@ -136,7 +146,7 @@ object Scanner {
         fun snapshot() = buildScanDoc(
             uri.toString(), info.width, info.height, info.frameRate ?: fps, info.durationS, fps,
             pipe.samples.toList(), sig, videoId, info.userRot, // the turn is stored so later stages use the scan's own orientation
-        ).copy(range = clipRange, appearance = appearance.snapshot().ifEmpty { null })
+        ).copy(range = clipRange, appearance = appearance.snapshot().ifEmpty { null }, reid = identities.snapshot().ifEmpty { null })
 
         try {
             VideoDecoder.sample(ctx, uri, fps, startS, endS, maxSide = maxSide, userRot = info.userRot) { f ->
@@ -155,6 +165,7 @@ object Scanner {
                 val s = pipe.step(f.t, bmp.width, bmp.height, poses, motion, cut)
                 // Conservative colour signatures: only high-score, isolated persons can
                 // teach the identity bank. A blocker overlapping the person is ignored.
+                var reidQuota = 3
                 for (d in s.d) {
                     if (d.size < 6 || d[5] < 0.65 || d[4] - d[2] < 0.2) continue
                     val b = BBox(d[1], d[2], d[3], d[4])
@@ -162,6 +173,21 @@ object Scanner {
                         .map { BBox(it[1], it[2], it[3], it[4]) }
                     if (others.isNotEmpty() && iouMatrix(listOf(b), others)[0].any { it > 0.20 }) continue
                     PersonAppearance.describe(bmp, d.subList(1, 5))?.let { appearance.observe(d[0].toInt(), s.t, it) }
+                    val id = d[0].toInt()
+                    if (neural != null && reidQuota > 0 && identities.due(id, s.t)) {
+                        val joints = s.kp?.get(id.toString())
+                        val strong = joints?.let { row -> row.indices.count { j -> j % 3 == 2 && row[j] >= 0.5 } } ?: 0
+                        // An occluded/merged pose is not a trustworthy identity reference.
+                        if (strong >= 5) {
+                            reidQuota--
+                            try {
+                                neural?.describe(bmp, d.subList(1, 5))?.let { identities.observe(id, s.t, it) }
+                            } catch (e: Throwable) {
+                                ErrorLog.record(ctx, "reid", e)
+                                runCatching { neural?.close() }; neural = null // keep the pose scan alive
+                            }
+                        }
+                    }
                 }
                 // Live target: resolved once the scan has reached the pick frame (independent of the preview, the loss alert needs it too)
                 val cp = curPick
@@ -172,7 +198,7 @@ object Scanner {
                 }
                 // The tracker may give the person a new ID: link it (cheap check, the relink search runs on every 3rd sample while absent)
                 if (liveTarget != null && pipe.samples.size % 3 == 0)
-                    liveTarget = liveRelink(pipe.samples, bmp.width, bmp.height, liveTarget, s, appearance.snapshot())
+                    liveTarget = liveRelink(pipe.samples, bmp.width, bmp.height, liveTarget, s, appearance.snapshot(), identities.snapshot())
                 // Target gone for a few seconds: vibrate + let the user jump to a clear frame and pick again, then go on
                 val lt = liveTarget
                 // Free-point/region targets have their own SAM/optical-flow pass AFTER the
@@ -215,6 +241,8 @@ object Scanner {
                 Unit
             }
             throw e
+        } finally {
+            runCatching { neural?.close() }
         }
         val doc = snapshot()
         writeAtomic(trackFile, doc)

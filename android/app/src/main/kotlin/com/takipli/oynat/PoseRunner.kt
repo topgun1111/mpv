@@ -33,6 +33,11 @@ object ModelStore {
         return (assets + side).distinct().sorted()
     }
 
+    /** The identity encoder is not a pose detector; never show it in pose selection/benchmarks. */
+    fun listPose(ctx: Context): List<String> = list(ctx).filterNot {
+        it.startsWith("sam-") || it == "osnet-reid.onnx"
+    }
+
     fun listSam(ctx: Context, variant: String): List<String> {
         val rel = "$DIR/$variant"
         val assets = ctx.assets.list(rel).orEmpty().filter { it.endsWith(".onnx") }

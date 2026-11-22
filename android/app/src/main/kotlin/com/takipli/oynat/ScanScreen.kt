@@ -50,7 +50,7 @@ private val SCAN_FPS = listOf(5, 10, 15)
 fun ScanScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val models = remember { ModelStore.list(ctx).filterNot { it.startsWith("sam-") } } // sam-* graphs are not pose models (side-loaded ones show up in the list too)
+    val models = remember { ModelStore.listPose(ctx) }
     var uri by remember { mutableStateOf<Uri?>(null) }
     var videoId by remember { mutableStateOf("") }
     var model by remember { mutableStateOf(models.firstOrNull { it.contains("v8s") } ?: models.firstOrNull().orEmpty()) }

@@ -61,9 +61,13 @@ fun relinkIds(doc: TrackDoc, ids: Set<Int>, windowS: Double = RELINK_WINDOW_S): 
             if (ratio < 0.5 || ratio > 2.0) continue
             val d = hypot((o.b[0] + o.b[2]) / 2 * w - lcx, (o.b[1] + o.b[3]) / 2 * h - lcy) / lh
             if (d > min(1.0 + 0.5 * gap, 3.5)) continue
-            val sim = appearanceSimilarity(doc.appearance?.get(lastId.toString()), doc.appearance?.get(id.toString()))
-            if (sim != null && sim < MIN_APPEARANCE_SIMILARITY) continue
-            val score = d + 0.1 * gap + (sim?.let { 1.0 - it } ?: 0.0)
+            val colour = appearanceSimilarity(doc.appearance?.get(lastId.toString()), doc.appearance?.get(id.toString()))
+            val neural = reidSimilarity(doc.reid?.get(lastId.toString()), doc.reid?.get(id.toString()))
+            if (neural != null && neural < MIN_REID_SIMILARITY) continue
+            if (colour != null && colour < MIN_APPEARANCE_SIMILARITY &&
+                (neural == null || neural < STRONG_REID_SIMILARITY)) continue
+            val penalty = neural?.let { (1.0 - it) * 1.4 } ?: (colour?.let { 1.0 - it } ?: 0.0)
+            val score = d + 0.1 * gap + penalty
             if (score < bestScore) { runnerUp = bestScore; bestScore = score; best = id }
             else if (score < runnerUp) runnerUp = score
         }
@@ -111,10 +115,14 @@ fun relinkIdsBidirectional(doc: TrackDoc, ids: Set<Int>, windowS: Double = RELIN
             if (ratio !in 0.5..2.0) continue
             val dist = hypot((o.b[0] + o.b[2]) / 2 * w - fx, (o.b[1] + o.b[3]) / 2 * h - fy) / fh
             if (dist > min(1.0 + 0.5 * gap, 3.5)) continue
-            val sim = appearanceSimilarity(doc.appearance?.get(firstId.toString()), doc.appearance?.get(id.toString()))
-            if (sim != null && sim < MIN_APPEARANCE_SIMILARITY) continue
-            if (sim == null && (gap > 2.0 || dist > 0.7)) continue
-            val score = dist + 0.1 * gap + (sim?.let { 1.0 - it } ?: 0.0)
+            val colour = appearanceSimilarity(doc.appearance?.get(firstId.toString()), doc.appearance?.get(id.toString()))
+            val neural = reidSimilarity(doc.reid?.get(firstId.toString()), doc.reid?.get(id.toString()))
+            if (neural != null && neural < MIN_REID_SIMILARITY) continue
+            if (colour != null && colour < MIN_APPEARANCE_SIMILARITY &&
+                (neural == null || neural < STRONG_REID_SIMILARITY)) continue
+            if (neural == null && colour == null && (gap > 2.0 || dist > 0.7)) continue
+            val penalty = neural?.let { (1.0 - it) * 1.4 } ?: (colour?.let { 1.0 - it } ?: 0.0)
+            val score = dist + 0.1 * gap + penalty
             if (score < bestScore) { runnerUp = bestScore; bestScore = score; best = id }
             else if (score < runnerUp) runnerUp = score
         }
