@@ -11,6 +11,8 @@ import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.os.VibrationEffect
@@ -43,7 +45,7 @@ import java.io.File
 /** What the UI shows. The scan itself lives in [ScanService], so it survives the screen going off and the activity closing. */
 sealed interface ScanUi {
     data object Idle : ScanUi
-    class Running(val p: ScanProgress?, val pv: ScanPreview? = null) : ScanUi
+    class Running(val p: ScanProgress?, val pv: ScanPreview? = null, val warning: String? = null) : ScanUi
     /** `targetText` null = nobody was at the picked point (scan is kept; pick again without rescanning). */
     class Done(val samples: Int, val cached: Boolean, val targetText: String?, val file: String, val xRealtime: Double, val preview: Boolean) : ScanUi
     /** The target has been gone for a few seconds: the scan is PAUSED at video time `t` until [ScanService.resolveLost] is called. */
@@ -71,6 +73,31 @@ class ScanService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
     private var wake: PowerManager.WakeLock? = null
+    private val watchdogHandler = Handler(Looper.getMainLooper())
+    @Volatile private var lastAdvanceMs = 0L
+    @Volatile private var stallReported = false
+    private val watchdog = object : Runnable {
+        override fun run() {
+            if (job?.isActive == true) {
+                val since = SystemClock.elapsedRealtime() - lastAdvanceMs
+                if (!cancelling && pendingLost == null && since >= STALL_MS && !stallReported) {
+                    stallReported = true
+                    val p = lastProgress
+                    Diag.note(this@ScanService, "scan", "NO_PROGRESS", "no sample or tracking update for ${since / 1000}s; stage=${p?.stage}, samples=${p?.samples}/${p?.total}, t=${p?.t}", com.takipli.oynat.core.Sev.WARN)
+                    val warning = getString(R.string.scan_stall_hint)
+                    post(ScanUi.Running(p, warning = warning))
+                    notify(note(warning, p))
+                }
+                watchdogHandler.postDelayed(this, WATCHDOG_POLL_MS)
+            }
+        }
+    }
+
+    private fun progressed(p: ScanProgress) {
+        lastAdvanceMs = SystemClock.elapsedRealtime()
+        stallReported = false
+        lastProgress = p
+    }
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -85,8 +112,11 @@ class ScanService : Service() {
         wake = (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "takipli:scan")
             .apply { acquire(WAKE_MAX_MS) }
         cancelling = false
+        lastAdvanceMs = SystemClock.elapsedRealtime()
+        stallReported = false
         post(ScanUi.Running(null))
         job = scope.launch { run(intent); stopSelf(startId) }
+        watchdogHandler.postDelayed(watchdog, WATCHDOG_POLL_MS)
         return START_REDELIVER_INTENT
     }
 
@@ -96,11 +126,14 @@ class ScanService : Service() {
         try {
             val uri = Uri.parse(i.getStringExtra(X_URI))
             val videoId = i.getStringExtra(X_VIDEO_ID).orEmpty()
-            val fps = i.getDoubleExtra(X_FPS, 10.0)
+            val requestedFps = i.getDoubleExtra(X_FPS, 10.0)
             // Android scans keep the crop through short occlusions; the core default stays
             // unchanged for PC/golden compatibility. ResultScreen can still tune this value.
             val cfg = Config(lostBridgeS = 4.0)
             val pick = Formats.json.decodeFromString<TargetPick>(i.getStringExtra(X_PICK).orEmpty())
+            // The SAM point tracker uses 6 fps internally. No point/region scan needs
+            // a 30/60-fps YOLO prepass (and 60 random video seeks every second).
+            val fps = if (pick.free) requestedFps.coerceIn(1.0, 10.0) else requestedFps
             val ra = i.getDoubleExtra(X_A, Double.NaN).takeIf { !it.isNaN() }; val rb = i.getDoubleExtra(X_B, Double.NaN).takeIf { !it.isNaN() }
             val file = scanFile(this, videoId, ra, rb)
             cancelCtx = CancelCtx(file, pick, cfg, uri, seenRepicks)
@@ -115,22 +148,38 @@ class ScanService : Service() {
                 pendingLost = d
                 notify(note(getString(R.string.scan_notify_lost), null))
                 post(ScanUi.Lost(t, i.getStringExtra(X_URI).orEmpty(), videoId, lastP))
-                try { d.await().also { np -> if (np != null) seenRepicks += np } } finally { pendingLost = null; post(ScanUi.Running(lastP, lastPv)) }
+                try { d.await().also { np -> if (np != null) seenRepicks += np } } finally {
+                    pendingLost = null; lastAdvanceMs = SystemClock.elapsedRealtime(); post(ScanUi.Running(lastP, lastPv))
+                }
             }
-            val res = PoseRunner(this, i.getStringExtra(X_MODEL).orEmpty(), threads = 4, wantNpu = i.getBooleanExtra(X_NPU, false)).use { runner ->
+            val runner = if (pick.free) null else PoseRunner(this, i.getStringExtra(X_MODEL).orEmpty(), threads = 4, wantNpu = i.getBooleanExtra(X_NPU, false))
+            val res = try {
                 Scanner.scan(this, uri, videoId, runner, fps, file, cfg, pick = pick, rangeA = ra, rangeB = rb, onPreview = if (withPreview) ({ v: ScanPreview -> lastPv = v }) else null, onLost = onLost) { p ->
-                    lastP = p; lastProgress = p
+                    lastP = p; progressed(p)
                     post(ScanUi.Running(p, lastPv))
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastNote >= 1000) { lastNote = now; notify(note(getString(R.string.scan_notify_run, p.samples, p.total), p)) }
                 }
-            }
+            } finally { runner?.close() }
             completedPose = res.doc
             var picked = applyPicks(if (pick.free) res.doc.copy(pt = null) else res.doc, pick, res.repicks, cfg, robust = true) // repicks: the user picked again after the target was lost
             val fp = picked?.target?.free
             if (picked != null && fp != null && (SamEngine.hasModels(this) || OpenCvFlow.available)) { // SAM can work even without OpenCV
                 try {
-                    val pt = PointScanner.run(this, uri, picked, fp) { d, tot, t -> post(ScanUi.Running(ScanProgress(d, tot, t, 0, 0), null)) }
+                    val initial = ScanProgress(0, 1, fp.t, 0, 0, ScanStage.POINT_DECODE)
+                    progressed(initial)
+                    post(ScanUi.Running(initial, null))
+                    Diag.note(this, "point", "POINT_TRACK_START", "${picked.samples.size} scan samples; SAM=${SamEngine.hasModels(this)}")
+                    val pt = PointScanner.run(this, uri, picked, fp) { d, tot, t, stage ->
+                        val progress = ScanProgress(d, tot, t, 0, 0, stage)
+                        progressed(progress)
+                        post(ScanUi.Running(progress, null))
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastNote >= 1000) {
+                            lastNote = now
+                            notify(note(getString(if (stage == ScanStage.POINT_DECODE) R.string.scan_point_decode else R.string.scan_point_track, d, tot), progress))
+                        }
+                    }
                     val d2 = picked.copy(pt = pt)
                     picked = d2.copy(views = buildTargetViews(d2, d2.target!!, cfg, robust = true))
                 } catch (e: CancellationException) { throw e } catch (e: Throwable) { ErrorLog.record(this, "point", e) } // keeps the anchor-only views
@@ -157,6 +206,7 @@ class ScanService : Service() {
                                     t, 0, 0, if (decoding) ScanStage.SAM_DECODE else ScanStage.SAM_TRACK,
                                     wi + 1, windows.size,
                                 )
+                                progressed(stageProgress)
                                 post(ScanUi.Running(stageProgress, null))
                                 val now = SystemClock.elapsedRealtime()
                                 if (now - lastNote >= 1000) {
@@ -250,7 +300,7 @@ class ScanService : Service() {
                 // Bounded: this runs NonCancellable after the user pressed Cancel, and the tracker decodes the whole scanned part again
                 // (4K HEVC ~0.4 s per frame): unbounded it left the screen on "preparing..." for minutes. On timeout the anchor-only views are kept.
                 val svc: Context = this; val base: TrackDoc = picked
-                val pt = kotlinx.coroutines.withTimeoutOrNull(PARTIAL_TRACK_MAX_MS) { PointScanner.run(svc, c.uri, base, fp) { d, tot, _ -> post(ScanUi.Saving(part.samples.size, last, d, tot)) } }
+                val pt = kotlinx.coroutines.withTimeoutOrNull(PARTIAL_TRACK_MAX_MS) { PointScanner.run(svc, c.uri, base, fp, allowSam = false) { d, tot, _, _ -> post(ScanUi.Saving(part.samples.size, last, d, tot)) } }
                 if (pt == null) Diag.note(this, "scan", "PARTIAL_TRACK_TIMEOUT", "free-point pass over the partial scan exceeded ${PARTIAL_TRACK_MAX_MS / 1000} s: kept the anchor-only result", com.takipli.oynat.core.Sev.WARN)
                 else {
                     val d2 = base.copy(pt = pt)
@@ -297,6 +347,7 @@ class ScanService : Service() {
     }
 
     override fun onDestroy() {
+        watchdogHandler.removeCallbacks(watchdog)
         wake?.takeIf { it.isHeld }?.release()
         scope.coroutineContext[Job]?.cancel()
         super.onDestroy()
@@ -308,6 +359,8 @@ class ScanService : Service() {
         private const val WAKE_MAX_MS = 4 * 60 * 60 * 1000L
         private const val BODY_SAM_FPS = 3.0
         private const val BODY_SAM_WINDOW_MAX_MS = 75_000L
+        private const val STALL_MS = 90_000L
+        private const val WATCHDOG_POLL_MS = 15_000L
         private const val ACTION_CANCEL = "com.takipli.oynat.SCAN_CANCEL"
         private const val X_A = "range_a"; private const val X_B = "range_b"
         private const val X_URI = "uri"; private const val X_VIDEO_ID = "video_id"; private const val X_FPS = "fps"

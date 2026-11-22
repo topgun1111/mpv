@@ -109,6 +109,22 @@ class ScanTest {
     }
 
     @Test
+    fun freePointNeedsNoPoseDetectionsToCreateAnUsableScan() {
+        val pipe = ScanPipeline()
+        repeat(5) { i ->
+            val s = pipe.step(i / 10.0, 640, 480, emptyList())
+            assertTrue(s.d.isEmpty())
+            assertNull(s.kp)
+        }
+        val doc = buildScanDoc("point.mp4", 640, 480, 30.0, 0.5, 10.0, pipe.samples)
+        val picked = applyPick(doc, TargetPick(t = 0.2, x = 0.5, y = 0.65, free = true, zoom = 1.0), Config(), robust = true)
+        assertTrue(picked != null)
+        assertEquals(-1, picked.target?.id)
+        assertTrue(picked.target?.free != null)
+        assertEquals(doc.samples.size, picked.samples.size)
+    }
+
+    @Test
     fun motionRecoveryKeepsLegKeypointsAttachedToTheSamePerson() {
         val pipe = ScanPipeline(Config(), ByteTracker.fromConfig(Config(), 10.0))
         fun legPose(x: Double, y: Double, scale: Double): Pose {

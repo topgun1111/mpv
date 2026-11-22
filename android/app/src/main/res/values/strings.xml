@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="point_scan_light_note">Point and region scans skip YOLO pose and use at most 10 fps. SAM tracks at 6 fps afterward.</string>
     <string name="app_name">Takipli Oynat</string>
     <string name="home_title">Follow-cam export</string>
     <string name="home_subtitle">Choose a tracking mode, select a video and build a smooth follow-camera shot.</string>
@@ -191,4 +192,7 @@
     <string name="scan_lost_skip">Resume without changing</string>
     <string name="scan_sam_decode">SAM recovery %1$d/%2$d: prepare frames %3$d/%4$d</string>
     <string name="scan_sam_track">SAM recovery %1$d/%2$d: analyze masks %3$d/%4$d (slower)</string>
+    <string name="scan_point_decode">Point: prepare frames %1$d/%2$d</string>
+    <string name="scan_point_track">Point: follow target %1$d/%2$d (SAM can be slow)</string>
+    <string name="scan_stall_hint">No progress for 90 seconds. Decoding or AI inference may be stuck. Try Cancel; if it stays unresponsive, force-stop and reopen the app to resume saved progress.</string>
 </resources>
