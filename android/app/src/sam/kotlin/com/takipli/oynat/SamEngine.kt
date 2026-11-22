@@ -219,7 +219,7 @@ object SamEngine {
         // Propagate the last *accepted* position using background flow, including
         // camera roll, while SAM is temporarily uncertain. Never write a position
         // into the output unless SAM itself provides a verified mask.
-        var prevFi = -1; var predictedCx = 0.0; var predictedCy = 0.0
+        var prevFi = -1; var predictedCx = 0.0; var predictedCy = 0.0; var predictionValid = false
         fun <T> timed(name: String, f: () -> T): T { val t0 = System.nanoTime(); val r = f(); ms[name] = (ms[name] ?: 0.0) + (System.nanoTime() - t0) / 1e6; return r }
         fun encodeMemory(imageFeat: OnnxTensor, mask: FloatArray, off: Int, score: Float): FloatArray {
             val mt = tensor(env, mask.copyOfRange(off, off + M * M), 1, 1, M.toLong(), M.toLong()); val st = tensor(env, floatArrayOf(score), 1, 1)
@@ -232,9 +232,9 @@ object SamEngine {
         for ((step, fi) in order.withIndex()) {
             currentCoroutineContext().ensureActive()
             val bmp = BitmapFactory.decodeFile(files[fi].path) ?: continue
-            val cameraPred = if (started && prevFi >= 0) motion?.project(predictedCx, predictedCy, prevFi, fi) else null
+            val cameraPred = if (started && predictionValid && prevFi >= 0) motion?.project(predictedCx, predictedCy, prevFi, fi) else null
             if (cameraPred != null) { predictedCx = cameraPred[0]; predictedCy = cameraPred[1] }
-            else if (started) { predictedCx = lastCx; predictedCy = lastCy }
+            else if (started) { predictionValid = false; predictedCx = lastCx; predictedCy = lastCy }
             val img = try { chw(bmp) } finally { bmp.recycle() }
             val imgT = tensor(env, img, 1, 3, S.toLong(), S.toLong())
             try {
@@ -253,7 +253,7 @@ object SamEngine {
                         started = true; area = cd.area
                         anchorPtr = d.ptrs.copyOfRange(b * 256, b * 256 + 256)
                         stableW = cd.box.w; stableH = cd.box.h; lastCx = cd.cx; lastCy = cd.cy
-                        predictedCx = cd.cx; predictedCy = cd.cy
+                        predictedCx = cd.cx; predictedCy = cd.cy; predictionValid = true
                         res[fi] = Step(cd.cx, cd.cy, cd.iouPred, cd.box.w, cd.box.h)
                     } else {
                         val slots = bank.memSlots(); val ptrSlots = bank.ptrSlots()
@@ -289,7 +289,7 @@ object SamEngine {
                                         val (w, h) = TrackGate.size(ratio, cd.box.w, cd.box.h, stableW, stableH) // partly covered: keep the clean size, no zoom pumping
                                         res[fi] = Step(cd.cx, cd.cy, conf.coerceAtMost(1.0), w, h)
                                         lastCx = cd.cx; lastCy = cd.cy; lost = 0; gate.note()
-                                        predictedCx = cd.cx; predictedCy = cd.cy
+                                        predictedCx = cd.cx; predictedCy = cd.cy; predictionValid = true
                                     } else lost++ // looks like something else (the blocker): treated as lost
                                 } else lost++
                             }
