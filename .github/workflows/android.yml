@@ -50,11 +50,14 @@ jobs:
           pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
           pip install ultralytics==8.3.40 onnx==1.17.0 onnxruntime==1.20.1
           d=android/app/src/${{ matrix.flavor }}/assets/models
-          # pose build: both candidates (decide by measurement); sam build: the small one + the SAM models below
+          # Keep the established pose exports on the original toolchain; the newer
+          # YOLO26 head requires Ultralytics 8.4.x but retains [1,56,8400] output.
           if [ "${{ matrix.flavor }}" = "pose" ]; then models="yolov8s-pose yolo11m-pose"; else models="yolov8s-pose"; fi
           for m in $models; do python scripts/export_pose.py "$d" "$m"; done
+          pip install ultralytics==8.4.216
+          python scripts/export_pose.py "$d" yolo26m-pose
           ls -l "$d"
-          for m in $models; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
+          for m in $models yolo26m-pose; do test -s "$d/$m.onnx" || { echo "missing $m.onnx"; exit 1; }; done
       - name: Qualcomm OSNet identity model (MIT, verified offline export)
         run: |
           set -euo pipefail
@@ -142,12 +145,13 @@ jobs:
           entries=$(unzip -Z1 "$apk")
           grep -Fxq 'assets/models/osnet-reid.onnx' <<< "$entries" || { echo 'APK missing OSNet ReID'; exit 1; }
           if [ "${{ matrix.flavor }}" = "pose" ]; then
-            for model in yolov8s-pose.onnx yolo11m-pose.onnx; do
+            for model in yolov8s-pose.onnx yolo11m-pose.onnx yolo26m-pose.onnx; do
               grep -Fxq "assets/models/$model" <<< "$entries" || { echo "APK missing $model"; exit 1; }
             done
-            echo "pose APK must include yolov8s-pose.onnx and need yolo11m-pose.onnx"
+            echo "pose APK must include yolov8s-pose.onnx, need yolo11m-pose.onnx and yolo26m-pose.onnx"
           else
             grep -Fxq "assets/models/yolov8s-pose.onnx" <<< "$entries" || { echo "APK missing yolov8s-pose.onnx"; exit 1; }
+            grep -Fxq "assets/models/yolo26m-pose.onnx" <<< "$entries" || { echo "APK missing yolo26m-pose.onnx"; exit 1; }
             for variant in edgetam small; do
               for model in sam-encoder sam-decoder sam-decoder-trk sam-memenc sam-memattn; do
                 grep -Fxq "assets/models/$variant/$model.onnx" <<< "$entries" || { echo "APK missing $variant/$model.onnx"; exit 1; }
