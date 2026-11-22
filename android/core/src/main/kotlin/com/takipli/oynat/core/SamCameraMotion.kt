@@ -12,10 +12,7 @@ import kotlin.math.hypot
 class SamCameraMotion(private val steps: List<DoubleArray?>, private val width: Int, private val height: Int) {
     init { require(width > 0 && height > 0) }
 
-    /** Normalized input/output; works in both forward and reverse SAM passes. */
-    fun project(x: Double, y: Double, from: Int, to: Int): DoubleArray? {
-        if (!x.isFinite() || !y.isFinite()) return null
-        if (from == to) return doubleArrayOf(x, y)
+    private fun reliableStep(from: Int, to: Int): DoubleArray? {
         if (abs(to - from) != 1 || from !in steps.indices || to !in steps.indices) return null
         val m = steps[if (to > from) to else from] ?: return null
         if (m.size != 9 || m.any { !it.isFinite() }) return null
@@ -27,6 +24,22 @@ class SamCameraMotion(private val steps: List<DoubleArray?>, private val width: 
             abs(a - d) > 0.08 || abs(b + c) > 0.08 ||
             abs(m[6]) > 1e-9 || abs(m[7]) > 1e-9 || abs(m[8] - 1.0) > 1e-9
         ) return null
+        return m
+    }
+
+    /** Uniform camera zoom from `from` to `to` (reverse traversal uses its reciprocal). */
+    fun scale(from: Int, to: Int): Double? {
+        val m = reliableStep(from, to) ?: return null
+        val factor = hypot(m[0], m[3])
+        return if (to > from) factor else 1.0 / factor
+    }
+
+    /** Normalized input/output; works in both forward and reverse SAM passes. */
+    fun project(x: Double, y: Double, from: Int, to: Int): DoubleArray? {
+        if (!x.isFinite() || !y.isFinite()) return null
+        if (from == to) return doubleArrayOf(x, y)
+        val m = reliableStep(from, to) ?: return null
+        val a = m[0]; val b = m[1]; val c = m[3]; val d = m[4]
         val px = x * width; val py = y * height
         val q = if (to > from) {
             doubleArrayOf(a * px + b * py + m[2], c * px + d * py + m[5])

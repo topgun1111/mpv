@@ -13,6 +13,7 @@ import com.takipli.oynat.core.FreePick
 import com.takipli.oynat.core.MemoryBank
 import com.takipli.oynat.core.PointTrack
 import com.takipli.oynat.core.SamCameraMotion
+import com.takipli.oynat.core.SamScaleMemory
 import com.takipli.oynat.core.SamPassCounter
 import com.takipli.oynat.core.TrackGate
 import com.takipli.oynat.core.TrackDoc
@@ -213,9 +214,10 @@ object SamEngine {
         val frameFloats = memShape.drop(1).fold(1L) { a, b -> a * b }.toInt()
         val bank = MemoryBank<Mem>(k, p)
         val res = HashMap<Int, Step>()
-        var started = false; var area = 0.0
+        var started = false
+        val sizeMemory = SamScaleMemory()
         var anchorPtr = FloatArray(0); var lastPtr: FloatArray? = null // object pointers: the prompted one and the last clean one
-        var stableW = 0.0; var stableH = 0.0; var lastCx = 0.0; var lastCy = 0.0; var lost = 0; var unclean = 0
+        var lastCx = 0.0; var lastCy = 0.0; var lost = 0; var unclean = 0
         // Propagate the last *accepted* position using background flow, including
         // camera roll, while SAM is temporarily uncertain. Never write a position
         // into the output unless SAM itself provides a verified mask.
@@ -233,6 +235,10 @@ object SamEngine {
             currentCoroutineContext().ensureActive()
             val bmp = BitmapFactory.decodeFile(files[fi].path) ?: continue
             val cameraPred = if (started && predictionValid && prevFi >= 0) motion?.project(predictedCx, predictedCy, prevFi, fi) else null
+            // A real camera approach/retreat changes the size of a stationary
+            // subject. Use bounded background zoom as a *prediction*, not as
+            // a replacement for the mask's measured width or height.
+            if (started) sizeMemory.advance(if (cameraPred != null) motion?.scale(prevFi, fi) else null)
             if (cameraPred != null) { predictedCx = cameraPred[0]; predictedCy = cameraPred[1] }
             else if (started) { predictionValid = false; predictedCx = lastCx; predictedCy = lastCy }
             val img = try { chw(bmp) } finally { bmp.recycle() }
@@ -250,9 +256,9 @@ object SamEngine {
                         val cd = cands[b]
                         val mf = timed(MEMENC) { encodeMemory(feat, d.masks, b * M * M, d.score) }
                         bank.reset(Mem(mf, d.ptrs.copyOfRange(b * 256, b * 256 + 256)))
-                        started = true; area = cd.area
+                        started = true; sizeMemory.seed(cd.area, cd.box.w, cd.box.h)
                         anchorPtr = d.ptrs.copyOfRange(b * 256, b * 256 + 256)
-                        stableW = cd.box.w; stableH = cd.box.h; lastCx = cd.cx; lastCy = cd.cy
+                        lastCx = cd.cx; lastCy = cd.cy
                         predictedCx = cd.cx; predictedCy = cd.cy; predictionValid = true
                         res[fi] = Step(cd.cx, cd.cy, cd.iouPred, cd.box.w, cd.box.h)
                     } else {
@@ -264,7 +270,7 @@ object SamEngine {
                             timed(MEMATTN) { memAttn.run(mapOf("image_feat" to feat, "mem_feats" to mt, "ptrs" to pt)) }.use { ca ->
                                 val d = timed(DEC_TRK) { decode(env, trk, ca.get("image_embed").get() as OnnxTensor, hr0, hr1, floatArrayOf(0f, 0f), floatArrayOf(-1f)) }
                                 val cd = analyse(d.masks, 0, d.iou[0].toDouble())
-                                val ratio = if (area > 0) cd.area / area else 1.0
+                                val ratio = sizeMemory.areaRatio(cd.area)
                                 val conf = (d.iou[0] * sigmoid(d.score.toDouble())) * (if (ratio in 0.25..4.0) 1.0 else 0.5)
                                 if (d.score > 0f && cd.area > 0 && conf >= MIN_CONF) {
                                     val ptr = d.ptrs.copyOfRange(0, 256)
@@ -275,18 +281,17 @@ object SamEngine {
                                     // well as the original distance; keep the legacy path
                                     // if the estimate is missing or untrustworthy.
                                     val dist = if (cameraPred != null) min(rawDist, hypot(cd.cx - predictedCx, cd.cy - predictedCy)) else rawDist
-                                    if (gate.accept(dist, max(stableW, stableH), lost, sim)) {
+                                    if (gate.accept(dist, max(sizeMemory.expectedWidth, sizeMemory.expectedHeight), lost, sim)) {
                                         // only clean frames become memory (a half-hidden subject or the blocker must not); never deadlock on a real size change
                                         val clean = TrackGate.remember(conf, ratio) || unclean >= TrackGate.FORCE_CLEAN_FRAMES
                                         if (clean) {
                                             val mf = timed(MEMENC) { encodeMemory(feat, d.masks, 0, d.score) }
                                             bank.push(Mem(mf, ptr)); lastPtr = ptr
-                                            area = 0.8 * area + 0.2 * cd.area
-                                            stableW = cd.box.w; stableH = cd.box.h
+                                            sizeMemory.observeClean(cd.area, cd.box.w, cd.box.h)
                                             if (lost == 0 && unclean == 0) gate.learn(sim)
                                             unclean = 0
                                         } else unclean++
-                                        val (w, h) = TrackGate.size(ratio, cd.box.w, cd.box.h, stableW, stableH) // partly covered: keep the clean size, no zoom pumping
+                                        val (w, h) = TrackGate.size(ratio, cd.box.w, cd.box.h, sizeMemory.expectedWidth, sizeMemory.expectedHeight) // partly covered: keep the camera-adjusted clean size, no zoom pumping
                                         res[fi] = Step(cd.cx, cd.cy, conf.coerceAtMost(1.0), w, h)
                                         lastCx = cd.cx; lastCy = cd.cy; lost = 0; gate.note()
                                         predictedCx = cd.cx; predictedCy = cd.cy; predictionValid = true
