@@ -121,9 +121,18 @@ object VideoDecoder {
                 k++
                 if (t > lastT) break
                 // The native retriever keeps decoder/frame buffers alive: renew it regularly so device RAM and seek time do not creep up (MEM_LEAK / x30 slowdown in report #7).
-                if (k > 1 && (k - 1) % 100 == 0) { runCatching { r.release() }; r = MediaMetadataRetriever().also { it.setDataSource(ctx, uri) } }
+                if (k > 1 && (k - 1) % 100 == 0) {
+                    Trace.step(ctx, "decode.renew.begin k=$k")
+                    runCatching { r.release() }
+                    r = MediaMetadataRetriever().also { it.setDataSource(ctx, uri) }
+                    Trace.step(ctx, "decode.renew.end k=$k")
+                }
                 val d0 = System.nanoTime()
+                // Breadcrumbs survive native decoder hangs. A timeout around getFrameAtTime
+                // cannot interrupt the native call, so preserve which seek was in progress.
+                if (k % 5 == 0) Trace.step(ctx, "decode.begin k=$k t=$t")
                 val raw = fullFrame(r, (t * 1e6).toLong())
+                if (k % 5 == 0) Trace.step(ctx, "decode.end k=$k elapsedMs=${(System.nanoTime() - d0) / 1_000_000}")
                 if (raw == null) {
                     allMisses++
                     if (++misses >= 5) break

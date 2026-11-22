@@ -313,7 +313,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
 
     // Scan lives in a bottom bar that stays visible while the settings above scroll.
     val scanRangeErr = (rangeA != null && rangeB != null && rangeB!! <= rangeA!! + 0.5f) || (rangeA != null && frameT < rangeA!! - 0.05) || (rangeB != null && frameT > rangeB!! + 0.05)
-    val scanReady = (if (draw) strokes.isNotEmpty() else tap != null) && model.isNotEmpty() && !segBusy && !scanRangeErr
+    val scanReady = (if (draw) strokes.isNotEmpty() else tap != null) && (model.isNotEmpty() || free) && !segBusy && !scanRangeErr
     val showScanBar = uri != null && frame != null && !running && ui !is ScanUi.Done && ui !is ScanUi.Cancelled
     fun startScan() {
                     val shapes = if (draw) strokes.map { st -> com.takipli.oynat.core.simplifyStroke(st.map { listOf(it.x.toDouble(), it.y.toDouble()) }, 0.004) }.filter { it.size >= 3 } else emptyList()
@@ -326,7 +326,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     if (lost != null) ScanService.resolveLost(np) // paused scan: the new pick joins the target and the scan goes on
                     else {
                         notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        ScanService.start(ctx, uri!!, videoId, model, npu, fps.toDouble(), np, preview, rangeA?.toDouble(), rangeB?.toDouble())
+                        ScanService.start(ctx, uri!!, videoId, model, npu, (if (free) minOf(fps, 10) else fps).toDouble(), np, preview, rangeA?.toDouble(), rangeB?.toDouble())
                     }
     }
 
@@ -696,10 +696,12 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PICK_FPS.forEach { c -> FilterChip(selected = c == fps, onClick = { fps = c }, label = { Text("$c fps") }) }
-                    FilterChip(selected = npu, onClick = { npu = !npu }, label = { Text("NPU", maxLines = 1, softWrap = false) })
+                    PICK_FPS.forEach { c -> FilterChip(selected = c == (if (free) minOf(fps, 10) else fps), enabled = !free || c <= 10, onClick = { fps = c }, label = { Text("$c fps") }) }
+                    FilterChip(selected = npu && !free, enabled = !free, onClick = { npu = !npu }, label = { Text("NPU", maxLines = 1, softWrap = false) })
                     FilterChip(selected = preview, onClick = { preview = !preview }, label = { Text(stringResource(R.string.pick_preview)) })
                 }
+                if (free) Text(stringResource(R.string.point_scan_light_note), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (objectMode && (!draw || regionFixed) && extra.isEmpty()) {
                     Text(stringResource(R.string.pick_zoom, Math.pow(2.0, zoomLog2.toDouble())), style = MaterialTheme.typography.labelLarge)
                     androidx.compose.material3.Slider(value = zoomLog2, onValueChange = { zoomLog2 = it }, valueRange = 0.5f..2.5f)
@@ -724,6 +726,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
             is ScanUi.Running -> {
                 s.pv?.let { ScanPreviewView(it) }
                 Text(stringResource(R.string.pick_background))
+                if (s.warning != null) Text(s.warning, color = MaterialTheme.colorScheme.error)
             }
             is ScanUi.Done -> {
                 Text(
@@ -781,6 +784,7 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
         if (runUi != null) androidx.compose.material3.Surface(Modifier.fillMaxWidth(), tonalElevation = 3.dp, shadowElevation = 6.dp) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val p = runUi.p
+                if (runUi.warning != null) Text(runUi.warning, color = MaterialTheme.colorScheme.error)
                 if (p != null && p.total > 0) LinearProgressIndicator(progress = { (p.samples.toFloat() / p.total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                 else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -790,6 +794,8 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                                 ScanStage.POSE -> String.format(Locale.ROOT, "%d / %d samples | t %.1f s | cuts %d", it.samples, it.total, it.t, it.cuts)
                                 ScanStage.SAM_DECODE -> stringResource(R.string.scan_sam_decode, it.stageIndex, it.stageCount, it.samples, it.total)
                                 ScanStage.SAM_TRACK -> stringResource(R.string.scan_sam_track, it.stageIndex, it.stageCount, it.samples, it.total)
+                                ScanStage.POINT_DECODE -> stringResource(R.string.scan_point_decode, it.samples, it.total)
+                                ScanStage.POINT_TRACK -> stringResource(R.string.scan_point_track, it.samples, it.total)
                             }
                         } ?: stringResource(R.string.pick_preparing),
                         Modifier.weight(1f), fontFamily = FontFamily.Monospace, fontSize = 13.sp,

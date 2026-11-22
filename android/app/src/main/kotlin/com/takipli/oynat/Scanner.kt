@@ -29,7 +29,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 
-enum class ScanStage { POSE, SAM_DECODE, SAM_TRACK }
+enum class ScanStage { POSE, SAM_DECODE, SAM_TRACK, POINT_DECODE, POINT_TRACK }
 
 class ScanProgress(
     /** samples so far, including the ones loaded from an interrupted scan */
@@ -84,7 +84,7 @@ object Scanner {
         ctx: Context,
         uri: Uri,
         videoId: String,
-        runner: PoseRunner,
+        runner: PoseRunner?,
         fps: Double,
         trackFile: File,
         cfg: Config = Config(),
@@ -100,7 +100,14 @@ object Scanner {
     ): ScanResult = withContext(Dispatchers.Default) {
         val t0 = SystemClock.elapsedRealtime()
         val info = VideoDecoder.probe(ctx, uri)
-        val modelTag = "${runner.modelName}:${(runner.modelMb * 1e6).toLong()}" + if (runner.npu) ":npu" else ""
+        // A free point/region is followed by SAM or optical flow AFTER this pass.
+        // Running YOLO pose on every frame first adds minutes of unrelated inference
+        // and can hang on an ONNX call without improving the point trajectory.
+        val freePass = pick?.free == true
+        val modelTag = if (freePass) "free-motion-only-v1" else {
+            val poseRunner = requireNotNull(runner) { "Body scan needs a pose model" }
+            "${poseRunner.modelName}:${(poseRunner.modelMb * 1e6).toLong()}" + if (poseRunner.npu) ":npu" else ""
+        }
         // Invalidate old IoU-only scans: otherwise an existing cache hides the improved tracker entirely.
         val sig = scanSig(videoId + (if (info.userRot != 0) "|rot${info.userRot}" else "") + rangeTag(rangeA, rangeB), fps, "$modelTag:body-motion-v2")
         val partial = File(trackFile.path + ".partial")
@@ -137,6 +144,7 @@ object Scanner {
         var liveTried = false
         var liveRef: com.takipli.oynat.core.FreeRef? = null
         var curPick = pick
+        var lastWeakBodyLogT = Double.NEGATIVE_INFINITY
         val repicks = ArrayList<TargetPick>()
         val lostWatch = LostWatch(alertS = AUTO_RECOVERY_S)
         // Debug Part 1: predictive watch (throttling, memory, battery) + where the time goes per frame
@@ -154,7 +162,10 @@ object Scanner {
                 currentCoroutineContext().ensureActive()
                 val cb0 = System.nanoTime()
                 val bmp = f.bitmap
-                val pr = runner.detectRobust(bmp, cfg.liveDetConf, cfg.detIou)
+                if (pipe.samples.size % 5 == 0) Trace.step(ctx, "${if (freePass) "free" else "pose"}.begin sample=${pipe.samples.size} t=${f.t}")
+                val pr = if (freePass) PoseResult(emptyList(), 0.0, 0.0, 0.0)
+                    else requireNotNull(runner).detectRobust(bmp, cfg.liveDetConf, cfg.detIou)
+                if (pipe.samples.size % 5 == 0) Trace.step(ctx, "${if (freePass) "free" else "pose"}.end sample=${pipe.samples.size} inferMs=${pr.inferMs.toInt()} detections=${pr.poses.size}")
                 val poses = pr.poses
                 val an0 = System.nanoTime()
                 // Like Pipeline.step: a failed camera estimate never stops tracking.
@@ -210,6 +221,20 @@ object Scanner {
                     liveTarget = liveRelink(pipe.samples, bmp.width, bmp.height, liveTarget, s, appearance.snapshot(), identities.snapshot())
                 // Target gone for a few seconds: vibrate + let the user jump to a clear frame and pick again, then go on
                 val lt = liveTarget
+                // Distinguish the two failure modes reported on seated legs: no person ID,
+                // versus a perfectly tracked person whose knee/ankle keypoints vanish.
+                // The second cannot be repaired by ByteTrack's ID matching alone.
+                if (curPick?.free != true && lt != null && lt.id >= 0) {
+                    val ids = setOf(lt.id) + lt.linked
+                    val tracked = s.d.any { it.size >= 6 && it[0].toInt() in ids }
+                    val legConf = ids.mapNotNull { s.kp?.get(it.toString()) }
+                        .maxOfOrNull { row -> listOf(11, 12, 13, 14, 15, 16).count { k -> row.getOrElse(3 * k + 2) { 0.0 } >= cfg.kpMinConf } } ?: 0
+                    if ((!tracked || legConf < 2) && s.t - lastWeakBodyLogT >= 3.0) {
+                        lastWeakBodyLogT = s.t
+                        val rawLegBest = poses.maxOfOrNull { p -> listOf(11, 12, 13, 14, 15, 16).count { k -> k < p.count && p.conf(k) >= cfg.kpMinConf } } ?: 0
+                        Diag.note(ctx, "scan", "BODY_LEGS_WEAK", "t=${s.t} id=${lt.id} visibleId=$tracked trackedLegs=$legConf rawLegs=$rawLegBest rawPersons=${poses.size} assignedPersons=${s.d.size} camOk=${a?.motionOk ?: false} cut=$cut", com.takipli.oynat.core.Sev.WARN)
+                    }
+                }
                 // Free-point/region targets have their own SAM/optical-flow pass AFTER the
                 // pose scan. A missing pose anchor is not evidence that that target was lost.
                 if (onLost != null && curPick?.free != true && lt != null && lt.id >= 0) {
