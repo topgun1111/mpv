@@ -112,8 +112,18 @@ fun ScanScreen(onBack: () -> Unit) {
             Text(videoId, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
             Text(stringResource(R.string.bench_model), style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                models.forEach { m -> FilterChip(selected = m == model, enabled = !busy, onClick = { model = m }, label = { Text(m.removeSuffix(".onnx")) }) }
+                models.forEach { m -> FilterChip(
+                    selected = m == model,
+                    enabled = !busy,
+                    onClick = { model = m },
+                    label = { Text(if (m == "yolo26m-pose.onnx") stringResource(R.string.pose_high_accuracy_model) else m.removeSuffix(".onnx")) },
+                ) }
             }
+            if (model == "yolo26m-pose.onnx") Text(
+                stringResource(R.string.pose_high_accuracy_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SCAN_FPS.forEach { c -> FilterChip(selected = c == fps, enabled = !busy, onClick = { fps = c }, label = { Text("$c fps") }) }
                 FilterChip(selected = npu, enabled = !busy, onClick = { npu = !npu }, label = { Text("NPU", maxLines = 1, softWrap = false) })

@@ -681,8 +681,20 @@ fun PickScreen(initialMode: String = "body", onBack: () -> Unit, onResult: (Stri
                 }
                 if (!objectMode) FilterChip(selected = exact, enabled = preset == null, onClick = { exact = !exact }, label = { Text(stringResource(R.string.pick_exact)) })
                 if (models.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    models.forEach { m -> FilterChip(selected = m == model, onClick = { model = m }, label = { Text(m.removeSuffix(".onnx")) }) }
+                    models.forEach { m ->
+                        FilterChip(
+                            selected = m == model,
+                            enabled = !running,
+                            onClick = { model = m },
+                            label = { Text(if (m == "yolo26m-pose.onnx") stringResource(R.string.pose_high_accuracy_model) else m.removeSuffix(".onnx")) },
+                        )
+                    }
                 }
+                if (model == "yolo26m-pose.onnx") Text(
+                    stringResource(R.string.pose_high_accuracy_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PICK_FPS.forEach { c -> FilterChip(selected = c == fps, onClick = { fps = c }, label = { Text("$c fps") }) }
                     FilterChip(selected = npu, onClick = { npu = !npu }, label = { Text("NPU", maxLines = 1, softWrap = false) })

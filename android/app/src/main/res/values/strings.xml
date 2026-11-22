@@ -10,6 +10,8 @@
     <string name="bench_title">Pose benchmark — ONNX Runtime CPU / NPU</string>
     <string name="bench_no_models">No .onnx model in the APK. CI exports yolov8s-pose and yolo11m-pose into assets; or copy .onnx files to Android/data/com.takipli.oynat/files/models/.</string>
     <string name="bench_model">Model</string>
+    <string name="pose_high_accuracy_model">YOLO26m (higher accuracy)</string>
+    <string name="pose_high_accuracy_note">Higher body-joint accuracy, but scanning can be slower and use more battery. YOLOv8s is the faster option.</string>
     <string name="bench_threads">CPU threads</string>
     <string name="bench_loading">Loading %1$s …</string>
     <string name="bench_ready">Ready: load %1$d ms, %2$.1f MB, input %3$dx%4$d</string>

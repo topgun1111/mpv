@@ -10,6 +10,8 @@
     <string name="bench_title">Poz kıyaslaması — ONNX Runtime CPU / NPU</string>
     <string name="bench_no_models">APK içinde .onnx model yok. CI yolov8s-pose ve yolo11m-pose modellerini assets içine koyar; ya da .onnx dosyalarını Android/data/com.takipli.oynat/files/models/ klasörüne kopyala.</string>
     <string name="bench_model">Model</string>
+    <string name="pose_high_accuracy_model">YOLO26m (yüksek doğruluk)</string>
+    <string name="pose_high_accuracy_note">Vücut eklemlerinde daha yüksek doğruluk sağlar; tarama yavaşlayabilir ve daha çok pil tüketebilir. Daha hızlı seçenek YOLOv8s.</string>
     <string name="bench_threads">CPU iş parçacığı</string>
     <string name="bench_loading">%1$s yükleniyor …</string>
     <string name="bench_ready">Hazır: yükleme %1$d ms, %2$.1f MB, girdi %3$dx%4$d</string>

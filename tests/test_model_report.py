@@ -70,11 +70,13 @@ def test_missing_folder_is_reported_not_crashed(tmp_path, monkeypatch, capsys):
 def test_presets_list_exactly_what_the_apk_and_package_need():
     sam = {s.path for s in mr.preset("android-sam")}
     graphs = {"sam-encoder", "sam-decoder", "sam-decoder-trk", "sam-memenc", "sam-memattn"}
-    assert sam == {"yolov8s-pose.onnx", "osnet-reid.onnx"} | {f"{v}/{g}.onnx" for v in ("edgetam", "small") for g in graphs}
-    assert {s.path for s in mr.preset("android-pose")} == {"yolov8s-pose.onnx", "yolo11m-pose.onnx", "osnet-reid.onnx"}
+    assert sam == {"yolov8s-pose.onnx", "yolo26m-pose.onnx", "osnet-reid.onnx"} | {f"{v}/{g}.onnx" for v in ("edgetam", "small") for g in graphs}
+    assert {s.path for s in mr.preset("android-pose")} == {"yolov8s-pose.onnx", "yolo11m-pose.onnx", "yolo26m-pose.onnx", "osnet-reid.onnx"}
     for flavor in ("android-pose", "android-sam"):
         reid = next(s for s in mr.preset(flavor) if s.path == "osnet-reid.onnx")
         assert reid.want_in == {"image"} and reid.want_out == {"embeddings"}
+        strong = next(s for s in mr.preset(flavor) if s.path == "yolo26m-pose.onnx")
+        assert strong.required and strong.kind == "pose" and strong.min_bytes >= 60_000_000
     pc = {s.path: s.required for s in mr.preset("pc")}
     assert pc["models/yolox_s.onnx"] and pc["models/yolov8s-pose.onnx"]
     assert not pc["models/osnet_x0_25.onnx"] and not pc["models/rtmpose-wholebody.onnx"]
@@ -130,6 +132,7 @@ def test_android_workflow_pins_torch_and_reports_models():
     assert y.index("scripts/export_pose.py") < y.index("scripts/export_sam2.py") < y.index("scripts/model_report.py")
     assert y.index("scripts/model_report.py") < y.index("assemble${{ matrix.gradle_task }}Release")
     assert "MODEL_CKPT_DIR" in y and "model-logs" in y
+    assert "ultralytics==8.4.216" in y and 'scripts/export_pose.py "$d" yolo26m-pose' in y
     assert y.count("upload-artifact@v4") == 2 and "if: always()" in y
 
 
