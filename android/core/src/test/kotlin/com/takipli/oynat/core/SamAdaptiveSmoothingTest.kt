@@ -47,13 +47,13 @@ class SamAdaptiveSmoothingTest {
 
     @Test fun lowMotionIsSmoothedButGenuineReversalRemains() {
         val data = listOf(
-            row(0.50), row(0.502), row(0.498),
+            row(0.500), row(0.502), row(0.498), row(0.500),
             row(0.55), row(0.60), row(0.54), row(0.50),
         )
         val out = SamAdaptiveSmoothing.smooth(data, ts(data.size))
         assertTrue(out[1][0] < data[1][0])
         assertTrue(out[2][0] > data[2][0])
-        assertEquals(data[4], out[4]) // meaningful turning point not smoothed
+        assertEquals(data[5], out[5]) // meaningful turning point not smoothed
     }
 
     @Test fun noBridgingAcrossTrackingLossOrLargeTimeGap() {
