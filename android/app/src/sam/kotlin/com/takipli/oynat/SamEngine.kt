@@ -276,13 +276,14 @@ object SamEngine {
                                     val sim = max(TrackGate.cosine(ptr, anchorPtr), lastPtr?.let { TrackGate.cosine(ptr, it) } ?: -1.0)
                                     val rawDist = hypot(cd.cx - lastCx, cd.cy - lastCy)
                                     // Camera rotation moves a stationary leg along an arc.
-                                    // Compare against the background-motion prediction as
-                                    // well as the original distance; keep the legacy path
-                                    // if the estimate is missing or untrustworthy.
+                                    // Compare against bounded background + target-velocity prediction,
+                                    // keeping the original distance if the estimate is unavailable.
                                     val dist = if (cameraPred != null) min(rawDist, hypot(cd.cx - cameraPred[0], cd.cy - cameraPred[1])) else rawDist
                                     if (gate.accept(dist, max(sizeMemory.expectedWidth, sizeMemory.expectedHeight), lost, sim)) {
                                         // only clean frames become memory (a half-hidden subject or the blocker must not); never deadlock on a real size change
-                                        val clean = TrackGate.remember(conf, ratio) || unclean >= TrackGate.FORCE_CLEAN_FRAMES
+                                        val trustedClean = TrackGate.remember(conf, ratio)
+                                        val learnMotion = trustedClean && lost == 0 && unclean == 0
+                                        val clean = trustedClean || unclean >= TrackGate.FORCE_CLEAN_FRAMES
                                         if (clean) {
                                             val mf = timed(MEMENC) { encodeMemory(feat, d.masks, 0, d.score) }
                                             bank.push(Mem(mf, ptr)); lastPtr = ptr
@@ -293,7 +294,7 @@ object SamEngine {
                                         val (w, h) = TrackGate.size(ratio, cd.box.w, cd.box.h, sizeMemory.expectedWidth, sizeMemory.expectedHeight) // partly covered: keep the camera-adjusted clean size, no zoom pumping
                                         res[fi] = Step(cd.cx, cd.cy, conf.coerceAtMost(1.0), w, h)
                                         // Only consecutive, clean, accepted masks teach velocity.
-                                        targetPrediction.observe(cd.cx, cd.cy, clean && lost == 0)
+                                        targetPrediction.observe(cd.cx, cd.cy, learnMotion)
                                         lastCx = cd.cx; lastCy = cd.cy; lost = 0; gate.note()
                                     } else lost++ // looks like something else (the blocker): treated as lost
                                 } else lost++
