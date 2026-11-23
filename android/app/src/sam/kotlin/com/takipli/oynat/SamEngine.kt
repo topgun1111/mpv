@@ -14,6 +14,7 @@ import com.takipli.oynat.core.MemoryBank
 import com.takipli.oynat.core.PointTrack
 import com.takipli.oynat.core.SamCameraMotion
 import com.takipli.oynat.core.SamScaleMemory
+import com.takipli.oynat.core.SamAdaptiveSmoothing
 import com.takipli.oynat.core.SamTargetPrediction
 import com.takipli.oynat.core.SamPassCounter
 import com.takipli.oynat.core.TrackGate
@@ -500,7 +501,16 @@ object SamEngine {
                         }
                     }
                 }
-                PointTrack(a = rows, b = emptyList())
+                // Only region/Rectangle SAM output is smoothed. Keep Point mode and
+                // raw mask identity/area gates unchanged; never smooth over lost spans.
+                // A symmetric local filter attenuates small mask-centre jitter with
+                // no causal lag during fast pans and sudden direction reversals.
+                val region = pick.shapes.any { it.size >= 3 }
+                val pickedSample = doc.samples.indices.minByOrNull { abs(doc.samples[it].t - pick.t) } ?: -1
+                val filteredRows = if (region)
+                    SamAdaptiveSmoothing.smooth(rows, doc.samples.map { it.t }, pickedSample, doc.video.w.toDouble() / doc.video.h)
+                else rows
+                PointTrack(a = filteredRows, b = emptyList())
             } finally { dir.deleteRecursively() }
         }
 
