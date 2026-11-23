@@ -55,7 +55,8 @@ object SamAdaptiveSmoothing {
             val residual = hypot((mid[0] - predictedX) * aspect, mid[1] - predictedY)
             val targetH = min(mid[3] * aspect, mid[4])
             val threshold = (0.06 * targetH).coerceIn(MIN_JITTER, MAX_JITTER)
-            if (residual >= threshold) continue
+            // Preserve genuinely linear movement bit-for-bit (including floating-point roundoff).
+            if (residual <= 1e-12 || residual >= threshold) continue
 
             // Gradually disable smoothing as a genuine corner/reversal emerges.
             val fraction = residual / threshold
