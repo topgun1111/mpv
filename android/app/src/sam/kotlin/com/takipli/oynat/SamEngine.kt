@@ -14,6 +14,7 @@ import com.takipli.oynat.core.MemoryBank
 import com.takipli.oynat.core.PointTrack
 import com.takipli.oynat.core.SamCameraMotion
 import com.takipli.oynat.core.SamScaleMemory
+import com.takipli.oynat.core.SamTargetPrediction
 import com.takipli.oynat.core.SamPassCounter
 import com.takipli.oynat.core.TrackGate
 import com.takipli.oynat.core.TrackDoc
@@ -218,10 +219,9 @@ object SamEngine {
         val sizeMemory = SamScaleMemory()
         var anchorPtr = FloatArray(0); var lastPtr: FloatArray? = null // object pointers: the prompted one and the last clean one
         var lastCx = 0.0; var lastCy = 0.0; var lost = 0; var unclean = 0
-        // Propagate the last *accepted* position using background flow, including
-        // camera roll, while SAM is temporarily uncertain. Never write a position
-        // into the output unless SAM itself provides a verified mask.
-        var prevFi = -1; var predictedCx = 0.0; var predictedCy = 0.0; var predictionValid = false
+        // Bounded target motion rides on top of camera flow, never producing output without a real SAM mask.
+        var prevFi = -1
+        val targetPrediction = SamTargetPrediction()
         fun <T> timed(name: String, f: () -> T): T { val t0 = System.nanoTime(); val r = f(); ms[name] = (ms[name] ?: 0.0) + (System.nanoTime() - t0) / 1e6; return r }
         fun encodeMemory(imageFeat: OnnxTensor, mask: FloatArray, off: Int, score: Float): FloatArray {
             val mt = tensor(env, mask.copyOfRange(off, off + M * M), 1, 1, M.toLong(), M.toLong()); val st = tensor(env, floatArrayOf(score), 1, 1)
@@ -234,13 +234,12 @@ object SamEngine {
         for ((step, fi) in order.withIndex()) {
             currentCoroutineContext().ensureActive()
             val bmp = BitmapFactory.decodeFile(files[fi].path) ?: continue
-            val cameraPred = if (started && predictionValid && prevFi >= 0) motion?.project(predictedCx, predictedCy, prevFi, fi) else null
+            val cameraPred = if (started) targetPrediction.advance(fi, motion) else null
             // A real camera approach/retreat changes the size of a stationary
             // subject. Use bounded background zoom as a *prediction*, not as
             // a replacement for the mask's measured width or height.
-            if (started) sizeMemory.advance(if (cameraPred != null) motion?.scale(prevFi, fi) else null)
-            if (cameraPred != null) { predictedCx = cameraPred[0]; predictedCy = cameraPred[1] }
-            else if (started) { predictionValid = false; predictedCx = lastCx; predictedCy = lastCy }
+            if (started) sizeMemory.advance(if (cameraPred != null && prevFi >= 0) motion?.scale(prevFi, fi) else null)
+            // Camera and target forecasts guide SAM mask validation only.
             val img = try { chw(bmp) } finally { bmp.recycle() }
             val imgT = tensor(env, img, 1, 3, S.toLong(), S.toLong())
             try {
@@ -259,7 +258,7 @@ object SamEngine {
                         started = true; sizeMemory.seed(cd.area, cd.box.w, cd.box.h)
                         anchorPtr = d.ptrs.copyOfRange(b * 256, b * 256 + 256)
                         lastCx = cd.cx; lastCy = cd.cy
-                        predictedCx = cd.cx; predictedCy = cd.cy; predictionValid = true
+                        targetPrediction.seed(fi, cd.cx, cd.cy)
                         res[fi] = Step(cd.cx, cd.cy, cd.iouPred, cd.box.w, cd.box.h)
                     } else {
                         val slots = bank.memSlots(); val ptrSlots = bank.ptrSlots()
@@ -280,7 +279,7 @@ object SamEngine {
                                     // Compare against the background-motion prediction as
                                     // well as the original distance; keep the legacy path
                                     // if the estimate is missing or untrustworthy.
-                                    val dist = if (cameraPred != null) min(rawDist, hypot(cd.cx - predictedCx, cd.cy - predictedCy)) else rawDist
+                                    val dist = if (cameraPred != null) min(rawDist, hypot(cd.cx - cameraPred[0], cd.cy - cameraPred[1])) else rawDist
                                     if (gate.accept(dist, max(sizeMemory.expectedWidth, sizeMemory.expectedHeight), lost, sim)) {
                                         // only clean frames become memory (a half-hidden subject or the blocker must not); never deadlock on a real size change
                                         val clean = TrackGate.remember(conf, ratio) || unclean >= TrackGate.FORCE_CLEAN_FRAMES
@@ -293,8 +292,9 @@ object SamEngine {
                                         } else unclean++
                                         val (w, h) = TrackGate.size(ratio, cd.box.w, cd.box.h, sizeMemory.expectedWidth, sizeMemory.expectedHeight) // partly covered: keep the camera-adjusted clean size, no zoom pumping
                                         res[fi] = Step(cd.cx, cd.cy, conf.coerceAtMost(1.0), w, h)
+                                        // Only consecutive, clean, accepted masks teach velocity.
+                                        targetPrediction.observe(cd.cx, cd.cy, clean && lost == 0)
                                         lastCx = cd.cx; lastCy = cd.cy; lost = 0; gate.note()
-                                        predictedCx = cd.cx; predictedCy = cd.cy; predictionValid = true
                                     } else lost++ // looks like something else (the blocker): treated as lost
                                 } else lost++
                             }
