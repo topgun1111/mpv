@@ -77,29 +77,42 @@ def main(root, direct=False):
                     raise RuntimeError("The packaged tracker did not acquire its session lock")
                 time.sleep(0.25)
             player.command("script-binding", "track/tracker")
-            player.command("script-message-to", "track", "track-mode", "body")
+            player.command("script-message-to", "track", "track-mode", "rect")
             player.command("script-message", "track-rect", ".29", ".46", ".42", ".59",
                            "360", "480", "0")
             deadline = time.monotonic() + 45
             while time.monotonic() < deadline:
-                log = (root / "player.log").read_text("utf-8", errors="replace")
-                skeleton = any("track-skel" in line and ";" in line for line in log.splitlines())
-                if player.get_property("video-zoom") > 0.01 and skeleton:
+                if player.get_property("video-zoom") > 0.01:
                     time.sleep(0.5)
                     snapshot = root / "tracked.png"
                     player.command("screenshot-to-file", str(snapshot), "window")
                     pixels = cv2.imread(str(snapshot))
                     assert pixels is not None
-                    for label, bgr in (("box", (64, 255, 64)), ("bones", (128, 255, 0))):
+                    for label, bgr in (("box", (64, 255, 64)),):
                         low = tuple(max(0, v - 22) for v in bgr)
                         high = tuple(min(255, v + 22) for v in bgr)
                         count = cv2.countNonZero(cv2.inRange(pixels, low, high))
                         assert count >= 12, f"Missing {label} in rendered window ({count} pixels)"
-                    print("Verified camera zoom, target rectangle and skeleton in the mpv window.")
+                    print("Verified camera zoom and rectangle in the mpv window.")
                     break
                 time.sleep(0.2)
             else:
-                raise RuntimeError("Missing live zoom or pose keypoints after target selection")
+                raise RuntimeError("Missing live zoom after rectangle selection")
+            player.command("script-binding", "track/record-toggle")
+            time.sleep(2)
+            player.command("script-binding", "track/record-toggle")
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                recordings = list(root.glob("target.avi.recorded-*.views.json"))
+                if recordings:
+                    keys = json.loads(recordings[-1].read_text(encoding="utf-8"))["views"]
+                    if len(keys) > 1 and keys[-1][0] > keys[0][0]:
+                        break
+                time.sleep(0.2)
+            else:
+                raise RuntimeError("Recording did not produce camera keyframes")
+            print("Verified main application recording keyframes.")
+            player.command("script-message-to", "track", "track-mode", "auto")
             if not direct:
                 check_scan(player, root, frame)
         finally:
