@@ -170,6 +170,7 @@ class LiveController:
         self._point_factory = point_factory
         self.point = None  # sağ tıkla seçilen sınıfsız nesne izleyici (tracker/point.py)
         self.add_mode = False  # T1: sonraki sağ tık mevcut hedefe EKLER (birleşik kadraj)
+        self.selection_mode = "auto"
         self.part = "auto"  # B3: parts.CYCLE adı; "auto" = tıklanan eklem (eski davranış)
         self._part_req = False  # oyuncu (ByteTrack) hedefi var, parçaya geçiş sonraki karede
         self.cfg_path = cfg_path  # `track-save` ayarları buraya yazar
@@ -242,10 +243,25 @@ class LiveController:
     def handle_event(self, ev: dict) -> Output:
         click = parse_click(ev)
         if click:
+            if ((self.selection_mode == "rect" and click.kind != "rect")
+                    or (self.selection_mode in ("point", "body") and click.kind != "point")):
+                return Output(osd="Seçili takip moduna uygun hedef seçin")
             self.enabled = True  # toggle olayı kaçmış olsa da tıklama takibi açar
             self._click = click
             return Output()
         name = message_name(ev)
+        if name == "track-selection-mode":
+            a = (ev.get("args") or [None, "auto"])[1:2]
+            if a and a[0] in ("auto", "point", "rect", "body"):
+                if self.selection_mode != a[0]:
+                    self._click = None
+                    self._release()
+                self.selection_mode = a[0]
+                if self.selection_mode != "body":
+                    self.part = "auto"
+                if self.selection_mode in ("point", "rect"):
+                    self.skel_on = False
+            return Output()
         if name == TOGGLE_MSG:
             on = (ev.get("args") or [None, "off"])[1:2] == ["on"]
             self.enabled = on
@@ -649,9 +665,11 @@ class LiveController:
             return Output(view=out.view, osd=out.osd)
         try:
             pt = None
-            if box is None and self.part != "auto":
+            if box is None and self.part != "auto" and self.selection_mode != "point":
                 pt = self._try_part(frame, px, py)  # B3: kişiye tıklama = seçili vücut parçası
-            if pt is None and box is None:
+            if pt is None and self.selection_mode == "body":
+                return Output(osd="Vücut hedefi bulunamadı; kişiye veya parçaya tekrar tıklayın")
+            if pt is None and box is None and self.selection_mode != "point":
                 pt = self._try_keypoint(frame, px, py)
             if pt is not None:
                 pass
