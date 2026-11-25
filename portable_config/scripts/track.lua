@@ -239,6 +239,7 @@ local function on_click(msg)
   local t = mp.get_property_number("time-pos", 0)
   anchor = { nx, ny }
   show_provisional(nx, ny)
+  if mode ~= "auto" then mp.commandv("script-message", "track-selection-mode", mode) end
   mp.commandv("script-message", msg or "track-click",
     string.format("%.6f", nx), string.format("%.6f", ny),
     string.format("%d", math.floor(params.w)), string.format("%d", math.floor(params.h)),
@@ -420,6 +421,7 @@ end
 -- time-pos oynatmada ve duraklatılmışken atlamada da gelir
 mp.observe_property("time-pos", "number", function(_, t)
   if off.on and t then apply_view(eased(view_at(off, t))) end
+  if rec.sample then rec.sample(t, false) end
 end)
 
 -- Record displayed camera keyframes; do not interrupt the Python service.
@@ -461,7 +463,7 @@ function rec.toggle()
   if rec.active then rec.stop(true); return end
   local vp, t = video_path(), mp.get_property_number("time-pos")
   if not vp or not t then osd("önce yerel video aç", 3); return end
-  if scan and scan.running then osd("tarama sürüyor", 3); return end
+  if scan and (scan.running or scan.pending) then osd("önce taramayı tamamlayın veya normal video açın", 3); return end
   if off.on then set_offline(false) end
   rec.active, rec.video, rec.keys = true, vp, {}
   rec.sample(t, true)
@@ -469,7 +471,6 @@ function rec.toggle()
   osd("kayıt başladı", 2)
   if render_menu then render_menu() end
 end
-mp.observe_property("time-pos", "number", function(_, t) rec.sample(t, false) end)
 mp.add_key_binding(nil, "record-toggle", rec.toggle)
 mp.add_key_binding(nil, "offline", function()
   if rec.active then osd("önce kaydı durdur", 2); return end
@@ -534,7 +535,7 @@ end
 mp.add_key_binding(nil, "add", toggle_add)
 
 mp.register_script_message("track-use-scanned", function(reason)
-  if source ~= "auto" or off.on or not video_path() then return end
+  if rec.active or source ~= "auto" or off.on or not video_path() then return end
   set_offline(true, true, reason)
 end)
 
@@ -876,7 +877,7 @@ local function render_dot()
   dot.ov.data = string.format(
     "{\\an7\\pos(%d,%d)\\bord1\\shad0\\1c&H%s&\\3c&H000000&\\p1}%s{\\p0}",
     math.floor(x) - L, math.floor(y) - L, dot.prov and "00E0FF" or "FFFFFF", path)
-  if dot.box then
+  if dot.box and mode ~= "point" then
     local x1, y1 = math.floor(bx0 + dot.box[1] * bw), math.floor(by0 + dot.box[2] * bh)
     local x2, y2 = math.floor(bx0 + dot.box[3] * bw), math.floor(by0 + dot.box[4] * bh)
     dot.ov.data = dot.ov.data .. string.format(
@@ -903,7 +904,12 @@ mp.register_script_message("track-loading", function(v)
   if loading then
     tracker_ready = false -- yeni/yeniden başlayan Python: önceki "hazır" bilgisi geçersiz (kayıt komutu kuyrukta kalıp "Yanıt yok" verirdi)
     osd("modeller yükleniyor… (tıklamalar kuyruğa alınır)", 4)
-  else tracker_set_ready() end
+  else
+    tracker_set_ready()
+    mp.commandv("script-message", "track-selection-mode", mode)
+    if mode == "body" then mp.commandv("script-message", "track-part", part) end
+    if rec.refresh_skel then rec.refresh_skel() end
+  end
 end)
 
 mp.register_script_message("track-dot", function(nx, ny, x1, y1, x2, y2)
@@ -1181,6 +1187,7 @@ local function finish_drag(pos)
   if not enabled then set_enabled(true) end
   anchor = { (ax + bx) / 2, (ay + by) / 2 }
   show_provisional(anchor[1], anchor[2])
+  if mode ~= "auto" then mp.commandv("script-message", "track-selection-mode", mode) end
   mp.commandv("script-message", "track-rect",
     string.format("%.6f", ax), string.format("%.6f", ay),
     string.format("%.6f", bx), string.format("%.6f", by),
@@ -1666,8 +1673,8 @@ if TRACK_SHOW_MENU ~= false then
       -- E1: Dosya → Takip kamerası dışa aktar: `<video>.views.json` varsa detached
       -- `tracker export VIDEO --out <video>.takipli.mp4`; ilerleme `<çıktı>.export.json`'dan okunur.
       local exp = { running = false, prog = nil }
-      local function poll_export()
-        if not exp.running then return end
+      local function poll_export(job)
+        if not exp.running or exp.job ~= job then return end
         local text = read_file(exp.prog)
         local p = text and utils.parse_json(text)
         if type(p) == "table" then
@@ -1682,7 +1689,7 @@ if TRACK_SHOW_MENU ~= false then
           end
           osd(string.format("dışa aktarılıyor %%%s", tostring(p.pct or "?")), 1.5)
         end
-        mp.add_timeout(2, poll_export)
+        mp.add_timeout(2, function() poll_export(job) end)
       end
       FILES.export = function()
         if rec.active then osd("önce kaydı durdur", 3); return end
@@ -1690,7 +1697,7 @@ if TRACK_SHOW_MENU ~= false then
         local vp = video_path()
         if not vp then osd("dışa aktarmak için yerel video aç", 3); return end
         local views = rec.saved_video == vp and rec.file or vp .. ".views.json"
-        if not read_file(views) then osd("önce kayıt veya tarama yapın", 5); return end
+        if not read_file(views) then osd("görünüm dosyası yok: önce kayıt veya tarama yapın", 5); return end
         local py = python_exe()
         if not py then osd("python/ bulunamadı", 4); return end
         local default = vp:gsub("%.[^./\\]+$", "") .. ".takipli.mp4"
@@ -1699,21 +1706,22 @@ if TRACK_SHOW_MENU ~= false then
           if out:gsub("\\", "/"):lower() == vp:gsub("\\", "/"):lower() then
             osd("kaynak videonun üzerine yazılamaz", 4); return
           end
-          exp.running, exp.prog, exp.out = true, out .. ".export.json", out
+          local job = {}
+          exp.running, exp.prog, exp.out, exp.job = true, out .. ".export.json", out, job
           os.remove(exp.prog)
           mp.command_native_async({ name = "subprocess", playback_only = false,
             capture_stdout = false, capture_stderr = true,
             args = { py, "-m", "tracker", "--config",
               (os.getenv("APPDATA") or ".") .. "/TakipliOynat/config.json",
               "export", vp, "--views", views, "--out", out } }, function(ok, res)
-            if exp.running then
+            if exp.running and exp.job == job then
               exp.running = false
               osd(ok and res and res.status == 0 and ("dışa aktarma bitti: " .. out) or
                 ("dışa aktarma başarısız: " .. tostring(res and res.stderr or "")), 8)
             end
           end)
           osd("dışa aktarma başladı: " .. out, 4)
-          mp.add_timeout(2, poll_export)
+          mp.add_timeout(2, function() poll_export(job) end)
         end)
       end
       -- Yardım → Güncellemeleri denetle (VLC tarzı): önce yeni sürüm var mı bakılır (`tracker update
