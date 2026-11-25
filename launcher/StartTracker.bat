@@ -10,7 +10,7 @@ if not exist "%TAKIPLI_DATA_DIR%\" (
   echo [UYARI] E:\Tracking olusturulamadi; varsayilan veri klasoru kullanilacak.
   set "TAKIPLI_DATA_DIR="
 )
-if exist "%~dp0tracker\__init__.py" (set "ROOT=%~dp0") else (set "ROOT=%~dp0..")
+if exist "%~dp0tracker\__init__.py" (set "ROOT=%~dp0.") else (set "ROOT=%~dp0..")
 for %%F in ("%ROOT%") do set "ROOT=%%~fF"
 cd /d "%ROOT%"
 set "TRACKER=%ROOT%\tracker.exe"

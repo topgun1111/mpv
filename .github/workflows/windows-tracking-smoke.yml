@@ -25,6 +25,8 @@ jobs:
           python scripts/build_embedded.py --out "dist/Track Player"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           ./scripts/fetch_deps.ps1 -Target "dist/Track Player/mpv"
+          Invoke-WebRequest "https://huggingface.co/Xenova/yolov8s-pose/resolve/9dd2818a340ad6682eb38c9d99b6c67dc054da4b/onnx/model.onnx" -OutFile "dist/Track Player/models/yolov8s-pose.onnx"
+          Invoke-WebRequest "https://raw.githubusercontent.com/ultralytics/ultralytics/v8.3.0/ultralytics/assets/bus.jpg" -OutFile "dist/Track Player/bus.jpg"
           cargo build --release --manifest-path supervisor/Cargo.toml
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Copy-Item supervisor/target/release/tracker.exe "dist/Track Player"
@@ -39,13 +41,17 @@ jobs:
         run: |
           $patch = "windows-tracking-update"
           New-Item -ItemType Directory -Force "$patch/mpv/portable_config/scripts","$patch/tracker" | Out-Null
-          Copy-Item "dist/Track Player/Baslat.bat","dist/Track Player/StartTracker.bat" $patch
+          Copy-Item "dist/Track Player/Baslat.bat","dist/Track Player/StartTracker.bat","dist/Track Player/Takip.bat" $patch
           Copy-Item "dist/Track Player/mpv/portable_config/scripts/track.lua" "$patch/mpv/portable_config/scripts/"
           Copy-Item tracker/frames.py,tracker/live.py "$patch/tracker/"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-tracking-update
           path: windows-tracking-update/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-recording-update
+          path: mpv/portable_config_recording/scripts/kayit.lua
       - name: Player diagnostics
         if: failure()
         shell: pwsh
