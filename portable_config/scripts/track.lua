@@ -14,6 +14,7 @@ local enabled = false
 -- point = yalnız tık; rect = yalnız alan; body = vücut parçası (G / panel). Parça değişince mod uyar (set_part).
 local MODES = { auto = "Otomatik", point = "Nokta", rect = "Dikdörtgen", body = "Vücut" }
 local mode = "auto"
+local rec = { active = false, keys = {}, file = nil, video = nil }
 local start_tracker_service -- dosya sonunda tanımlanır (Python otomatik başlatma / yeniden deneme)
 local tp_save, tp_save_show, tp_save_timer, tp_save_clear, tp_request_save -- «Ayarları kaydet» geri bildirimi
 local tp_poll_gen = 0 -- panel açıkken track-cfg-get yeniden isteme turu (eski tur kendini bırakır)
@@ -301,7 +302,15 @@ local function video_path()
 end
 
 -- Anahtar kareler [[t, zoom, pan_x, pan_y], ...] → paralel diziler. Geçersizse nil, sebep.
-local function load_views(vpath)
+local function load_views(vpath, explicit)
+  if explicit then
+    local text = read_file(explicit)
+    local doc = text and utils.parse_json(text)
+    if type(doc) ~= "table" or type(doc.views) ~= "table" or #doc.views == 0 then return nil, "geçersiz kayıt" end
+    local o = { n = #doc.views, T = {}, Z = {}, PX = {}, PY = {} }
+    for i, k in ipairs(doc.views) do o.T[i], o.Z[i], o.PX[i], o.PY[i] = k[1], k[2], k[3], k[4] end
+    return o
+  end
   local reason = "bulunamadı: " .. vpath .. ".views.json (offline ... --target-id)"
   for _, suffix in ipairs({ ".views.json", ".track.json" }) do
     local text = read_file(vpath .. suffix)
@@ -364,17 +373,18 @@ local function apply_view(z, px, py)
   mp.set_property_number("video-pan-y", py)
 end
 
-set_offline = function(on, ease, reason)
+set_offline = function(on, ease, reason, explicit)
   if on == off.on then return end
   if on then
     local vpath = video_path()
     if not vpath then osd("offline: yerel video dosyası yok"); return end
-    local data, why = load_views(vpath)
+    local data, why = load_views(vpath, explicit)
     if not data then osd("offline " .. why, 4); return end
     local was_live = enabled
     if was_live then set_enabled(false) end -- canlı modu kapat
     off.n, off.T, off.Z, off.PX, off.PY = data.n, data.T, data.Z, data.PX, data.PY
     off.target, off.last, off.on = data.target, nil, true
+    mp.commandv("script-message-to", "mpcbar", "track-preview-state", "on")
     if ease then
       off.ease = { z = mp.get_property_number("video-zoom", 0), px = mp.get_property_number("video-pan-x", 0),
         py = mp.get_property_number("video-pan-y", 0), t0 = mp.get_time(), dur = 0.6 }
@@ -397,6 +407,7 @@ set_offline = function(on, ease, reason)
     end
   else
     off.on, off.last, off.ease = false, nil, nil
+    mp.commandv("script-message-to", "mpcbar", "track-preview-state", "off")
     render_hud()
     if refresh_panel then refresh_panel() end
     mp.set_property_number("video-zoom", 0)
@@ -411,7 +422,59 @@ mp.observe_property("time-pos", "number", function(_, t)
   if off.on and t then apply_view(eased(view_at(off, t))) end
 end)
 
-mp.add_key_binding(nil, "offline", function() set_offline(not off.on) end)
+-- Record displayed camera keyframes; do not interrupt the Python service.
+function rec.sample(t, force)
+  if not rec.active or type(t) ~= "number" or t < 0 or video_path() ~= rec.video then return end
+  local k = { t, mp.get_property_number("video-zoom", 0), mp.get_property_number("video-pan-x", 0), mp.get_property_number("video-pan-y", 0) }
+  local last = rec.keys[#rec.keys]
+  if last and t < last[1] then return end
+  if last and t == last[1] then rec.keys[#rec.keys] = k
+  elseif force or not last or t - last[1] >= 0.09 then rec.keys[#rec.keys + 1] = k end
+end
+function rec.stop(preview)
+  if not rec.active then return end
+  rec.sample(mp.get_property_number("time-pos"), true)
+  if #rec.keys == 0 then rec.active = false; osd("kayıt boş", 3); return end
+  local base = rec.video .. ".recorded-" .. os.date("%Y%m%d-%H%M%S")
+  local path, i = base .. ".views.json", 1
+  while utils.file_info(path) do path = base .. "-" .. i .. ".views.json"; i = i + 1 end
+  local data = utils.format_json({ version = 1, video = { path = rec.video }, views = rec.keys })
+  local f = data and io.open(path, "wb")
+  if not f then osd("kayıt yazılamadı; tekrar durdurmayı deneyin", 4); return end
+  local ok = f:write(data)
+  local closed = f:close()
+  if not ok or not closed then os.remove(path); osd("kayıt yazılamadı", 4); return end
+  rec.active, rec.file, rec.saved_video = false, path, rec.video
+  if preview and video_path() == rec.video then
+    mp.set_property("pause", "yes")
+    if off.on then set_offline(false) end
+    set_offline(true, false, "kayıt", path)
+    if off.on then
+      mp.commandv("seek", tostring(rec.keys[1][1]), "absolute+exact")
+      mp.set_property("pause", "no")
+      osd("önizleme · Dosya > Videoyu dışa aktar", 4)
+    end
+  end
+  if render_menu then render_menu() end
+end
+function rec.toggle()
+  if rec.active then rec.stop(true); return end
+  local vp, t = video_path(), mp.get_property_number("time-pos")
+  if not vp or not t then osd("önce yerel video aç", 3); return end
+  if scan and scan.running then osd("tarama sürüyor", 3); return end
+  if off.on then set_offline(false) end
+  rec.active, rec.video, rec.keys = true, vp, {}
+  rec.sample(t, true)
+  mp.set_property("pause", "no")
+  osd("kayıt başladı", 2)
+  if render_menu then render_menu() end
+end
+mp.observe_property("time-pos", "number", function(_, t) rec.sample(t, false) end)
+mp.add_key_binding(nil, "record-toggle", rec.toggle)
+mp.add_key_binding(nil, "offline", function()
+  if rec.active then osd("önce kaydı durdur", 2); return end
+  set_offline(not off.on, false, nil, rec.saved_video == video_path() and rec.file or nil)
+end)
 
 -- A2: görünüm kaynağı. auto = canlı zayıflarsa Python `track-use-scanned` yollar; live/scanned elle.
 local source = "auto"
@@ -432,8 +495,8 @@ local PART_LABEL = { auto = "Serbest", person = "Tüm kişi", head = "Baş", tor
   hands = "Eller" }
 local part = "auto"
 local function set_part(p)
+  if mode ~= "body" and p ~= "auto" then return end
   part = p
-  if p ~= "auto" then mode = "body" elseif mode == "body" then mode = "auto" end -- G tuşu/menü modu da günceller
   if not enabled then set_enabled(true) end -- parça seçmek takibi açar (sağ tık gibi)
   mp.commandv("script-message", "track-part", p)
 end
@@ -447,12 +510,16 @@ mp.add_key_binding(nil, "part", next_part)
 -- Mod seçimi (panel). body: parça seçili kalır (yoksa «Tüm kişi»); diğerleri parçayı «Serbest»e alır.
 local function set_mode(m)
   if not MODES[m] then return end
+  if mode ~= m then do_release() end
+  mode = m
+  mp.commandv("script-message", "track-selection-mode", m)
   if m == "body" then
     set_part(part == "auto" and "person" or part)
   else
     if part ~= "auto" then set_part("auto") end
     mode = m
   end
+  if rec.refresh_skel then rec.refresh_skel() end
   osd("mod: " .. MODES[m], 1.5)
 end
 mp.register_script_message("track-mode", set_mode)
@@ -472,8 +539,10 @@ mp.register_script_message("track-use-scanned", function(reason)
 end)
 
 mp.register_event("end-file", function()
+  if rec.active then rec.stop(false) end
   if off.on then -- veri eski videoya aitti
     off.on, off.last = false, nil
+    mp.commandv("script-message-to", "mpcbar", "track-preview-state", "off")
     render_hud()
   end
 end)
@@ -879,7 +948,7 @@ local function render_skel()
     skel.ov.z = SKEL_Z
   end
   local d = osd_dims()
-  if not (skel.on and enabled and not (off and off.on) and #skel.people > 0
+  if not (mode == "body" and skel.on and enabled and not (off and off.on) and #skel.people > 0
       and d and d.w and d.w > 0 and d.h and d.h > 0) then
     skel.ov.data = ""
     skel.ov:update()
@@ -947,7 +1016,13 @@ mp.register_script_message("track-skel", function(msg)
   skel.people = people
   render_skel()
 end)
+rec.refresh_skel = function()
+  skel.people = {}
+  mp.commandv("script-message", "track-skel-set", mode == "body" and skel.on and "on" or "off")
+  render_skel()
+end
 mp.add_key_binding(nil, "skeleton", function()
+  if mode ~= "body" then osd("iskelet yalnız Vücut modunda", 2); return end
   skel.on = not skel.on
   mp.commandv("script-message", "track-skel-set", skel.on and "on" or "off")
   if not skel.on then skel.people = {} end
@@ -1094,7 +1169,7 @@ local function finish_drag(pos)
     if drag.btn == "right" then pick_target() elseif enabled then on_click() end
     return
   end
-  if drag.btn == "right" and mode == "point" then osd("Nokta modu: sürükleme kapalı, tıkla (alan için Dikdörtgen/Otomatik)", 2.5) return end
+  if drag.btn == "right" and mode ~= "rect" and mode ~= "auto" then osd("alan seçmek için Dikdörtgen modunu kullanın", 2.5) return end
   local d = osd_dims()
   local params = mp.get_property_native("video-params")
   if not (d and params and params.w and params.h) then return end
@@ -1296,7 +1371,7 @@ local function hide_panel()
 end
 
 mp.observe_property("mouse-pos", "native", function(_, pos)
-  if drag.x0 and pos and pos.x then render_drag(pos.x, pos.y) end -- sürükleme çerçevesi
+  if drag.x0 and pos and pos.x and (mode == "rect" or mode == "auto") then render_drag(pos.x, pos.y) end -- sürükleme çerçevesi
   if pan.on and pos and pos.hover == false then pan.on = false end -- fare pencereden çıktı: bırak
   if pan.on and pos and pos.x then pan_move(pos) end -- sol tuşla kaydırma
   if pos and pos.hover == false and menu and not menu:is_open() then
@@ -1610,22 +1685,36 @@ if TRACK_SHOW_MENU ~= false then
         mp.add_timeout(2, poll_export)
       end
       FILES.export = function()
+        if rec.active then osd("önce kaydı durdur", 3); return end
         if exp.running then osd("dışa aktarma sürüyor", 2); return end
         local vp = video_path()
         if not vp then osd("dışa aktarmak için yerel video aç", 3); return end
-        if not read_file(vp .. ".views.json") then
-          osd("görünüm dosyası yok: önce hedef seç ve tara (Hedefle video aç)", 5); return
-        end
+        local views = rec.saved_video == vp and rec.file or vp .. ".views.json"
+        if not read_file(views) then osd("önce kayıt veya tarama yapın", 5); return end
         local py = python_exe()
-        if not py then osd("dışa aktarma başlatılamadı: python/ bulunamadı", 4); return end
-        local out = vp:gsub("%.[^./\\]+$", "") .. ".takipli.mp4"
-        mp.command_native({ name = "subprocess", playback_only = false, detach = true,
-          capture_stdout = false, capture_stderr = false,
-          args = { py, "-m", "tracker", "--config",
-            (os.getenv("APPDATA") or ".") .. "/TakipliOynat/config.json", "export", vp, "--out", out } })
-        exp.running, exp.prog, exp.out = true, out .. ".export.json", out
-        osd("dışa aktarma başladı: " .. out, 4)
-        mp.add_timeout(2, poll_export)
+        if not py then osd("python/ bulunamadı", 4); return end
+        local default = vp:gsub("%.[^./\\]+$", "") .. ".takipli.mp4"
+        dialog(TF.save_script(default), function(out)
+          if video_path() ~= vp or rec.active or exp.running then return end
+          if out:gsub("\\", "/"):lower() == vp:gsub("\\", "/"):lower() then
+            osd("kaynak videonun üzerine yazılamaz", 4); return
+          end
+          exp.running, exp.prog, exp.out = true, out .. ".export.json", out
+          os.remove(exp.prog)
+          mp.command_native_async({ name = "subprocess", playback_only = false,
+            capture_stdout = false, capture_stderr = true,
+            args = { py, "-m", "tracker", "--config",
+              (os.getenv("APPDATA") or ".") .. "/TakipliOynat/config.json",
+              "export", vp, "--views", views, "--out", out } }, function(ok, res)
+            if exp.running then
+              exp.running = false
+              osd(ok and res and res.status == 0 and ("dışa aktarma bitti: " .. out) or
+                ("dışa aktarma başarısız: " .. tostring(res and res.stderr or "")), 8)
+            end
+          end)
+          osd("dışa aktarma başladı: " .. out, 4)
+          mp.add_timeout(2, poll_export)
+        end)
       end
       -- Yardım → Güncellemeleri denetle (VLC tarzı): önce yeni sürüm var mı bakılır (`tracker update
       -- check` → JSON); varsa Evet/Hayır sorulur; Evet → `tracker update install` (indir + doğrula +
@@ -1925,6 +2014,7 @@ if TRACK_SHOW_MENU ~= false then
     if not tpanel:is_open() then toggle_tp() end
 
     local ACT = {
+      record_toggle = rec.toggle,
       tracker_panel = function() toggle_tp() end,
       quit = function() mp.commandv("quit") end,
       fullscreen = function() mp.commandv("cycle", "fullscreen") end,
@@ -1964,10 +2054,14 @@ if TRACK_SHOW_MENU ~= false then
         if f then local ok, err = pcall(f); if not ok then mp.msg.warn("menü: " .. tostring(err)) end end
       end,
       state = function(cmd)
+        if cmd == "record_toggle" then return { enabled = video_path() ~= nil, checked = rec.active, label = rec.active and "■ Kaydı durdur" or "● Kayıt başlat" } end
         if not ACT[cmd] then return { enabled = false } end
         local s = { enabled = true, checked = CHECK[cmd] and CHECK[cmd]() or false }
         if LIVE[cmd] and not enabled then s.enabled = false end
-        if cmd:sub(1, 5) == "part_" and cmd ~= "part_next" then s.checked = (part == cmd:sub(6)) end
+        if cmd:sub(1, 5) == "part_" or cmd == "bodypart" then
+          s.enabled = mode == "body"
+          s.checked = mode == "body" and part == cmd:sub(6)
+        end
         if cmd == "bodypart" then s.label = "Vücut parçası: " .. PART_LABEL[part] end
         if cmd == "panel" and not TRACK_SHOW_PANEL then s.enabled = false end
         if NEED_VIDEO[cmd] and not mp.get_property("path") then s.enabled = false end
