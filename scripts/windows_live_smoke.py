@@ -12,7 +12,7 @@ from tracker.config import default_ipc_path
 from tracker.ipc import MpvCommandError, MpvIpc, MpvIpcError, wait_for_ipc
 
 
-def main(root):
+def main(root, direct=False):
     clip = root / "target.avi"
     frame = cv2.resize(cv2.imread(str(root / "bus.jpg")), (360, 480))
     writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"MJPG"), 25, (360, 480))
@@ -23,8 +23,9 @@ def main(root):
     finally:
         writer.release()
     (root / "player.log").unlink(missing_ok=True)
-    subprocess.Popen(["cmd.exe", "/d", "/c", "Baslat.bat", "--pause",
-                      "--msg-level=cplayer=debug", "--log-file=player.log", clip.name], cwd=root)
+    launcher = [str(root / "mpv/mpv.exe")] if direct else ["cmd.exe", "/d", "/c", "Baslat.bat"]
+    subprocess.Popen([*launcher, "--pause", "--msg-level=cplayer=debug",
+                      "--log-file=player.log", clip.name], cwd=root)
     pipe = default_ipc_path()
     assert wait_for_ipc(pipe, 60), "Baslat.bat did not open mpv IPC"
     with MpvIpc(pipe) as player:
@@ -54,6 +55,8 @@ def main(root):
             except MpvIpcError:
                 pass
 
+    if direct:
+        return
 
     recording_pipe = r"\\.\pipe\mpv-recording-smoke"
     config = Path("mpv/portable_config_recording").resolve()
@@ -92,4 +95,4 @@ def main(root):
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]).resolve())
+    main(Path(sys.argv[1]).resolve(), "--direct" in sys.argv[2:])

@@ -1,4 +1,4 @@
-"""mpv `screenshot-raw` yanıtını BGR numpy karesine çevirir (Parça 5)."""
+"""Capture mpv video frames as BGR arrays for live tracking."""
 from __future__ import annotations
 
 import base64
@@ -12,7 +12,7 @@ import numpy as np
 def decode_raw(node: dict[str, Any]) -> np.ndarray:
     """`{w,h,stride,format,data}` → (h, w, 3) uint8 BGR.
 
-    JSON IPC bayt dizilerini base64 metni olarak verir; eski sürümler için sayı listesi de kabul.
+    Accept base64 or byte sequences from adapters that can transport binary nodes.
     """
     try:
         w, h, stride = int(node["w"]), int(node["h"]), int(node["stride"])

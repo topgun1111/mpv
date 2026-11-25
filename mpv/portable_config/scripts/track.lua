@@ -1500,8 +1500,10 @@ if TRACK_SHOW_MENU ~= false then
         local py = python_exe()
         if not py then osd("tarama başlatılamadı: python/ bulunamadı", 4); return end
         local function f(v) return string.format("%.6f", v) end
-        local args = { py, "-m", "tracker", "--config",
-          (os.getenv("APPDATA") or ".") .. "/TakipliOynat/config.json", "offline", vp,
+        local cfg = (os.getenv("APPDATA") or ".") .. "/TakipliOynat/config.json"
+        local preferred = (os.getenv("TAKIPLI_DATA_DIR") or "E:/Tracking") .. "/config.json"
+        if utils.file_info(preferred) then cfg = preferred end
+        local args = { py, "-m", "tracker", "--config", cfg, "offline", vp,
           "--preset", (part == "auto" and "person" or part) }
         if kind == "point" then
           for _, v in ipairs({ "--select-point", string.format("%.3f", t), f(a), f(b) }) do args[#args + 1] = v end

@@ -36,6 +36,14 @@ jobs:
         run: |
           Get-CimInstance Win32_OperatingSystem | Select Caption,Version,OSArchitecture
           & "dist/Track Player/python/python.exe" scripts/windows_live_smoke.py "dist/Track Player"
+      - name: Start directly through mpv.exe with a fresh tracker
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $exe = (Resolve-Path "dist/Track Player/tracker.exe").Path
+          Get-Process tracker -ErrorAction SilentlyContinue | Where-Object Path -eq $exe | Stop-Process -Force
+          Remove-Item "$env:APPDATA/TakipliOynat/tracker.lock","E:/Tracking/tracker.lock" -Force -ErrorAction SilentlyContinue
+          & "dist/Track Player/python/python.exe" scripts/windows_live_smoke.py "dist/Track Player" --direct
       - name: Package files for existing Windows installations
         shell: pwsh
         run: |

@@ -39,20 +39,12 @@ if exist "%CFG%" (
   start "Takip" "%TRACKER%" live --wait 120
 )
 
-rem tracker.exe SURECININ baslatildigini dogrula (IPC'nin hazir olmasi BEKLENMEZ).
-rem Tracker, mpv acilana kadar kendi icinde bekler ve baglantiyi kendisi kurar.
-set "N=0"
-:wait_started
-timeout /t 1 /nobreak >nul
-call :count_tracker
-if not "%TRK_COUNT%"=="0" (
-  echo [OK] Takip servisi baslatildi; mpv'ye baglanmasi bekleniyor.
-  exit /b 0
+if errorlevel 1 (
+  set "WHY=Takip servisi baslatilamadi."
+  goto :fail
 )
-set /a N+=1
-if %N% LSS 10 goto wait_started
-set "WHY=Python takip sureci baslatilamadi. 'Takip' penceresindeki hatayi oku."
-goto :fail
+echo [OK] Takip servisi baslatildi; mpv baglantisi bekleniyor.
+exit /b 0
 
 rem Bu kurulum klasorune ait "tracker.exe ... live" islemlerini sayar -> TRK_COUNT. Hicbir sureci sonlandirmaz.
 :count_tracker
