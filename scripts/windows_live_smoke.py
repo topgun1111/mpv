@@ -36,15 +36,26 @@ def main(root, direct=False):
                 if time.monotonic() >= deadline:
                     raise RuntimeError("The packaged tracker did not acquire its session lock")
                 time.sleep(0.25)
-            player.command("script-message", "track-toggle", "on")
-            player.command("script-message", "track-rect", ".4", ".2", ".5", ".3",
+            player.command("script-binding", "track/tracker")
+            player.command("script-message-to", "track", "track-mode", "body")
+            player.command("script-message", "track-rect", ".29", ".46", ".42", ".59",
                            "360", "480", "0")
             deadline = time.monotonic() + 45
             while time.monotonic() < deadline:
                 log = (root / "player.log").read_text("utf-8", errors="replace")
                 skeleton = any("track-skel" in line and ";" in line for line in log.splitlines())
                 if player.get_property("video-zoom") > 0.01 and skeleton:
-                    print("Live target selected, camera zoom applied, pose keypoints sent to Lua.")
+                    time.sleep(0.5)
+                    snapshot = root / "tracked.png"
+                    player.command("screenshot-to-file", str(snapshot), "window")
+                    pixels = cv2.imread(str(snapshot))
+                    assert pixels is not None
+                    for label, bgr in (("box", (64, 255, 64)), ("bones", (128, 255, 0))):
+                        low = tuple(max(0, v - 22) for v in bgr)
+                        high = tuple(min(255, v + 22) for v in bgr)
+                        count = cv2.countNonZero(cv2.inRange(pixels, low, high))
+                        assert count >= 12, f"Missing {label} in rendered window ({count} pixels)"
+                    print("Verified camera zoom, target rectangle and skeleton in the mpv window.")
                     break
                 time.sleep(0.2)
             else:

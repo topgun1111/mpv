@@ -51,7 +51,7 @@ jobs:
           New-Item -ItemType Directory -Force "$patch/mpv/portable_config/scripts","$patch/tracker" | Out-Null
           Copy-Item "dist/Track Player/Baslat.bat","dist/Track Player/StartTracker.bat","dist/Track Player/Takip.bat" $patch
           Copy-Item "dist/Track Player/mpv/portable_config/scripts/track.lua" "$patch/mpv/portable_config/scripts/"
-          Copy-Item tracker/frames.py,tracker/live.py "$patch/tracker/"
+          Copy-Item tracker/frames.py,tracker/live.py,tracker/ipc.py "$patch/tracker/"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-tracking-update
@@ -60,6 +60,12 @@ jobs:
         with:
           name: windows-recording-update
           path: mpv/portable_config_recording/scripts/kayit.lua
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tracking-screenshot
+          path: dist/Track Player/tracked.png
+          if-no-files-found: ignore
       - name: Player diagnostics
         if: failure()
         shell: pwsh

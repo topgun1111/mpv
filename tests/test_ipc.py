@@ -79,3 +79,23 @@ def test_events_queued_and_polled(tmp_path):
         assert first["event"] == "client-message"
         assert mpv.poll_event(1.0)["event"] == "seek"
         assert mpv.poll_event(0.1) is None  # zaman aşımı
+
+
+def test_busy_windows_pipe_is_retried(monkeypatch):
+    import errno
+    from unittest.mock import mock_open
+
+    connected = mock_open()()
+    attempts = iter([OSError(errno.EINVAL, "busy"), connected])
+
+    def open_pipe(*args, **kwargs):
+        result = next(attempts)
+        if isinstance(result, OSError):
+            raise result
+        return result
+
+    monkeypatch.setattr("builtins.open", open_pipe)
+    client = MpvIpc("pipe")
+    client._connect_pipe()
+    client.close()
+    connected.close.assert_called_once()

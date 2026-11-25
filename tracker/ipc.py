@@ -1,6 +1,7 @@
 """mpv JSON IPC istemcisi (Windows named pipe + Unix socket)."""
 from __future__ import annotations
 
+import errno
 import json
 import os
 import socket
@@ -33,10 +34,7 @@ class MpvIpc:
     # --- bağlantı ---
     def connect(self) -> None:
         if os.name == "nt":
-            try:
-                self._pipe = open(self.path, "r+b", buffering=0)
-            except OSError as e:
-                raise MpvIpcError(f"mpv pipe açılamadı: {self.path}: {e}") from e
+            self._connect_pipe()
         else:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             s.settimeout(self.timeout)
@@ -46,6 +44,21 @@ class MpvIpc:
                 s.close()
                 raise MpvIpcError(f"mpv soketi açılamadı: {self.path}: {e}") from e
             self._sock = s
+
+    def _connect_pipe(self) -> None:
+        # Between two client connections mpv may still be creating its next pipe
+        # instance. The Windows CRT can report ERROR_PIPE_BUSY as EINVAL.
+        deadline = time.monotonic() + self.timeout
+        while True:
+            try:
+                self._pipe = open(self.path, "r+b", buffering=0)
+                return
+            except OSError as e:
+                transient = (e.errno in (errno.EBUSY, errno.EINVAL)
+                             or getattr(e, "winerror", 0) == 231)
+                if not transient or time.monotonic() >= deadline:
+                    raise MpvIpcError(f"mpv pipe açılamadı: {self.path}: {e}") from e
+                time.sleep(0.025)
 
     def close(self) -> None:
         if self._sock:
