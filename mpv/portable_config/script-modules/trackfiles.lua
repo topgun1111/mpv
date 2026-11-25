@@ -63,6 +63,15 @@ function M.open_script(dir)
   return s .. "if($d.ShowDialog($o) -eq 'OK'){" .. emit("$d.FileName") .. "}"
 end
 
+function M.save_script(default_path)
+  local s = HEAD .. "$d=New-Object Windows.Forms.SaveFileDialog;$d.Title='Videoyu dışa aktar';"
+    .. "$d.Filter='MP4 video|*.mp4';$d.DefaultExt='mp4';$d.AddExtension=$true;$d.OverwritePrompt=$true;"
+    .. "$d.FileName=" .. M.ps_quote(default_path:match("[^/\\]+$") or "video.mp4") .. ";"
+  local dir = M.parent_dir(default_path)
+  if dir then s = s .. "if(Test-Path -LiteralPath " .. M.ps_quote(dir) .. "){$d.InitialDirectory=" .. M.ps_quote(dir) .. "};" end
+  return s .. "if($d.ShowDialog($o) -eq 'OK'){" .. emit("$d.FileName") .. "}"
+end
+
 function M.folder_script(dir)
   local s = HEAD .. "$d=New-Object Windows.Forms.FolderBrowserDialog;$d.Description='Video klasörü seç';"
   if dir and dir ~= "" then s = s .. "if(Test-Path -LiteralPath " .. M.ps_quote(dir) .. "){$d.SelectedPath=" .. M.ps_quote(dir) .. "};" end
