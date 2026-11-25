@@ -52,7 +52,7 @@ jobs:
           New-Item -ItemType Directory -Force "$patch/mpv/portable_config/scripts","$patch/tracker" | Out-Null
           Copy-Item "dist/Track Player/Baslat.bat","dist/Track Player/StartTracker.bat","dist/Track Player/Takip.bat" $patch
           Copy-Item "dist/Track Player/mpv/portable_config/scripts/track.lua" "$patch/mpv/portable_config/scripts/"
-          Copy-Item tracker/frames.py,tracker/live.py,tracker/ipc.py "$patch/tracker/"
+          Copy-Item tracker/frames.py,tracker/live.py,tracker/ipc.py,tracker/main.py "$patch/tracker/"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-tracking-update

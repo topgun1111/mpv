@@ -1,9 +1,6 @@
--- kayit.lua — Takipli Oynat KAYIT varyantı. Tek özellik: zoom (tekerlek, +/-) + SOL tuşla sürükle (aynı anda)
--- → kamera hareketi kaydedilir (<video>.rec.json) → S ile yeni videoya dışa aktarılır.
--- Akış: KAYDET düğmesi = hazır (oynatma BAŞLAMAZ, hız ayarlanır) → Space = kayıt hemen başlar;
--- sonra Space = duraklat/sürdür → düğme = durdur → S = dışa aktar.
--- Poz/model/takip YOK. Formüller recorder/geometry.py + recorder/keys.py ile birebir aynıdır
--- (tests/test_lua_kayit.py eşlik testi). Görünüm v = {zoom(log2), pan_x, pan_y}; merkez = 0.5 - pan.
+-- Kaydırma ve zoom hareketlerini <video>.rec.json dosyasına kaydeder.
+-- KAYDET ile hazırla, Space ile başlat/duraklat/sürdür, KAYDET ile durdur, S ile dışa aktar.
+-- Görünüm ve anahtar kare hesapları recorder/geometry.py ve recorder/keys.py ile eşleşir.
 local mp = require("mp")
 
 local MAX_ZOOM, STEP = 4.0, 0.25 -- 1×–16×; tuş/tekerlek adımı 0.25 (log2)

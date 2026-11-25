@@ -303,7 +303,7 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
             sc = finish_cached(out, doc, cfg, sel, fps, sig)
             if sc.target:
                 args.target_id = sc.target["id"]
-                if "part" in sc.target:
+                if "part" in sc.target and args.preset is None and args.part is None:
                     args.part = str(sc.target["part"])
             elif sel:
                 print(f"UYARI: {sc.error or 'hedef çözülemedi'}; izler listeleniyor",
@@ -366,7 +366,7 @@ def run_offline_cmd(cfg: Config, args: argparse.Namespace) -> int:
             return 3
         if sc.target:
             args.target_id = sc.target["id"]
-            if "part" in sc.target:
+            if "part" in sc.target and args.preset is None and args.part is None:
                 args.part = str(sc.target["part"])
         elif sel:
             print(f"UYARI: {sc.error or 'hedef çözülemedi'}; izler listeleniyor", file=sys.stderr)
