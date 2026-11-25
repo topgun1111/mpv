@@ -175,7 +175,7 @@ local vf = io.open(os.getenv("VIDEO") .. ".views.json", "wb"); vf:write('{"views
 pick(9)
 local e = reg.spawn.args
 local want = os.getenv("VIDEO"):gsub("%.[^./\\]+$", "") .. ".takipli.mp4"
-out("EXPORT_SPAWN", tostring(reg.async.t.playback_only == false), e[5], e[6], tostring(e[7] == os.getenv("VIDEO")), tostring(e[9] == want))
+out("EXPORT_SPAWN", tostring(reg.spawn.detach), e[5], e[6], tostring(e[7] == os.getenv("VIDEO")), tostring(e[9] == want))
 local ef = io.open(want .. ".export.json", "wb"); ef:write('{"state":"running","pct":55}'); ef:close()
 reg.timers[#reg.timers]()
 out("EXPORT_PROGRESS", reg.toast ~= "" and reg.toast or (reg.osd[#reg.osd] or "-"))

@@ -1607,7 +1607,7 @@ if TRACK_SHOW_MENU ~= false then
         local py = python_exe()
         if not py then osd("dışa aktarma başlatılamadı: python/ bulunamadı", 4); return end
         local out = vp:gsub("%.[^./\\]+$", "") .. ".takipli.mp4"
-        mp.command_native({ name = "subprocess", playback_only = false, detached = true,
+        mp.command_native({ name = "subprocess", playback_only = false, detach = true,
           capture_stdout = false, capture_stderr = false,
           args = { py, "-m", "tracker", "--config",
             (os.getenv("APPDATA") or ".") .. "/TakipliOynat/config.json", "export", vp, "--out", out } })
@@ -1656,7 +1656,7 @@ if TRACK_SHOW_MENU ~= false then
         if not dir or dir == "" then dir = (os.getenv("APPDATA") or ".") .. "/TakipliOynat" end
         upd.prog = dir .. "/update.json"
         os.remove(upd.prog)
-        mp.command_native({ name = "subprocess", playback_only = false, detached = true,
+        mp.command_native({ name = "subprocess", playback_only = false, detach = true,
           capture_stdout = false, capture_stderr = false,
           args = { py, "-m", "tracker", "--config", cfg_path(), "update", "install", "--progress", upd.prog } })
         osd("güncelleme indiriliyor…", 4)
@@ -2012,14 +2012,14 @@ do
       return false
     end
     -- start: yeni görünür konsol; cmd /c yalnız aracı olduğundan tek katman tırnak yeter.
-    local res = mp.command_native({
-      name = "subprocess", playback_only = false, detached = true,
+    local res, command_err = mp.command_native({
+      name = "subprocess", playback_only = false, detach = true,
       capture_stdout = false, capture_stderr = false,
       args = { "cmd.exe", "/d", "/c", "start", "Takip Baslatma", "/D", root, bat }
     })
     if type(res) ~= "table" or (res.status or 0) < 0 or res.error_string and res.error_string ~= "" then
-      mp.msg.error("Python baslatilamadi: " .. tostring(res and res.error_string))
-      mp.osd_message("Python takip servisi başlatılamadı: " .. tostring(res and res.error_string), 6)
+      mp.msg.error("Python baslatilamadi: " .. tostring(command_err or (res and res.error_string)))
+      mp.osd_message("Python takip servisi başlatılamadı: " .. tostring(command_err or (res and res.error_string)), 6)
       return false
     end
     mp.msg.info("Python takip servisi ortak baslaticiyla baslatiliyor: " .. bat)
