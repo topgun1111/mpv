@@ -463,7 +463,9 @@ function rec.toggle()
   if rec.active then rec.stop(true); return end
   local vp, t = video_path(), mp.get_property_number("time-pos")
   if not vp or not t then osd("önce yerel video aç", 3); return end
-  if scan and (scan.running or scan.pending) then osd("önce taramayı tamamlayın veya normal video açın", 3); return end
+  if scan and scan.running then osd("önce taramayı tamamlayın", 3); return end
+  if scan then scan.pending, scan.selection = false, nil end
+  if tpanel and tpanel:is_open() and toggle_tp then toggle_tp() end
   if off.on then set_offline(false) end
   rec.active, rec.video, rec.keys = true, vp, {}
   rec.sample(t, true)
