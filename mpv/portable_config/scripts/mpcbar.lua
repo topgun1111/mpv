@@ -12,6 +12,7 @@ local ov = mp.create_osd_overlay("ass-events")
 local st = { vis = true, hover = nil, els = {}, drag = nil, bound = false, mx = 0, my = 0, lastq = -1 }
 
 -- Klasik renkler (ASS: BBGGRR)
+local preview = false
 local C = {
   panel   = "1E1E1E", panel2 = "2A2A2A", line   = "555555", line2 = "0A0A0A",
   track   = "101010", trackb = "5A5A5A", fill   = "D59B5B",  -- mavi (RGB 5B9BD5)
@@ -266,7 +267,7 @@ local function render()
   local ty = L.top + round((L.seekh - th) / 2)
   o[#o + 1] = rect(L.tx0, ty, L.tx1 - L.tx0, th, C.track, 0, 1, C.trackb)
   local fx = L.tx0 + round(ratio * (L.tx1 - L.tx0))
-  if fx > L.tx0 then o[#o + 1] = rect(L.tx0, ty, fx - L.tx0, th, C.fill, 0) end
+  if fx > L.tx0 then o[#o + 1] = rect(L.tx0, ty, fx - L.tx0, th, preview and "3030EF" or C.fill, 0) end
   -- A-B döngü işaretleri (ab-loop-a/b; yoksa "no" → sayı değil)
   local ab_a = mp.get_property_number("ab-loop-a")
   local ab_b = mp.get_property_number("ab-loop-b")
@@ -286,7 +287,7 @@ local function render()
   end
   local thx = fx - round(L.thw / 2)
   local thy = L.top + round((L.seekh - L.thh) / 2)
-  o[#o + 1] = rect(thx, thy, L.thw, L.thh, C.thumb, 0, 1, C.thumbb)
+  o[#o + 1] = rect(thx, thy, L.thw, L.thh, preview and "3030EF" or C.thumb, 0, 1, C.thumbb)
 
   -- hız şeridi zemini (düğmelerden önce çizilir)
   if L.strip then
@@ -467,6 +468,11 @@ end
 mp.observe_property("fullscreen", "native", function(_, fs)
   st.vis = true
   if fs then timer:kill(); timer:resume() end
+  render()
+end)
+
+mp.register_script_message("track-preview-state", function(state)
+  preview = state == "on"
   render()
 end)
 
