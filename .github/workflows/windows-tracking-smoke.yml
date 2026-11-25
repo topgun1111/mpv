@@ -8,6 +8,9 @@ permissions:
 jobs:
   player:
     runs-on: windows-11-arm
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
     timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
@@ -31,8 +34,21 @@ jobs:
         run: |
           Get-CimInstance Win32_OperatingSystem | Select Caption,Version,OSArchitecture
           & "dist/Track Player/python/python.exe" scripts/windows_live_smoke.py "dist/Track Player"
+      - name: Package files for existing Windows installations
+        shell: pwsh
+        run: |
+          $patch = "windows-tracking-update"
+          New-Item -ItemType Directory -Force "$patch/mpv/portable_config/scripts","$patch/tracker" | Out-Null
+          Copy-Item "dist/Track Player/Baslat.bat","dist/Track Player/StartTracker.bat" $patch
+          Copy-Item "dist/Track Player/mpv/portable_config/scripts/track.lua" "$patch/mpv/portable_config/scripts/"
+          Copy-Item tracker/frames.py,tracker/live.py "$patch/tracker/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-tracking-update
+          path: windows-tracking-update/
       - name: Player diagnostics
         if: failure()
         shell: pwsh
         run: |
+          Get-CimInstance Win32_Process | Where-Object Name -in "mpv.exe","tracker.exe","python.exe" | Select Name,CommandLine
           Get-Content "$env:TEMP/takipli-start.log","dist/Track Player/player.log" -Tail 100 -ErrorAction SilentlyContinue
