@@ -104,12 +104,16 @@ function M.layout(W, H, st, top)
   add(rect("label", x, y, 0, 0, { s = "VÜCUT PARÇASI" }))
   y = y + 22
   local cx, cy = x, y
+  if st.mode == "body" then
   for _, p in ipairs(M.PARTS) do
     local w = math.floor(nchars(p[2]) * 12 * 0.58 + 22)
     if cx > x and cx + w > x + COLW then cx, cy = x, cy + 26 + 6 end
     add(rect("chip", cx, cy, w, 26,
       { act = "part", a = p[1], sel = (st.mode == "body" and st.part == p[1]), s = p[2] }), true)
     cx = cx + w + 6
+  end
+  else
+    add(rect("text", x + 2, cy + 10, 0, 0, { s = "Yalnız Vücut modunda kullanılabilir.", fs = 12, col = "dim", an = 4 }))
   end
   y = cy + 26 + 12
   add(rect("label", x, y, 0, 0, { s = "TAKİP" }))
