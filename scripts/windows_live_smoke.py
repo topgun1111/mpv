@@ -9,7 +9,44 @@ from pathlib import Path
 import cv2
 
 from tracker.config import default_ipc_path
+from tracker.geometry import View
 from tracker.ipc import MpvCommandError, MpvIpc, MpvIpcError, wait_for_ipc
+
+
+def check_scan(player, root, frame):
+    video = root / "scan.avi"
+    writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), 25, (360, 480))
+    assert writer.isOpened()
+    try:
+        for _ in range(25):
+            writer.write(frame)
+    finally:
+        writer.release()
+    player.command("loadfile", str(video), "replace")
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if Path(player.get_property("path")) == video and player.get_property("pause"):
+            break
+        time.sleep(0.2)
+    time.sleep(0.5)
+    player.command("script-binding", "track/tracker")
+    player.set_view(View())
+    d = player.get_property("osd-dimensions")
+    x = round(d["ml"] + 0.35 * (d["w"] - d["ml"] - d["mr"]))
+    y = round(d["mt"] + 0.52 * (d["h"] - d["mt"] - d["mb"]))
+    player.command("mouse", x, y)
+    time.sleep(0.3)
+    player.command("script-binding", "track/pick")
+    time.sleep(0.4)
+    player.set_property("pause", False)
+    views = Path(str(video) + ".views.json")
+    deadline = time.monotonic() + 75
+    while time.monotonic() < deadline:
+        if views.exists() and json.loads(views.read_text(encoding="utf-8"))["views"]:
+            print("A real right-click and Play produced the offline camera path.")
+            return
+        time.sleep(0.5)
+    raise RuntimeError("Missing offline camera path after right-click and Play")
 
 
 def main(root, direct=False):
@@ -60,6 +97,8 @@ def main(root, direct=False):
                 time.sleep(0.2)
             else:
                 raise RuntimeError("Missing live zoom or pose keypoints after target selection")
+            if not direct:
+                check_scan(player, root, frame)
         finally:
             try:
                 player.command("quit")

@@ -1455,12 +1455,12 @@ if TRACK_SHOW_MENU ~= false then
           if utils.file_info(p) then return p end
         end
       end
-      local function poll_scan()
-        if not scan.running then return end
+      local function poll_scan(job)
+        if not scan.running or scan.job ~= job then return end
         local text = read_file(scan.prog)
         local p = text and utils.parse_json(text)
         if type(p) == "table" then
-          if p.state == "done" then
+          if p.state == "done" and job.finished then
             scan.running = false
             slow_flag(false)
             if p.error and not p.target then
@@ -1492,7 +1492,13 @@ if TRACK_SHOW_MENU ~= false then
           local tgt = p.target and (" · hedef ID " .. tostring(p.target.id)) or ""
           osd(string.format("tarama %%%s%s", tostring(p.pct or "?"), tgt), 1.5)
         end
-        mp.add_timeout(2, poll_scan)
+        if job.finished then
+          scan.running = false
+          slow_flag(false)
+          osd("Tarama tamamlanamadı: ilerleme dosyası eksik veya okunamıyor.", 5)
+        else
+          mp.add_timeout(2, function() poll_scan(job) end)
+        end
       end
       local function launch_scan(kind, t, a, b, c, d, rescan)
         local vp = video_path()
@@ -1517,10 +1523,16 @@ if TRACK_SHOW_MENU ~= false then
         scan.slow = vp .. ".track.json.scan.slow"
         scan.last = { kind, t, a, b, c, d }
         mp.set_property("pause", "no")
+        local job = { finished = false }
+        scan.job = job
         os.remove(scan.prog)
         mp.command_native_async({ name = "subprocess", playback_only = false,
           capture_stdout = false, capture_stderr = true, args = args }, function(ok, res, err)
-          if not ok or not res or res.status ~= 0 then
+          if scan.job ~= job then return end
+          if ok and res and (res.status == 0 or res.status == 3) then
+            job.finished = true
+            poll_scan(job)
+          else
             scan.running = false
             slow_flag(false)
             local why = (res and (res.stderr or ""):match("([^\r\n]+)[\r\n]*$")) or err
@@ -1529,7 +1541,7 @@ if TRACK_SHOW_MENU ~= false then
         end)
         slow_flag(true)
         osd(rescan and "yeniden taranıyor (önbellek yok sayıldı)" or "hedef seçildi - arka planda taranıyor", 3)
-        mp.add_timeout(2, poll_scan)
+        mp.add_timeout(2, function() poll_scan(job) end)
       end
       scan_start = function(kind, t, a, b, c, d)
         if source == "live" or not scan.pending or scan.running then return end

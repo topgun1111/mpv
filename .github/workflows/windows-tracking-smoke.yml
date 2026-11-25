@@ -25,6 +25,7 @@ jobs:
           python scripts/build_embedded.py --out "dist/Track Player"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           ./scripts/fetch_deps.ps1 -Target "dist/Track Player/mpv"
+          ./scripts/fetch_model.ps1 -Target "dist/Track Player/models"
           Invoke-WebRequest "https://huggingface.co/Xenova/yolov8s-pose/resolve/9dd2818a340ad6682eb38c9d99b6c67dc054da4b/onnx/model.onnx" -OutFile "dist/Track Player/models/yolov8s-pose.onnx"
           Invoke-WebRequest "https://raw.githubusercontent.com/ultralytics/ultralytics/v8.3.0/ultralytics/assets/bus.jpg" -OutFile "dist/Track Player/bus.jpg"
           cargo build --release --manifest-path supervisor/Cargo.toml
@@ -71,4 +72,6 @@ jobs:
         shell: pwsh
         run: |
           Get-CimInstance Win32_Process | Where-Object Name -in "mpv.exe","tracker.exe","python.exe" | Select Name,CommandLine
+          Select-String -Path "dist/Track Player/player.log" -Pattern "track-point|track-rect|scan.json|scan.avi|pythonw.exe|Lua error|stack traceback" | Select-Object -Last 25
+          Get-Content "$env:USERPROFILE/Desktop/takipli-tarama-log.txt","$env:APPDATA/TakipliOynat/takipli-tarama-log.txt" -Tail 35 -ErrorAction SilentlyContinue
           Get-Content "$env:TEMP/takipli-start.log","dist/Track Player/player.log" -Tail 100 -ErrorAction SilentlyContinue
