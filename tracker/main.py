@@ -391,6 +391,10 @@ def run_export_cmd(cfg: Config, args: argparse.Namespace) -> int:
 
     views = load_views(args.views or f"{args.video}.views.json", video=args.video)
     out = args.out or default_out(args.video)
+    from pathlib import Path
+
+    if Path(out).resolve() == Path(args.video).resolve():
+        raise ValueError("Kaynak videonun üzerine yazılamaz")
     t0 = time.monotonic()
     if args.stabilize_s:
         cfg.stabilize_s = args.stabilize_s
