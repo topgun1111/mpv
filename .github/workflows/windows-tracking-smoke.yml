@@ -35,9 +35,11 @@ jobs:
         shell: pwsh
         run: |
           $patch = "windows-tracking-update"
-          New-Item -ItemType Directory -Force "$patch/mpv/portable_config/scripts","$patch/tracker" | Out-Null
+          New-Item -ItemType Directory -Force "$patch/mpv/portable_config/scripts","$patch/mpv/portable_config/script-modules","$patch/tracker" | Out-Null
           Copy-Item "dist/Track Player/Baslat.bat","dist/Track Player/StartTracker.bat","dist/Track Player/Takip.bat" $patch
-          Copy-Item "dist/Track Player/mpv/portable_config/scripts/track.lua" "$patch/mpv/portable_config/scripts/"
+          Copy-Item "dist/Track Player/mpv/portable_config/scripts/track.lua","dist/Track Player/mpv/portable_config/scripts/mpcbar.lua" "$patch/mpv/portable_config/scripts/"
+          Copy-Item "dist/Track Player/mpv/portable_config/mpv.conf" "$patch/mpv/portable_config/"
+          Copy-Item "dist/Track Player/mpv/portable_config/script-modules/trackmenu.lua","dist/Track Player/mpv/portable_config/script-modules/trackfiles.lua","dist/Track Player/mpv/portable_config/script-modules/trackpanel.lua" "$patch/mpv/portable_config/script-modules/"
           Copy-Item tracker/frames.py,tracker/live.py,tracker/ipc.py,tracker/main.py "$patch/tracker/"
       - name: Build and apply the tracking update executable
         shell: pwsh
@@ -58,7 +60,7 @@ jobs:
             $expected[$relative] = (Get-FileHash $f.FullName).Hash
             Set-Content -LiteralPath (Join-Path $root $relative) -Value "old fixture"
           }
-          if ($expected.Count -ne 8) { throw "Unexpected patch file count" }
+          if ($expected.Count -ne 13) { throw "Unexpected patch file count" }
           $result = Start-Process $installer -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=`"$root`"" -Wait -PassThru
           if ($result.ExitCode) { throw "Installer exited $($result.ExitCode)" }
           foreach ($relative in $expected.Keys) {
@@ -104,6 +106,6 @@ jobs:
         shell: pwsh
         run: |
           Get-CimInstance Win32_Process | Where-Object Name -in "mpv.exe","tracker.exe","python.exe" | Select Name,CommandLine
-          Select-String -Path "dist/Track Player/player.log" -Pattern "track-point|track-rect|scan.json|scan.avi|pythonw.exe|Lua error|stack traceback" | Select-Object -Last 40 | ForEach-Object { $_.Line }
+          Select-String -Path "dist/Track Player/player.log" -Pattern "track-point|track-rect|track-selection-mode|track-dot|track-skel|track-toggle|track-loading|track-preview-state|scan.json|scan.avi|pythonw.exe|Lua error|stack traceback" | Select-Object -Last 40 | ForEach-Object { $_.Line }
           Get-Content "$env:USERPROFILE/Desktop/takipli-tarama-log.txt","$env:APPDATA/TakipliOynat/takipli-tarama-log.txt" -Tail 35 -ErrorAction SilentlyContinue
           Get-Content "$env:TEMP/takipli-start.log","dist/Track Player/player.log" -Tail 100 -ErrorAction SilentlyContinue

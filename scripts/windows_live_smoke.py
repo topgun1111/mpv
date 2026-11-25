@@ -78,6 +78,7 @@ def main(root, direct=False):
                 time.sleep(0.25)
             player.command("script-binding", "track/tracker")
             player.command("script-message-to", "track", "track-mode", "rect")
+            time.sleep(0.5)  # allow Lua mode and enable messages to reach Python
             player.command("script-message", "track-rect", ".29", ".46", ".42", ".59",
                            "360", "480", "0")
             deadline = time.monotonic() + 45
@@ -88,16 +89,18 @@ def main(root, direct=False):
                     player.command("screenshot-to-file", str(snapshot), "window")
                     pixels = cv2.imread(str(snapshot))
                     assert pixels is not None
-                    for label, bgr in (("box", (64, 255, 64)),):
-                        low = tuple(max(0, v - 22) for v in bgr)
-                        high = tuple(min(255, v + 22) for v in bgr)
-                        count = cv2.countNonZero(cv2.inRange(pixels, low, high))
-                        assert count >= 12, f"Missing {label} in rendered window ({count} pixels)"
-                    print("Verified camera zoom and rectangle in the mpv window.")
-                    break
+                    bgr = (64, 255, 64)
+                    low = tuple(max(0, v - 22) for v in bgr)
+                    high = tuple(min(255, v + 22) for v in bgr)
+                    count = cv2.countNonZero(cv2.inRange(pixels, low, high))
+                    if count >= 12:
+                        print(f"Verified camera zoom and rectangle ({count} pixels).")
+                        break  # wait for actual overlay, not only for zoom
                 time.sleep(0.2)
             else:
-                raise RuntimeError("Missing live zoom after rectangle selection")
+                raise RuntimeError("Missing live zoom or rendered rectangle after selection")
+            for old in root.glob("target.avi.recorded-*.views.json"):
+                old.unlink()
             player.command("script-binding", "track/record-toggle")
             time.sleep(2)
             player.command("script-binding", "track/record-toggle")

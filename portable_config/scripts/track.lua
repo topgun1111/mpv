@@ -522,7 +522,9 @@ local function set_mode(m)
     if part ~= "auto" then set_part("auto") end
     mode = m
   end
+  if m ~= "auto" and not enabled then set_enabled(true) end
   if rec.refresh_skel then rec.refresh_skel() end
+  if refresh_panel then refresh_panel() end
   osd("mod: " .. MODES[m], 1.5)
 end
 mp.register_script_message("track-mode", set_mode)
@@ -882,9 +884,12 @@ local function render_dot()
   if dot.box and mode ~= "point" then
     local x1, y1 = math.floor(bx0 + dot.box[1] * bw), math.floor(by0 + dot.box[2] * bh)
     local x2, y2 = math.floor(bx0 + dot.box[3] * bw), math.floor(by0 + dot.box[4] * bh)
+    -- Draw solid strips: transparent-fill ASS borders can disappear on some renderers.
+    local thick = math.max(2, math.floor(d.h * 0.004))
+    local strips = table.concat({ rect(x1, y1, x2, y1 + thick), rect(x1, y2 - thick, x2, y2),
+      rect(x1, y1, x1 + thick, y2), rect(x2 - thick, y1, x2, y2) }, " ")
     dot.ov.data = dot.ov.data .. string.format(
-      "\n{\\an7\\pos(0,0)\\bord2\\shad0\\1a&HFF&\\3c&H40FF40&\\p1}%s{\\p0}",
-      rect(x1, y1, x2, y2))
+      "\n{\\an7\\pos(0,0)\\bord0\\shad0\\1c&H40FF40&\\1a&H00&\\p1}%s{\\p0}", strips)
   end
   dot.ov:update()
 end
@@ -1177,7 +1182,7 @@ local function finish_drag(pos)
     if drag.btn == "right" then pick_target() elseif enabled then on_click() end
     return
   end
-  if drag.btn == "right" and mode ~= "rect" and mode ~= "auto" then osd("alan seçmek için Dikdörtgen modunu kullanın", 2.5) return end
+  if drag.btn == "right" and mode ~= "rect" and mode ~= "auto" then osd(MODES[mode] .. " modu: alan seçmek için Dikdörtgen modunu kullanın", 2.5) return end
   local d = osd_dims()
   local params = mp.get_property_native("video-params")
   if not (d and params and params.w and params.h) then return end

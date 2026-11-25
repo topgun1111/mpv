@@ -124,6 +124,7 @@ function M.bar_layout(W, H, menus, hd)
     end
     return rects, fs, x
   end
+  W = math.max(1, W - math.min(150, math.floor(W * 0.19))) -- reserve recording control space
   local bh = math.max(math.floor(32 * boost * hd), math.floor(H * 0.05))
   local rects, fs, total = build(bh)
   if total > W and W > 0 then -- başlıklar sığmıyorsa orantılı küçült (en az 24 px)
@@ -164,7 +165,7 @@ function M.new(ctx)
   function e:resize(W, H)
     if W == self.W and H == self.H and self.hrects[1] then return end
     self.W, self.H = W, H
-    self.hrects, self.bh, self.fs = M.bar_layout(math.max(1, W - math.min(150, math.floor(W * 0.19))), H, M.MENUS, self.hd)
+    self.hrects, self.bh, self.fs = M.bar_layout(W, H, M.MENUS, self.hd)
     self:relayout()
   end
 

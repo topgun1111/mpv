@@ -68,7 +68,8 @@ reg.obs.fullscreen("fullscreen", false)
 out("EXITFS", tostring(M():find("Dosya", 1, true) ~= nil))
 move(W / 2, H / 2); if reg.timers[#reg.timers] then reg.timers[#reg.timers]() end
 out("STAYS", tostring(M():find("Dosya", 1, true) ~= nil))
--- B3: Parça menüsü: Sol kol seç → `track-part left_arm`; işaret + Takip menüsündeki etiket güncellenir
+-- Body must be explicitly selected before body-part controls become active.
+reg.msgs["track-mode"]("body")
 click(hx(4), 5)
 out("PARTMENU", tostring(M():find("Sol kol", 1, true) ~= nil), tostring(M():find("Eller", 1, true) ~= nil))
 do local m = TM.MENUS[4]; local labels, keys = {}, {}

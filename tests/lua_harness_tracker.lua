@@ -19,8 +19,9 @@ end
 local function P() return reg.ov[3] or "" end
 local bar, bh = TM.bar_layout(W, H, TM.MENUS)
 local cfg = dofile(os.getenv("DATA_LUA"))
+local current_mode = "auto"
 local function find(act, a, b)
-  local L = TP.layout(W, H, { cfg = cfg }, bh)
+  local L = TP.layout(W, H, { cfg = cfg, mode = current_mode }, bh)
   for _, w in ipairs(L.widgets) do
     if w.act == act and (a == nil or w.a == a) and (b == nil or w.b == b) then return w.x + 3, w.y + 3, L end
   end
@@ -37,11 +38,13 @@ out("NOCFG", tostring(P():find("—", 1, true) ~= nil))
 reg.msgs["track-cfg"]("{}")
 out("CFG", tostring(P():find("%30", 1, true) ~= nil), tostring(P():find("—", 1, true) == nil))
 -- Vücut kartı: parça «Tüm kişi» + takip açılır; Nokta kartı: parça serbest
-click(find("mode", "body"))
+click(find("mode", "body")); current_mode = "body"
 out("BODY", tostring(cmds():find("track-part person", 1, true) ~= nil), tostring(cmds():find("track-toggle on", 1, true) ~= nil))
-click(find("mode", "point"))
+click(find("mode", "point")); current_mode = "point"
 out("POINT", tostring(cmds():find("track-part auto", 1, true) ~= nil))
--- Parça çipi vücut moduna geçirir
+-- Part chips must not appear in Point mode; explicitly switch to Body.
+assert(find("part", "left_leg") == nil)
+click(find("mode", "body")); current_mode = "body"
 click(find("part", "left_leg"))
 out("CHIP", tostring(cmds():find("track-part left_leg", 1, true) ~= nil))
 -- Adım düğmeleri: temel ayar track-setting, ek ayar track-option; seçenek track-option toggle
@@ -62,21 +65,21 @@ move(5, H - 5)
 out("ARROWOFF", tostring(reg.bind["trackpanel-DOWN"] == nil), tostring(reg.bind["track-click-bind"] == nil))
 -- Mod kapıları. Dikdörtgen: sağ tık hedef seçmez
 move(5, H - 5)
-click(find("mode", "rect")); move(5, H - 5)
+click(find("mode", "rect")); current_mode = "rect"; move(5, H - 5)
 reg.cmds, reg.osd = {}, {}
 reg.bind.pick({ event = "press" })
 out("RECTGATE", tostring(cmds():find("track-point", 1, true) == nil), tostring((reg.ov[100] or ""):find("Dikdörtgen modu", 1, true) ~= nil))
 -- Nokta: sürükleme alan seçmez
-click(find("mode", "point")); move(20, 300) -- kartın solu (panel dışı)
+click(find("mode", "point")); current_mode = "point"; move(20, 300) -- kartın solu (panel dışı)
 reg.cmds, reg.osd = {}, {}
 reg.bind.pick({ event = "down" }); move(60, 500); reg.bind.pick({ event = "up" })
 out("POINTGATE", tostring(cmds():find("track-rect", 1, true) == nil), tostring((reg.ov[100] or ""):find("Nokta modu", 1, true) ~= nil))
--- G tuşu (sonraki parça) modu «Vücut» yapar; HUD'da «Mod:» satırı
+-- G must not silently change Point mode to Body; HUD keeps the mode.
 reg.bind.part()
 reg.msgs["track-hud"]("Takip: hedef seç", "0", "Model: x")
 local hud = ""
 for _, h in ipairs(reg.hud) do if h:find("Mod:", 1, true) then hud = h end end
-out("HUDMODE", tostring(hud:find("Mod: Vücut", 1, true) ~= nil))
+out("HUDMODE", tostring(hud:find("Mod: Nokta", 1, true) ~= nil))
 -- Esc kapatır; «Tracker» sekmesine tık açar, tekrar tık kapatır
 reg.bind["trackpanel-ESC"]()
 out("ESC", tostring(P() == ""), tostring(reg.bind["trackpanel-ESC"] == nil))
