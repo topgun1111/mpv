@@ -31,6 +31,41 @@ jobs:
           cargo build --release --manifest-path supervisor/Cargo.toml
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Copy-Item supervisor/target/release/tracker.exe "dist/Track Player"
+      - name: Package files for existing Windows installations
+        shell: pwsh
+        run: |
+          $patch = "windows-tracking-update"
+          New-Item -ItemType Directory -Force "$patch/mpv/portable_config/scripts","$patch/tracker" | Out-Null
+          Copy-Item "dist/Track Player/Baslat.bat","dist/Track Player/StartTracker.bat","dist/Track Player/Takip.bat" $patch
+          Copy-Item "dist/Track Player/mpv/portable_config/scripts/track.lua" "$patch/mpv/portable_config/scripts/"
+          Copy-Item tracker/frames.py,tracker/live.py,tracker/ipc.py,tracker/main.py "$patch/tracker/"
+      - name: Build and apply the tracking update executable
+        shell: pwsh
+        run: |
+          $compiler = Get-Command iscc -ErrorAction SilentlyContinue
+          if (!$compiler) {
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+            if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          } else { $iscc = $compiler.Source }
+          & $iscc installer-tracking-update.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $installer = (Resolve-Path "dist/tracking-update/TakipliOynat-Tracking-Update.exe").Path
+          $root = (Resolve-Path "dist/Track Player").Path
+          $payload = (Resolve-Path windows-tracking-update).Path
+          $expected = @{}
+          foreach ($f in Get-ChildItem $payload -File -Recurse) {
+            $relative = [IO.Path]::GetRelativePath($payload, $f.FullName)
+            $expected[$relative] = (Get-FileHash $f.FullName).Hash
+            Set-Content -LiteralPath (Join-Path $root $relative) -Value "old fixture"
+          }
+          if ($expected.Count -ne 8) { throw "Unexpected patch file count" }
+          $result = Start-Process $installer -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=`"$root`"" -Wait -PassThru
+          if ($result.ExitCode) { throw "Installer exited $($result.ExitCode)" }
+          foreach ($relative in $expected.Keys) {
+            if ((Get-FileHash (Join-Path $root $relative)).Hash -ne $expected[$relative]) {
+              throw "Installer failed to restore $relative"
+            }
+          }
       - name: Run installed launcher and verify camera movement through mpv IPC
         shell: pwsh
         timeout-minutes: 4
@@ -45,14 +80,11 @@ jobs:
           Get-Process tracker -ErrorAction SilentlyContinue | Where-Object Path -eq $exe | Stop-Process -Force
           Remove-Item "$env:APPDATA/TakipliOynat/tracker.lock","E:/Tracking/tracker.lock" -Force -ErrorAction SilentlyContinue
           & "dist/Track Player/python/python.exe" scripts/windows_live_smoke.py "dist/Track Player" --direct
-      - name: Package files for existing Windows installations
-        shell: pwsh
-        run: |
-          $patch = "windows-tracking-update"
-          New-Item -ItemType Directory -Force "$patch/mpv/portable_config/scripts","$patch/tracker" | Out-Null
-          Copy-Item "dist/Track Player/Baslat.bat","dist/Track Player/StartTracker.bat","dist/Track Player/Takip.bat" $patch
-          Copy-Item "dist/Track Player/mpv/portable_config/scripts/track.lua" "$patch/mpv/portable_config/scripts/"
-          Copy-Item tracker/frames.py,tracker/live.py,tracker/ipc.py,tracker/main.py "$patch/tracker/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TakipliOynat-Tracking-Update-EXE
+          path: dist/tracking-update/TakipliOynat-Tracking-Update.exe
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: windows-tracking-update
