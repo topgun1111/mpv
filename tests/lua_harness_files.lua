@@ -179,7 +179,7 @@ answer("") -- cancel must not launch the exporter
 assert(reg.async == nil)
 pick(9); answer(want)
 local e = reg.async.t.args
-out("EXPORT_SPAWN", tostring(reg.async.t.playback_only == false), e[4], e[5], tostring(e[6] == os.getenv("VIDEO")), tostring(e[7] == "--views" and e[10] == want))
+out("EXPORT_SPAWN", tostring(reg.async.t.playback_only == false), e[5], e[6], tostring(e[7] == os.getenv("VIDEO")), tostring(e[8] == "--views" and e[11] == want))
 local ef = io.open(want .. ".export.json", "wb"); ef:write('{"state":"running","pct":55}'); ef:close()
 reg.timers[#reg.timers]()
 out("EXPORT_PROGRESS", reg.toast ~= "" and reg.toast or (reg.osd[#reg.osd] or "-"))
