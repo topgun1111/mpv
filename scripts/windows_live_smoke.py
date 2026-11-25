@@ -9,12 +9,14 @@ from pathlib import Path
 import cv2
 
 from tracker.config import default_ipc_path
-from tracker.geometry import View
 from tracker.ipc import MpvCommandError, MpvIpc, MpvIpcError, wait_for_ipc
 
 
 def check_scan(player, root, frame):
     video = root / "scan.avi"
+    # Center the test person so the input lands on a person even at the initial window size.
+    frame = cv2.copyMakeBorder(frame, 0, 0, 55, 0, cv2.BORDER_REPLICATE)[:, :360]
+
     writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), 25, (360, 480))
     assert writer.isOpened()
     try:
@@ -30,13 +32,14 @@ def check_scan(player, root, frame):
         time.sleep(0.2)
     time.sleep(0.5)
     player.command("script-binding", "track/tracker")
-    player.set_view(View())
+    player.command("script-binding", "track/reset")
+    time.sleep(0.4)
     d = player.get_property("osd-dimensions")
-    x = round(d["ml"] + 0.35 * (d["w"] - d["ml"] - d["mr"]))
-    y = round(d["mt"] + 0.52 * (d["h"] - d["mt"] - d["mb"]))
+    x = round(d["ml"] + 0.5 * (d["w"] - d["ml"] - d["mr"]))
+    y = round(d["mt"] + 0.5 * (d["h"] - d["mt"] - d["mb"]))
     player.command("mouse", x, y)
     time.sleep(0.3)
-    player.command("script-binding", "track/pick")
+    player.command("mouse", x, y, 2, "single")
     time.sleep(0.4)
     player.set_property("pause", False)
     views = Path(str(video) + ".views.json")

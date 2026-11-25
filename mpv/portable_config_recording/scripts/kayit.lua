@@ -403,9 +403,15 @@ end
 local function jfield(t, k) return t:match('"' .. k .. '"%s*:%s*"([^"]*)"') end -- basit alan okuyucu
 
 local function python_exe() -- <mpv klasörünün üstü>/python/ (build_embedded.py); pythonw = konsol penceresi yok
-  local exe = mp.command_native({ "expand-path", "~~exe_dir/" })
-  if type(exe) ~= "string" or exe == "" then return nil end
-  local root = exe:gsub("[/\\]+$", ""):gsub("[/\\][^/\\]*$", "")
+  local script = mp.command_native({ "expand-path", "~~/scripts/kayit.lua" })
+  local root = type(script) == "string" and
+    script:gsub("\\", "/"):match("^(.*)/mpv/portable_config/scripts/kayit%.lua$")
+  if not root then
+    local exe = mp.command_native({ "expand-path", "~~exe_dir/" })
+    if type(exe) ~= "string" or exe == "" then return nil end
+    root = exe:gsub("\\", "/"):gsub("/+$", ""):match("^(.*)/[^/]+$")
+    if not root then return nil end
+  end
   for _, name in ipairs({ "pythonw.exe", "python.exe" }) do
     local p = root .. "/python/" .. name
     if utils.file_info(p) then return p end
