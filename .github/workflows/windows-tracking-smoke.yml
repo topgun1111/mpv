@@ -1,0 +1,38 @@
+name: Windows 11 tracker smoke test
+on:
+  workflow_dispatch:
+  push:
+    branches: [fix/windows-tracking-startup]
+permissions:
+  contents: read
+jobs:
+  player:
+    runs-on: windows-11-arm
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package x64 player and embedded runtime
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          python scripts/make_package.py --out "dist/Track Player"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/build_embedded.py --out "dist/Track Player"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./scripts/fetch_deps.ps1 -Target "dist/Track Player/mpv"
+          cargo build --release --manifest-path supervisor/Cargo.toml
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Copy-Item supervisor/target/release/tracker.exe "dist/Track Player"
+      - name: Run installed launcher and verify camera movement through mpv IPC
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          Get-CimInstance Win32_OperatingSystem | Select Caption,Version,OSArchitecture
+          & "dist/Track Player/python/python.exe" scripts/windows_live_smoke.py "dist/Track Player"
+      - name: Player diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-Content "$env:TEMP/takipli-start.log","dist/Track Player/player.log" -Tail 100 -ErrorAction SilentlyContinue

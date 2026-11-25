@@ -349,6 +349,7 @@ local function start_run() -- Space: kayıt + oynatma hemen başlar
   if t < 0.05 then rec.armed = true else mp.commandv("seek", "0", "absolute", "exact") end -- seek bitince (playback-restart) başlar
   mp.set_property("pause", "no")
   hud_update()
+  osd("kayıt başladı", 1)
   tick(rec.gen)
 end
 
@@ -366,6 +367,7 @@ local function space() -- hazırken başlat, kayıtta duraklat, duraklamada sür
     rec.run, rec.gen = true, rec.gen + 1
     mp.set_property("pause", "no")
     hud_update()
+    osd("kayıt sürüyor", 1)
     tick(rec.gen)
     return
   end

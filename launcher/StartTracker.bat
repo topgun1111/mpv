@@ -24,31 +24,19 @@ if not exist "%TRACKER%" (
 )
 echo [OK] Tracker: "%TRACKER%"
 
-rem Kisi algilama modeli olmadan takip baslatilamaz.
-set "HASMODEL="
-for %%M in (yolox_s yolov8n yolox_m yolox_tiny yolox_nano) do (
-  if exist "%ROOT%\models\%%M.onnx" set "HASMODEL=1"
-)
-if not defined HASMODEL (
-  set "WHY=models klasorunde kisi algilama modeli yok (yolox_s/yolov8n .onnx)."
-  goto :fail
-)
-
-rem DirectML provider ve DLL butunlugu CI duman testinde dogrulanir.
-
 rem Servis zaten calisiyorsa ikinci kopyayi acma.
 rem NOT: "tracker ping" burada KULLANILMAZ; ping mpv IPC ister, mpv ise henuz acilmadi (kilitlenme).
 rem Bunun yerine bu kurulum klasorune ait calisan "tracker live" sureci aranir (yalniz okuma; hicbir surec sonlandirilmaz).
 call :count_tracker
 if not "%TRK_COUNT%"=="0" (
-  echo [OK] Takip servisi zaten calisiyor (%TRK_COUNT% surec); yenisi baslatilmayacak.
+  echo [OK] Takip servisi zaten calisiyor - %TRK_COUNT% surec, yenisi baslatilmayacak.
   exit /b 0
 )
 
 if exist "%CFG%" (
-  start "Takip" cmd /d /k ""%TRACKER%" --config "%CFG%" live --wait 120"
+  start "Takip" "%TRACKER%" --config "%CFG%" live --wait 120
 ) else (
-  start "Takip" cmd /d /k ""%TRACKER%" live --wait 120"
+  start "Takip" "%TRACKER%" live --wait 120
 )
 
 rem tracker.exe SURECININ baslatildigini dogrula (IPC'nin hazir olmasi BEKLENMEZ).
@@ -69,7 +57,7 @@ goto :fail
 rem Bu kurulum klasorune ait "tracker.exe ... live" islemlerini sayar -> TRK_COUNT. Hicbir sureci sonlandirmaz.
 :count_tracker
 set "TRK_COUNT=0"
-for /f "usebackq delims=" %%C in (`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'Name=''tracker.exe''' | Where-Object { $_.ExecutablePath -like ($env:ROOT+'*') -and $_.CommandLine -like '*live*' } | Measure-Object).Count" 2^>nul`) do set "TRK_COUNT=%%C"
+for /f "usebackq delims=" %%C in (`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'Name=''tracker.exe''' | Where-Object { $_.ExecutablePath -eq $env:TRACKER -and $_.CommandLine -like '*live*' } | Measure-Object).Count" 2^>nul`) do set "TRK_COUNT=%%C"
 exit /b 0
 
 :fail

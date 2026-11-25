@@ -20,11 +20,13 @@ if not exist "%ROOT%\mpv\mpv.exe" (
 rem 1) Python hazirligi + surecin baslatilmasi (IPC beklenmez). 2) mpv hemen acilir; Python baglantiyi kendisi kurar.
 if exist "%ROOT%\StartTracker.bat" (call "%ROOT%\StartTracker.bat") else call "%ROOT%\launcher\StartTracker.bat"
 if errorlevel 1 (
+  set "TAKIP_PY_STARTED="
   echo.
   echo [UYARI] Takip servisi baslatilamadi. mpv yine de acilsin mi?
   choice /c EH /n /m "Evet / Hayir (E/H): "
   if errorlevel 2 exit /b 1
+) else (
+  set "TAKIP_PY_STARTED=1"
 )
-set "TAKIP_PY_STARTED=1"
 start "" "%ROOT%\mpv\mpv.exe" --config-dir="%ROOT%\mpv\portable_config" --player-operation-mode=pseudo-gui %*
 exit /b 0

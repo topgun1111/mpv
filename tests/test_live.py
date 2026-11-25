@@ -10,7 +10,7 @@ import pytest
 
 from tracker.bytetrack import Track
 from tracker.config import Config
-from tracker.frames import decode_raw, grab_frame
+from tracker.frames import decode_raw
 from tracker.geometry import BBox, View
 from tracker.ipc import MpvCommandError, MpvIpc, MpvIpcError
 from tracker.live import CLOSED, LiveController, pick_track, run_live
@@ -477,17 +477,16 @@ def test_grab_frame_over_socket_large_payload(tmp_path):
     threading.Thread(target=serve, daemon=True).start()
     ready.wait(2)
     with MpvIpc(path, timeout=10.0, keep_events=False) as mpv:
-        frame = grab_frame(mpv)
+        frame = decode_raw(mpv.command("screenshot-raw", "video", "bgr0"))
         assert frame.shape == (h, w, 3)
         assert len(mpv._events) == 0
 
 
-def test_grab_frame_falls_back_to_file_when_raw_json_is_broken(monkeypatch):
+def test_grab_frame_uses_file_for_json_ipc():
     import cv2
 
     from tracker import frames
 
-    monkeypatch.setattr(frames, "_file_mode", False)
     calls = []
 
     class Broken:
@@ -499,4 +498,4 @@ def test_grab_frame_falls_back_to_file_when_raw_json_is_broken(monkeypatch):
 
     assert frames.grab_frame(Broken()).shape == (20, 30, 3)
     assert frames.grab_frame(Broken()).shape == (20, 30, 3)
-    assert calls == ["screenshot-raw", "screenshot-to-file", "screenshot-to-file"]
+    assert calls == ["screenshot-to-file", "screenshot-to-file"]

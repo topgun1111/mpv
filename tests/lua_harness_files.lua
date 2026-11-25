@@ -134,7 +134,17 @@ reg.cmds = {}; pick(7); out("CLOSE", lastcmd())
 -- A1: Hedefli iş akışı: video yüklenir/duraklar; hedef seçimi kuyruğa alınır; Play taramayı başlatır.
 reg.props["video-params"] = { w = 1920, h = 1080 }
 mp.command_native = function(t) reg.spawn = t; return { status = 0 } end
-reg.cmds = {}; reg.bind.pick() -- hedefli açma beklenmiyorken: tarama BAŞLAMAZ
+reg.props["mouse-pos"] = { x = 640, y = 400 }
+if reg.bind["trackpanel-ESC"] then reg.bind["trackpanel-ESC"]() end
+reg.obs["mouse-pos"](nil, reg.props["mouse-pos"])
+reg.props["video-zoom"], reg.props["video-pan-x"], reg.props["video-pan-y"] = 0, 0, 0
+reg.cmds = {}; reg.bind.pick()
+assert(lastcmd():find("track-point", 1, true), lastcmd())
+reg.bind.pick({event="down"})
+reg.props["mouse-pos"] = { x = 700, y = 440 }
+reg.bind.pick({event="up"})
+assert(lastcmd():find("track-rect", 1, true), lastcmd())
+-- hedefli açma beklenmiyorken: tarama BAŞLAMAZ
 out("SCAN_NOT_PENDING", tostring(reg.spawn == nil))
 pick(8)
 answer("C:\\Videolar\\hedef.mp4")
@@ -149,8 +159,8 @@ local n0 = #reg.timers
 reg.bind.pick()
 out("SCAN_QUEUED", tostring(reg.spawn == nil), reg.toast ~= "" and reg.toast or (reg.osd[#reg.osd] or "-"))
 reg.obs["pause"](nil, false) -- kullanıcı Play'e basar
-local a = reg.spawn.args
-out("SCAN_SPAWN", tostring(reg.spawn.detached), a[1], table.concat({ a[2], a[3], a[4] }, " "), a[6], a[7],
+local a = reg.async.t.args
+out("SCAN_SPAWN", tostring(reg.async.t.playback_only == false), a[1], table.concat({ a[2], a[3], a[4] }, " "), a[6], a[7],
   tostring(a[8]), tostring(reg.set.pause))
 out("SCAN_ARGS", tostring(a[8] == "--preset" and a[9] == "person"
   and tonumber(a[11]) ~= nil and tonumber(a[12]) ~= nil and tonumber(a[13]) ~= nil))
@@ -165,7 +175,7 @@ local vf = io.open(os.getenv("VIDEO") .. ".views.json", "wb"); vf:write('{"views
 pick(9)
 local e = reg.spawn.args
 local want = os.getenv("VIDEO"):gsub("%.[^./\\]+$", "") .. ".takipli.mp4"
-out("EXPORT_SPAWN", tostring(reg.spawn.detached), e[5], e[6], tostring(e[7] == os.getenv("VIDEO")), tostring(e[9] == want))
+out("EXPORT_SPAWN", tostring(reg.async.t.playback_only == false), e[5], e[6], tostring(e[7] == os.getenv("VIDEO")), tostring(e[9] == want))
 local ef = io.open(want .. ".export.json", "wb"); ef:write('{"state":"running","pct":55}'); ef:close()
 reg.timers[#reg.timers]()
 out("EXPORT_PROGRESS", reg.toast ~= "" and reg.toast or (reg.osd[#reg.osd] or "-"))

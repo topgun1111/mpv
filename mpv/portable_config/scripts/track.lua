@@ -225,15 +225,13 @@ local function on_click(msg)
   local t = mp.get_property_number("time-pos", 0)
   anchor = { nx, ny }
   show_provisional(nx, ny)
-  if msg == "track-point" and scan_start then
-    scan_start("point", t, nx, ny)
-    osd("hedef seçildi. İşlemeyi başlatmak için OYNAT'a basın.", 4)
-    return
-  end
   mp.commandv("script-message", msg or "track-click",
     string.format("%.6f", nx), string.format("%.6f", ny),
     string.format("%d", math.floor(params.w)), string.format("%d", math.floor(params.h)),
     string.format("%.3f", t))
+  if msg == "track-point" and scan_start and scan_start("point", t, nx, ny) then
+    return
+  end
   osd(string.format("hedef (%d, %d) px", math.floor(nx * params.w), math.floor(ny * params.h)), 1) -- Lua 5.3+: %d tamsayı ister
 end
 
@@ -796,6 +794,13 @@ local function render_dot()
   dot.ov.data = string.format(
     "{\\an7\\pos(%d,%d)\\bord1\\shad0\\1c&H%s&\\3c&H000000&\\p1}%s{\\p0}",
     math.floor(x) - L, math.floor(y) - L, dot.prov and "00E0FF" or "FFFFFF", path)
+  if dot.box then
+    local x1, y1 = math.floor(bx0 + dot.box[1] * bw), math.floor(by0 + dot.box[2] * bh)
+    local x2, y2 = math.floor(bx0 + dot.box[3] * bw), math.floor(by0 + dot.box[4] * bh)
+    dot.ov.data = dot.ov.data .. string.format(
+      "\n{\\an7\\pos(0,0)\\bord2\\shad0\\1a&HFF&\\3c&H40FF40&\\p1}%s{\\p0}",
+      rect(x1, y1, x2, y2))
+  end
   dot.ov:update()
 end
 
@@ -819,7 +824,8 @@ mp.register_script_message("track-loading", function(v)
   else tracker_set_ready() end
 end)
 
-mp.register_script_message("track-dot", function(nx, ny)
+mp.register_script_message("track-dot", function(nx, ny, x1, y1, x2, y2)
+  dot.box = x2 and { tonumber(x1), tonumber(y1), tonumber(x2), tonumber(y2) } or nil
   dot.prov = false -- takip programı yanıt verdi
   dot.nx, dot.ny = tonumber(nx), tonumber(ny) -- "off" → nil
   render_dot()
@@ -829,6 +835,7 @@ end)
 -- 2 sn içinde `track-dot` gelmezse takip programının çalışmadığı OSD'de söylenir.
 local prov_seq = 0
 show_provisional = function(nx, ny)
+  dot.box = nil
   dot.nx, dot.ny, dot.prov = nx, ny, true
   render_dot()
   prov_seq = prov_seq + 1
@@ -837,7 +844,7 @@ show_provisional = function(nx, ny)
     if dot.prov and my == prov_seq and loading then
       osd("modeller hâlâ yükleniyor; tıklaman hazır olunca uygulanacak", 3)
     elseif dot.prov and my == prov_seq then
-      osd("takip programı yanıt vermiyor (Python çalışmıyor; %TEMP%\takipli-start.log dosyasına bak)", 4)
+      osd("takip programı yanıt vermiyor (Python çalışmıyor; %TEMP%\\takipli-start.log dosyasına bak)", 4)
     end
   end)
 end
@@ -1086,16 +1093,14 @@ local function finish_drag(pos)
   if not enabled then set_enabled(true) end
   anchor = { (ax + bx) / 2, (ay + by) / 2 }
   show_provisional(anchor[1], anchor[2])
-  if scan_start then
-    scan_start("rect", mp.get_property_number("time-pos", 0), ax, ay, bx, by)
-    osd("alan seçildi. İşlemeyi başlatmak için OYNAT'a basın.", 4)
-    return
-  end
   mp.commandv("script-message", "track-rect",
     string.format("%.6f", ax), string.format("%.6f", ay),
     string.format("%.6f", bx), string.format("%.6f", by),
     string.format("%d", math.floor(params.w)), string.format("%d", math.floor(params.h)),
     string.format("%.3f", mp.get_property_number("time-pos", 0)))
+  if scan_start and scan_start("rect", mp.get_property_number("time-pos", 0), ax, ay, bx, by) then
+    return
+  end
   osd("alan seçildi - takip ediliyor", 1)
 end
 
@@ -1416,7 +1421,7 @@ if TRACK_SHOW_MENU ~= false then
       -- sağ tuşla sürükle = alan) canlı takibi hemen başlatır ve arka planda
       -- `tracker offline VIDEO --select-point|--select-rect ...` taramasını başlatır. İlerleme
       -- `<video>.track.json.scan.json`'dan 2 sn'de bir okunur; bitince `o` tuşu offline takibi açar.
-      scan = { pending = true, running = false, prog = nil, slow = nil, last = nil, selection = nil }
+      scan = { pending = false, running = false, prog = nil, slow = nil, last = nil, selection = nil }
       -- A3: oynatma açıkken tarama canlı takibe yer açsın: `<çıktı>.scan.slow` varlığı = yavaş tarama
       local function slow_flag(on)
         if not scan.slow then return end
@@ -1430,7 +1435,7 @@ if TRACK_SHOW_MENU ~= false then
       local start_queued_scan
       mp.observe_property("pause", "bool", function(_, paused)
         if scan.running then slow_flag(not paused) end
-        if not paused and scan.pending and not scan.running then
+        if not paused and source ~= "live" and scan.pending and not scan.running then
           if start_queued_scan then
             start_queued_scan()
           else
@@ -1506,20 +1511,29 @@ if TRACK_SHOW_MENU ~= false then
           end
         end
         if rescan then args[#args + 1] = "--rescan" end
-        mp.command_native({ name = "subprocess", playback_only = false, detached = true,
-          capture_stdout = false, capture_stderr = false, args = args })
         scan.pending, scan.running, scan.prog = false, true, vp .. ".track.json.scan.json"
         scan.slow = vp .. ".track.json.scan.slow"
         scan.last = { kind, t, a, b, c, d }
         mp.set_property("pause", "no")
+        os.remove(scan.prog)
+        mp.command_native_async({ name = "subprocess", playback_only = false,
+          capture_stdout = false, capture_stderr = true, args = args }, function(ok, res, err)
+          if not ok or not res or res.status ~= 0 then
+            scan.running = false
+            slow_flag(false)
+            local why = (res and (res.stderr or ""):match("([^\r\n]+)[\r\n]*$")) or err
+            osd("Tarama başarısız: " .. tostring(why or (res and res.status)), 6)
+          end
+        end)
         slow_flag(true)
         osd(rescan and "yeniden taranıyor (önbellek yok sayıldı)" or "hedef seçildi - arka planda taranıyor", 3)
         mp.add_timeout(2, poll_scan)
       end
       scan_start = function(kind, t, a, b, c, d)
-        if not scan.pending or scan.running then return end
+        if source == "live" or not scan.pending or scan.running then return end
         scan.selection = { kind, t, a, b, c, d }
         osd("hedef hazır · başlatmak için OYNAT'a basın", 4)
+        return true
       end
       start_queued_scan = function()
         if not scan.pending or scan.running then return end

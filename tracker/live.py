@@ -192,6 +192,7 @@ class LiveController:
         self._lost_from: View | None = None  # kayıp anındaki görünüm (zoom-out başlangıcı)
         self._zooming_out = False
         self._view = View()  # en son uygulanması istenen görünüm
+        self.box = None
         self._dot: tuple[float, float] | None = None  # son görülen hedef merkezi (video-normalize)
 
     @property
@@ -605,7 +606,8 @@ class LiveController:
         self._clear_lost()
         self.tlog.tracked(t)
         vis = getattr(self.point, "visible", True) if self.point is not None else True
-        self.flt.update(bbox.scaled(1 / fw, 1 / fh), t)  # kare boyutuna göre normalize
+        self.box = bbox.scaled(1 / fw, 1 / fh)
+        self.flt.update(self.box, t)  # kare boyutuna göre normalize
         # Artı işareti: kare alınıp işlenene kadar nesne ilerledi → hız * gecikme kadar ileri çiz
         # (yoksa hızlı nesnede işaret hep geride kalır). Sınırlı: kare başına en çok %3.
         vx, vy = self.flt.velocity
@@ -881,6 +883,7 @@ def run_live(
     errlog.get_video = lambda: mpv.get_property("path")
     ctl = LiveController(pipeline, cfg, reid=reid, cfg_path=cfg_path, pose=pose,
                          wholebody=wholebody, cuts=cuts, tlog=tlog)
+    ctl.cfg_dirty = True
     tl = tlog if tlog is not None else tracklog.NULL
     vid = {"path": None, "chk": -1e9}
 
@@ -910,7 +913,7 @@ def run_live(
     n, lag_sum, t_stat = 0, 0.0, clock()
     qual, sw_last, views_cache = QualityWindow(cfg.auto_window_s), -1e9, (0.0, None)
 
-    last_dot: tuple[str, str] = ("", "")
+    last_dot: tuple[str, ...] = ("", "")
     dot_on: bool | None = None
 
     def sync_dot() -> None:
@@ -918,6 +921,9 @@ def run_live(
         nonlocal last_dot, dot_on
         d = ctl.dot()
         msg = ("off", "") if d is None else (f"{d[0]:.4f}", f"{d[1]:.4f}")
+        if d is not None and ctl.box is not None:
+            b = ctl.box
+            msg += tuple(f"{v:.4f}" for v in (b.x1, b.y1, b.x2, b.y2))
         if msg == last_dot:
             return
         last_dot = msg
@@ -1033,6 +1039,7 @@ def run_live(
                     log("mpv bağlantısı kapandı.")
                     return
                 emit(ctl.handle_event(ev))
+            sync_cfg()
             if ctl.restart_req:  # ekran kartı değişti: modeller yeniden yüklenmeli
                 log("ekran kartı değişti: takip programı yeniden başlatılıyor.")
                 return True
