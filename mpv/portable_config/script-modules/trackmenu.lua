@@ -16,7 +16,7 @@ M.MENUS = {
     { cmd = "close", label = "Videoyu kapat" },
     { sep = true },
     { cmd = "open_target", label = "Hedefle video aç + tara…" },
-    { cmd = "export", label = "Takip kamerası dışa aktar…" },
+    { cmd = "export", label = "Videoyu dışa aktar…" },
     { cmd = "rescan", label = "Yeniden tara (önbelleği yok say)" },
     { sep = true },
     { cmd = "quit", label = "Çıkış", key = "Q" },
@@ -249,6 +249,13 @@ function M.new(ctx)
   -- Sol tık. Döner: tık motor tarafından tüketildi mi.
   function e:click(x, y)
     if not self.visible then return false end
+    local r = self:record_rect()
+    if r and inside(r, x, y) then
+      self:close()
+      local state = ctx.state and ctx.state("record_toggle") or {}
+      if state.enabled then ctx.run("record_toggle") end
+      return true
+    end
     for i, r in ipairs(self.hrects) do
       if inside(r, x, y) then
         if M.MENUS[i].panel then -- panel sekmesi: liste yok, panel açılır/kapanır
@@ -296,6 +303,14 @@ function M.new(ctx)
   end
 
   -- ASS olayları (res = pencere pikseli). Görünmüyorsa "".
+  function e:record_rect()
+    local last = self.hrects[#self.hrects]
+    if not last or not self.bh then return nil end
+    local w = math.min(math.floor(self.bh * 4.5), self.W - last.x - last.w - 4)
+    if w < 45 then return nil end
+    return { x = self.W - w - 2, y = 2, w = w, h = self.bh - 4 }
+  end
+
   function e:render()
     if not self.visible or self.bh == 0 then return "" end
     local ev, fs, bh = {}, self.fs, self.bh
@@ -315,6 +330,12 @@ function M.new(ctx)
       local panel_on = m.panel and ctx.state and (ctx.state(m.panel) or {}).checked
       if self.open == i or panel_on then box(r, "D59B5B", "00") elseif self.hover == i then box(r, "464646", "00") end
       text(r.x + math.floor(r.w / 2), math.floor(bh / 2), 5, "E6E6E6", m.label)
+    end
+    local rr = self:record_rect()
+    if rr then
+      local state = ctx.state and ctx.state("record_toggle") or {}
+      box(rr, state.checked and "2020C0" or "303080", "00")
+      text(rr.x + math.floor(rr.w / 2), math.floor(bh / 2), 5, state.enabled and "FFFFFF" or "909090", rr.w < bh * 3.4 and (state.checked and "STOP" or "REC") or (state.label or "REC"))
     end
     if self.open and self.dbox then
       local b = self.dbox
