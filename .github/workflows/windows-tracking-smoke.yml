@@ -72,6 +72,6 @@ jobs:
         shell: pwsh
         run: |
           Get-CimInstance Win32_Process | Where-Object Name -in "mpv.exe","tracker.exe","python.exe" | Select Name,CommandLine
-          Select-String -Path "dist/Track Player/player.log" -Pattern "track-point|track-rect|scan.json|scan.avi|pythonw.exe|Lua error|stack traceback" | Select-Object -Last 25
+          Select-String -Path "dist/Track Player/player.log" -Pattern "track-point|track-rect|scan.json|scan.avi|pythonw.exe|Lua error|stack traceback" | Select-Object -Last 40 | ForEach-Object { $_.Line }
           Get-Content "$env:USERPROFILE/Desktop/takipli-tarama-log.txt","$env:APPDATA/TakipliOynat/takipli-tarama-log.txt" -Tail 35 -ErrorAction SilentlyContinue
           Get-Content "$env:TEMP/takipli-start.log","dist/Track Player/player.log" -Tail 100 -ErrorAction SilentlyContinue

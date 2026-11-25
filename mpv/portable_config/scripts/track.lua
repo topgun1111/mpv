@@ -209,6 +209,19 @@ local function mouse_xy()
 end
 
 -- msg: "track-point" (sağ tık: herhangi bir nesne) | "track-click" (sol tık: oyuncu kimliği)
+local function install_root()
+  if not mp.command_native then return nil end
+  local script = mp.command_native({ "expand-path", "~~/scripts/track.lua" })
+  if type(script) == "string" then
+    local root = script:gsub("\\", "/"):match("^(.*)/mpv/portable_config/scripts/track%.lua$")
+    if root then return root end
+  end
+  local exe = mp.command_native({ "expand-path", "~~exe_dir/" })
+  if type(exe) == "string" and exe ~= "" then
+    return exe:gsub("\\", "/"):gsub("/+$", ""):match("^(.*)/[^/]+$")
+  end
+end
+
 local function on_click(msg)
   local d = osd_dims()
   local params = mp.get_property_native("video-params")
@@ -1447,9 +1460,8 @@ if TRACK_SHOW_MENU ~= false then
       local function python_exe()
         local env = os.getenv("TRACK_PYTHON")
         if env then return env end
-        local exe = mp.command_native and mp.command_native({ "expand-path", "~~exe_dir/" })
-        if type(exe) ~= "string" or exe == "" then return nil end
-        local root = exe:gsub("[/\\]+$", ""):gsub("[/\\][^/\\]*$", "")
+        local root = install_root()
+        if not root then return nil end
         for _, name in ipairs({ "pythonw.exe", "python.exe" }) do
           local p = root .. "/python/" .. name
           if utils.file_info(p) then return p end
@@ -2001,9 +2013,9 @@ do
       mp.msg.info("Python takip servisi Baslat.bat tarafindan baslatildi")
       return false
     end
-    local exe = mp.command_native and mp.command_native({ "expand-path", "~~exe_dir/" })
-    if type(exe) ~= "string" or exe == "" then return false end
-    local root = win(exe):gsub("[\\/]+$", ""):gsub("[\\/][^\\/]*$", "")
+    local root = install_root()
+    if not root then return false end
+    root = win(root)
     local bat = root .. "\\StartTracker.bat" -- paket düzeni: .bat dosyaları kökte
     if not utils.file_info(bat) then bat = root .. "\\launcher\\StartTracker.bat" end -- depo düzeni
     if not utils.file_info(bat) then
