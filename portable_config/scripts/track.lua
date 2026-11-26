@@ -1229,7 +1229,7 @@ end)
 local menu_ov, menu_keys_on = nil, false
 local MENU_KEYS = { LEFT = "left", RIGHT = "right", UP = "up", DOWN = "down", ENTER = "enter",
   KP_ENTER = "enter", ESC = "esc" }
-local MENU_Z = 4
+local MENU_Z = 8 -- menu dropdowns must stay above the floating Editing panel
 local function menu_prepare()
   local d = osd_dims()
   if menu and d and d.w and d.w > 0 and d.h and d.h > 0 then
@@ -1834,7 +1834,7 @@ if TRACK_SHOW_MENU ~= false then
         end,
       })
       render_tp = function()
-        if not tp_ov then tp_ov = mp.create_osd_overlay("ass-events"); tp_ov.z = MENU_Z - 1 end
+        if not tp_ov then tp_ov = mp.create_osd_overlay("ass-events"); tp_ov.z = 3 end
         local d = osd_dims()
         if d and d.w and d.w > 0 then tp_ov.res_x, tp_ov.res_y = d.w, d.h end
         if tpanel:is_open() then tp_prepare() else tp_hot = false end
