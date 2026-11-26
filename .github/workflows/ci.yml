@@ -22,9 +22,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q lua5.3
+          sudo apt-get install -y -q lua5.3 mpv ffmpeg
           lua -v
           echo "REQUIRE_LUA=1" >> "$GITHUB_ENV"
+          echo "REQUIRE_EDITING_MPV=1" >> "$GITHUB_ENV"
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       - run: pytest -q

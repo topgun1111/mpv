@@ -1183,7 +1183,7 @@ end, { complex = true })
 -- hızlı arka arkaya zoom +/- tıklaması çift tık sayılıp kaybolmasın).
 local function left_press()
   local mp_ = mouse_xy()
-  if EDIT and mp_ and EDIT.over(mp_.x,mp_.y) and EDIT.pointer({event="press"},mp_) then return end
+  if not menu_hot and EDIT and mp_ and EDIT.over(mp_.x,mp_.y) and EDIT.pointer({event="press"},mp_) then return end
   if menu_hot and mp_ and menu then
     menu:click(mp_.x, mp_.y)
     menu_hot = menu:over(mp_.x, mp_.y) or menu:is_open()
@@ -1206,7 +1206,7 @@ sync_click_binding = function()
   if want and not panel.bound then
     mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", function(ev)
       ev = ev or { event = "press" }
-      if EDIT and EDIT.pointer(ev,mouse_xy()) then sync_click_binding();return end
+      if EDIT and (not menu_hot or ev.event=="up") and EDIT.pointer(ev,mouse_xy()) then sync_click_binding();return end
       if ev.event ~= "press" and ev.event ~= "down" then return end
       left_press()
     end, { complex = true })

@@ -193,6 +193,15 @@ jobs:
           # ffmpeg libx264 ile gerçekten kodluyor mu (dışa aktarma sessiz yedeğe düşmesin)
           .\ffmpeg\ffmpeg.exe -hide_banner -loglevel error -f lavfi -i testsrc=size=320x240:rate=10 -t 1 -c:v libx264 -pix_fmt yuv420p ff_test.mp4
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path ff_test.mp4)) { throw "ffmpeg libx264 duman testi başarısız" }
+          # Run the same editing module in the exact MPV binary shipped to Windows.
+          $env:EDITING_MODULES = (Resolve-Path 'mpv/portable_config/script-modules').Path
+          $smoke = (Resolve-Path '../../tests/editing_mpv_smoke.lua').Path
+          $mpv = if (Test-Path 'mpv/mpv.com') { (Resolve-Path 'mpv/mpv.com').Path } else { (Resolve-Path 'mpv/mpv.exe').Path }
+          $log = Join-Path (Get-Location) 'editing-smoke.log'
+          $proc = Start-Process -FilePath $mpv -ArgumentList @('--no-config','--vo=null','--ao=null','--pause=yes','--keep-open=yes',(' --log-file="' + $log + '"').Trim(),('--script="' + $smoke + '"'),'ff_test.mp4') -PassThru
+          if (-not $proc.WaitForExit(30000)) { $proc.Kill(); throw "MPV Editing smoke test timed out" }
+          if ($proc.ExitCode -ne 0 -or -not (Test-Path $log) -or (Get-Content $log -Raw) -notmatch 'EDITING_MPV_SMOKE_OK') { if (Test-Path $log) { Get-Content $log }; throw "MPV Editing smoke test failed" }
+          Remove-Item $log -ErrorAction SilentlyContinue
           Remove-Item blank.jpg, blank_out.jpg, ff_test.mp4 -ErrorAction SilentlyContinue
       - name: Taşınabilir ZIP
         shell: pwsh
