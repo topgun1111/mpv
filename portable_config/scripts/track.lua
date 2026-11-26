@@ -1917,7 +1917,7 @@ if TRACK_SHOW_MENU ~= false then
     for _, p in ipairs(PARTS) do ACT["part_" .. p] = function() set_part(p) end end
     for k, f in pairs(FILES) do ACT[k] = f end
     local NEED_VIDEO = { close = true, save_view = true, load_view = true } -- video yokken gri
-    for _, name in ipairs({ "adjust", "light", "moderate", "strong", "compare", "reset", "export", "cancel" }) do
+    for _, name in ipairs({ "adjust", "light", "moderate", "strong", "compare", "reset", "export_options", "export", "cancel" }) do
       local action = name
       ACT["edit_" .. action] = function()
         if not EDIT then

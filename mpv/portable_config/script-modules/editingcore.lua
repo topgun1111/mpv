@@ -67,16 +67,66 @@ function M.graph(settings)
   if s.sharpness > 0 then filters[#filters+1] = "unsharp=5:5:"..fmt(s.sharpness/100)..":5:5:0" end
   return table.concat(filters,",")
 end
-function M.export_args(exe, source, dest, settings, stream)
-  assert(type(exe)=="string" and exe~="" and type(source)=="string" and source~=""
-    and type(dest)=="string" and dest~="" and source~=dest, "invalid export paths")
-  local s = M.normalize(settings)
-  local graph = M.graph(s)
-  local args = {exe,"-hide_banner","-nostdin","-loglevel","error","-n","-i",source,
-    "-map",stream and ("0:"..tostring(stream)) or "0:V:0","-map","0:a?","-map_metadata","0",
+-- Separate output settings: the grading graph never depends on encoder selection.
+M.quality_presets={
+  {name="Maximum",value=14},{name="High",value=18},
+  {name="Balanced",value=22},{name="Small file",value=26}
+}
+M.encoder_options={"auto","nvenc","qsv","amf","cpu"}
+function M.export_settings(s)
+  s=type(s)=="table" and s or {}
+  local enc="auto"
+  for _,v in ipairs(M.encoder_options) do if s.encoder==v then enc=v end end
+  local gpu=tonumber(s.gpu)
+  if not gpu or gpu~=gpu or gpu<0 or gpu>15 or gpu%1~=0 or enc~="nvenc" then gpu=-1 end
+  return {encoder=enc,gpu=gpu,crf=M.normalize(s).crf}
+end
+function M.candidates(options)
+  local s=M.export_settings(options)
+  if s.encoder=="auto" then return {"nvenc","qsv","amf","cpu"} end
+  return {s.encoder}
+end
+local function append(dst,src)
+  for _,v in ipairs(src) do dst[#dst+1]=v end
+end
+function M.encoder_args(encoder,settings)
+  local s=M.export_settings(settings)
+  local q=tostring(s.crf)
+  if encoder=="nvenc" then
+    local a={"-c:v","h264_nvenc","-preset","p5","-rc","vbr","-cq",q,"-b:v","0"}
+    if s.gpu>=0 then append(a,{"-gpu",tostring(s.gpu)}) end
+    return a
+  elseif encoder=="qsv" then
+    return {"-c:v","h264_qsv","-preset","medium","-global_quality",q}
+  elseif encoder=="amf" then
+    return {"-c:v","h264_amf","-quality","quality","-rc","cqp","-qp_i",q,"-qp_p",q,"-qp_b",q}
+  elseif encoder=="cpu" then
+    return {"-c:v","libx264","-preset","fast","-crf",q}
+  end
+  error("Unknown editing encoder: "..tostring(encoder))
+end
+local function video_args(exe,source,settings,stream)
+  local graph=M.graph(settings)
+  return {exe,"-hide_banner","-nostdin","-loglevel","error","-n","-i",source,
+    "-map",stream and ("0:"..tostring(stream)) or "0:V:0",
     "-vf",(graph~="" and graph.."," or "").."pad=ceil(iw/2)*2:ceil(ih/2)*2",
-    "-c:v","libx264","-preset","fast","-crf",tostring(s.crf),"-pix_fmt","yuv420p",
-    "-c:a","aac","-b:a","192k","-movflags","+faststart","-f","mp4",dest}
+    "-pix_fmt","yuv420p"}
+end
+function M.probe_args(exe,source,settings,stream,encoder,options)
+  local args=video_args(exe,source,settings,stream)
+  append(args,M.encoder_args(encoder,options))
+  append(args,{"-an","-sn","-dn","-frames:v","3","-f","null","-"})
+  return args
+end
+function M.export_args(exe,source,dest,settings,stream,encoder,options)
+  assert(type(exe)=="string" and exe~="" and type(source)=="string" and source~=""
+    and type(dest)=="string" and dest~="" and source~=dest,"invalid export paths")
+  -- Preserve old callers' CPU default and CRF; UI always passes resolved options.
+  options=options or {encoder="cpu",crf=M.normalize(settings).crf}
+  local args=video_args(exe,source,settings,stream)
+  append(args,M.encoder_args(encoder or "cpu",options))
+  append(args,{"-map","0:a?","-map_metadata","0","-c:a","aac","-b:a","192k",
+    "-movflags","+faststart","-f","mp4",dest})
   return args
 end
 return M

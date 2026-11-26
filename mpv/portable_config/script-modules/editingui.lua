@@ -20,6 +20,8 @@ local render, close, flush
 
 local state, bypass, generation = core.defaults(), false, 0
 local dialog, job, timer = false, nil, nil
+local output=core.export_settings(nil)
+local encoder_names={auto="Auto",nvenc="NVIDIA NVENC",qsv="Intel Quick Sync",amf="AMD AMF",cpu="CPU (libx264)"}
 local label = "@videoediting"
 local function notice(s, seconds) mp.osd_message("Editing: "..s, seconds or 3) end
 local function local_source()
@@ -210,7 +212,8 @@ end
 flush=function()
   if pending_timer then pending_timer:kill();pending_timer=nil end
   if not pending then return end
-  local s=pending;pending=nil;apply(s,false)
+  local s=pending;pending=nil
+  if apply(s,false) then output.crf=state.crf end
 end
 local function queue(r,x)
   local c,t=r.control,r.rail
@@ -286,20 +289,112 @@ local function ffmpeg_path()
   if type(p)=="string" and utils.file_info(p) then return p end
   return nil
 end
+local function export_options(done)
+  if dialog or job then notice("Export or settings already active");return end
+  local initial=core.export_settings({encoder=output.encoder,gpu=output.gpu,crf=state.crf})
+  local index=0
+  for i,v in ipairs(core.encoder_options) do if v==initial.encoder then index=i-1 end end
+  -- Script uses only trusted fixed strings and clamped numeric settings.
+  local ps=[[
+$ErrorActionPreference='Stop'
+[Console]::OutputEncoding=New-Object Text.UTF8Encoding $false
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$f=New-Object Windows.Forms.Form
+$f.Text='Editing - Export options'
+$f.StartPosition='CenterScreen'
+$f.TopMost=$true
+$f.AutoScaleMode='Dpi'
+$f.ClientSize=New-Object Drawing.Size(650,360)
+$f.FormBorderStyle='FixedDialog'
+$f.MaximizeBox=$false
+$f.MinimizeBox=$false
+$f.Font=New-Object Drawing.Font('Segoe UI',12)
+function label($text,$x,$y,$w,$h) {
+  $l=New-Object Windows.Forms.Label
+  $l.Text=$text;$l.Location=New-Object Drawing.Point($x,$y)
+  $l.Size=New-Object Drawing.Size($w,$h);$f.Controls.Add($l)
+}
+function combo($x,$y,$w,$items) {
+  $c=New-Object Windows.Forms.ComboBox
+  $c.DropDownStyle='DropDownList'
+  $c.Location=New-Object Drawing.Point($x,$y)
+  $c.Width=$w
+  foreach($i in $items){[void]$c.Items.Add($i)}
+  $f.Controls.Add($c);return $c
+}
+label 'Quality preset' 20 20 190 28
+$q=combo 220 17 405 @('Maximum (14)','High (18)','Balanced (22)','Small file (26)','Custom')
+label 'Quality value (14-28)' 20 66 195 28
+$n=New-Object Windows.Forms.NumericUpDown
+$n.Minimum=14;$n.Maximum=28
+$n.Location=New-Object Drawing.Point(220,63);$n.Width=105;$f.Controls.Add($n)
+label 'Lower = higher quality / larger file' 335 67 290 38
+label 'Encoder / GPU' 20 117 190 28
+$e=combo 220 114 405 @('Auto (test GPUs, then CPU)','NVIDIA NVENC','Intel Quick Sync','AMD AMF','CPU (libx264)')
+label 'NVIDIA device' 20 164 190 28
+$g=combo 220 161 405 (@('Default GPU')+@(0..15 | ForEach-Object {"GPU $_"}))
+label 'GPU encoding accelerates compression. Color filters still run on CPU. Auto tests available encoders; explicit selection reports failures.' 20 210 605 72
+$ok=New-Object Windows.Forms.Button;$ok.Text='Continue';$ok.DialogResult='OK'
+$ok.Location=New-Object Drawing.Point(365,305);$ok.Size=New-Object Drawing.Size(125,38);$f.Controls.Add($ok)
+$cancel=New-Object Windows.Forms.Button;$cancel.Text='Cancel';$cancel.DialogResult='Cancel'
+$cancel.Location=New-Object Drawing.Point(500,305);$cancel.Size=New-Object Drawing.Size(125,38);$f.Controls.Add($cancel)
+$f.AcceptButton=$ok;$f.CancelButton=$cancel
+$qualityValues=@(14,18,22,26)
+]].."\n$n.Value="..initial.crf..";$e.SelectedIndex="..index..";$g.SelectedIndex="..(initial.gpu+1).."\n"..[[
+$q.SelectedIndex=4
+for($i=0;$i -lt $qualityValues.Count;$i++){if($qualityValues[$i] -eq $n.Value){$q.SelectedIndex=$i}}
+$q.Add_SelectedIndexChanged({if($q.SelectedIndex -ge 0 -and $q.SelectedIndex -lt 4){$n.Value=$qualityValues[$q.SelectedIndex]}})
+$n.Add_ValueChanged({
+  if($q.SelectedIndex -lt 0 -or $q.SelectedIndex -ge 4 -or $qualityValues[$q.SelectedIndex] -ne $n.Value){$q.SelectedIndex=4}
+})
+$g.Enabled=($e.SelectedIndex -eq 1)
+$e.Add_SelectedIndexChanged({$g.Enabled=($e.SelectedIndex -eq 1)})
+if($f.ShowDialog() -eq 'OK'){
+  $enc=@('auto','nvenc','qsv','amf','cpu')
+  $gpu=-1
+  if($e.SelectedIndex -eq 1){$gpu=$g.SelectedIndex-1}
+  $result=@{encoder=$enc[$e.SelectedIndex];gpu=$gpu;crf=[int]$n.Value}
+  [Console]::Out.Write(($result|ConvertTo-Json -Compress))
+}
+$f.Dispose()
+]]
+  local g=generation
+  dialog=true
+  mp.command_native_async({name="subprocess",playback_only=false,capture_stdout=true,capture_stderr=true,args=files.ps_args(ps)},function(ok,res)
+    dialog=false
+    if generation~=g then return end
+    if not ok or not res or res.status~=0 then
+      mp.msg.error("Editing options: "..tostring(res and res.stderr or "subprocess failure"))
+      notice("Export options could not be opened",5);return
+    end
+    local raw=files.clean_all(res.stdout)
+    if not raw then return end
+    local obj=utils.parse_json(raw)
+    if type(obj)~="table" then notice("Invalid export options",5);return end
+    output=core.export_settings(obj)
+    state.crf=output.crf
+    notice(encoder_names[output.encoder].." | quality "..output.crf)
+    render()
+    if done then done() end
+  end)
+end
 local function export()
-  if job or dialog then notice("Export or save dialog already active"); return end
+  if job or dialog then notice("Export or save dialog already active");return end
   if not video_ok() then return end
   flush()
-  local source, exe, g = local_source(), ffmpeg_path(), generation
+  local source,exe,g=local_source(),ffmpeg_path(),generation
   if not source then notice("Export needs a local video file",5);return end
-  if not exe then notice("Bundled FFmpeg not found",5); return end
+  if not exe then notice("Bundled FFmpeg not found",5);return end
   local snapshot=core.normalize(state)
-  if core.graph(snapshot)=="" then notice("No color adjustments selected"); return end
+  local options=core.export_settings({encoder=output.encoder,gpu=output.gpu,crf=snapshot.crf})
+  -- Export quality alone can be used without applying color filters.
   local stream
-  for _, tr in ipairs(mp.get_property_native("track-list") or {}) do
+  for _,tr in ipairs(mp.get_property_native("track-list") or {}) do
     if tr.type=="video" and tr.selected then
-      if tr.external or tr.albumart then notice("Select an internal video track first"); return end
-      stream=tr["ff-index"]; break
+      if tr.external or tr.albumart then notice("Select an internal video track first");return end
+      stream=tr["ff-index"];break
     end
   end
   local dir=files.parent_dir(source)
@@ -319,24 +414,62 @@ local function export()
     if generation~=g then notice("Video changed; export not started");return end
     if dest:lower():sub(-4)~=".mp4" then notice("Choose an MP4 filename");return end
     if utils.file_info(dest) then notice("Choose a new filename; existing files are never overwritten",6);return end
-    local current={cancelled=false,started=mp.get_time(),dest=dest}
+    local current={cancelled=false,started=mp.get_time(),dest=dest,phase="Checking encoder"}
     job=current
-    current.id=mp.command_native_async({name="subprocess",playback_only=false,capture_stderr=true,
-      args=core.export_args(exe,source,dest,snapshot,stream)},function(success,result,err)
+    local probe_timer
+    local function finish(message,seconds)
+      if probe_timer then probe_timer:kill();probe_timer=nil end
       if timer then timer:kill();timer=nil end
-      job=nil
-      if current.cancelled then notice("Export cancelled; incomplete output may remain",6)
-      elseif success and result and result.status==0 then notice("Export finished: "..dest,8)
-      else
-        mp.msg.error("Editing export failed: "..tostring(result and result.stderr or err))
-        notice("Export failed; see mpv log. Incomplete output may remain.",7)
+      if job==current then job=nil end
+      notice(message,seconds or 6)
+    end
+    local function start(encoder)
+      if current.cancelled then finish("Export cancelled");return end
+      if utils.file_info(dest) then finish("Output already exists; no file overwritten");return end
+      current.phase="Exporting with "..encoder_names[encoder]
+      current.started=mp.get_time()
+      current.id=mp.command_native_async({name="subprocess",playback_only=false,capture_stderr=true,
+        args=core.export_args(exe,source,dest,snapshot,stream,encoder,options)},function(success,result,err)
+        if current.cancelled then finish("Export cancelled; incomplete output may remain")
+        elseif success and result and result.status==0 then finish("Export finished ("..encoder_names[encoder].."): "..dest,8)
+        else
+          mp.msg.error("Editing export failed ("..encoder.."): "..tostring(result and result.stderr or err))
+          finish("Export failed on "..encoder_names[encoder].."; see log. Try CPU.",8)
+        end
+      end)
+      if not current.id then finish("Could not start FFmpeg");return end
+      notice(current.phase,4)
+    end
+    local candidates=core.candidates(options)
+    local function probe(i)
+      if current.cancelled then finish("Export cancelled");return end
+      local encoder=candidates[i]
+      if not encoder then finish("No working encoder found. See mpv log.",8);return end
+      current.phase="Testing "..encoder_names[encoder]
+      notice(current.phase,3)
+      local timed_out=false
+      current.id=mp.command_native_async({name="subprocess",playback_only=false,capture_stderr=true,
+        args=core.probe_args(exe,source,snapshot,stream,encoder,options)},function(success,result,err)
+        if probe_timer then probe_timer:kill();probe_timer=nil end
+        if current.cancelled then finish("Export cancelled");return end
+        if success and result and result.status==0 and not timed_out then start(encoder);return end
+        mp.msg.warn("Editing encoder probe "..encoder..": "..tostring(timed_out and "timeout" or (result and result.stderr or err)))
+        if options.encoder=="auto" then probe(i+1)
+        else finish(encoder_names[encoder].." unavailable. Choose another GPU or CPU.",8) end
+      end)
+      if not current.id then
+        if options.encoder=="auto" then probe(i+1) else finish("Could not test selected encoder") end
+        return
       end
-    end)
-    if not current.id then job=nil;notice("Could not start FFmpeg",5);return end
+      probe_timer=mp.add_timeout(30,function()
+        timed_out=true
+        if current.id then mp.abort_async_command(current.id) end
+      end)
+    end
     timer=mp.add_periodic_timer(2,function()
-      notice(string.format("Exporting... %ds (Editing > Cancel editing export)",math.floor(mp.get_time()-current.started)),2.2)
+      notice(string.format("%s... %ds",current.phase,math.floor(mp.get_time()-current.started)),2.2)
     end)
-    notice("Export started",3)
+    probe(1)
   end)
 end
 function M.action(action)
@@ -357,13 +490,16 @@ function M.action(action)
     if apply(s,false) then notice("Dehaze: "..action) end
   elseif action=="compare" then
     if apply(state,not bypass) then notice(bypass and "Before (original)" or "After (edited)") end
-  elseif action=="reset" then if apply(core.defaults(),false) then notice("Reset") end
-  elseif action=="export" then export() end
+  elseif action=="reset" then
+    local s=core.defaults();s.crf=state.crf
+    if apply(s,false) then notice("Reset") end
+  elseif action=="export_options" then export_options()
+  elseif action=="export" then export_options(export) end
 end
 local function reset_file()
   generation=generation+1
   if pending_timer then pending_timer:kill();pending_timer=nil end
-  pending=nil;drag=nil;move_drag=nil;M.close();remove();state=core.defaults();bypass=false;shown_error=nil;page=1
+  pending=nil;drag=nil;move_drag=nil;M.close();remove();state=core.defaults();state.crf=output.crf;bypass=false;shown_error=nil;page=1
 end
 mp.register_event("start-file",reset_file)
 mp.register_event("end-file",reset_file)

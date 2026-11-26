@@ -96,6 +96,7 @@ M.MENUS = {
     { cmd = "edit_compare", label = "Before / after" },
     { cmd = "edit_reset", label = "Reset editing" },
     { sep = true },
+    { cmd = "edit_export_options", label = "Export quality / GPU…" },
     { cmd = "edit_export", label = "Export edited video…" },
     { cmd = "edit_cancel", label = "Cancel editing export" },
   } },
