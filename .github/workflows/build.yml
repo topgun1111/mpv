@@ -33,12 +33,14 @@ jobs:
         with:
           key: sam-models-${{ github.run_id }}-${{ github.sha }}-edgetam
           path: sam-models/edgetam
+          enableCrossOsArchive: true
           fail-on-cache-miss: true
       - name: Restore verified SAM 2.1 Small models
         uses: actions/cache/restore@v4
         with:
           key: sam-models-${{ github.run_id }}-${{ github.sha }}-small
           path: sam-models/small
+          enableCrossOsArchive: true
           fail-on-cache-miss: true
       - name: Verify cached SAM graphs before packaging
         shell: pwsh

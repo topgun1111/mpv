@@ -80,7 +80,7 @@ def test_export_workflow_is_reusable_and_dispatchable_and_uploads_the_graphs():
     assert "workflow_dispatch:" in y and "workflow_call:" in y
     assert "push:" not in y and "pull_request:" not in y
     assert "scripts/export_sam2.py" in y and "--no-memory" not in y  # beş grafiğin hepsi (geri düşüş yok)
-    assert "actions/cache/save@v4" in y and "sam-models/${{ matrix.variant }}/" in y
+    assert "actions/cache/save@v4" in y and "sam-models/${{ matrix.variant }}" in y and "enableCrossOsArchive: true" in y
     assert all(v in y for v in ("edgetam", "small", "both")) and "base_plus" not in y and "large" not in y
     # takılan export runner dakikalarını yemesin: 180 dk değil, makul bir üst sınır (<= 60)
     mins = [int(m) for m in re.findall(r"timeout-minutes:\s*(\d+)", y)]

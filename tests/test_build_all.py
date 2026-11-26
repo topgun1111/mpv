@@ -54,3 +54,5 @@ def test_only_build_all_publishes_releases():
     all_wf = (WF / "build-all.yml").read_text(encoding="utf-8")
     assert "--draft" in all_wf and "--draft=false" in all_wf
     assert "gh release download" in all_wf and "scripts/stage_release.py verify" in all_wf
+    assert "GH_REPO: ${{ github.repository }}" in all_wf
+    assert "enableCrossOsArchive: true" in (WF / "build.yml").read_text(encoding="utf-8")

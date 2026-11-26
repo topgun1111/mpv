@@ -31,6 +31,9 @@ concurrency:
 permissions:
   contents: write  # release job (tags + release assets); pull requests from forks stay read-only
 
+env:
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   # Fails in seconds (not after an hour of builds) when a pinned version disagrees with VERSION or a v* tag does not match it.
   version:

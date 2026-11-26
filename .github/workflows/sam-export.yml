@@ -129,7 +129,8 @@ jobs:
         uses: actions/cache/save@v4
         with:
           key: sam-models-${{ github.run_id }}-${{ github.sha }}-${{ matrix.variant }}
-          path: sam-models/${{ matrix.variant }}/
+          path: sam-models/${{ matrix.variant }}
+          enableCrossOsArchive: true
       - name: Failure diagnostics
         if: failure()
         run: |
