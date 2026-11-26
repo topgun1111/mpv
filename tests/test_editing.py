@@ -40,9 +40,10 @@ def test_editing_slider_interaction():
     if not lua:
         pytest.skip("Lua interpreter unavailable")
     result = subprocess.run(
-        [lua, "tests/lua_harness_editing_ui.lua"], cwd=ROOT, check=True,
+        [lua, "tests/lua_harness_editing_ui.lua"], cwd=ROOT, check=False,
         capture_output=True, text=True, timeout=20,
     )
+    assert result.returncode == 0, result.stdout + result.stderr
     assert "EDITING_UI_OK" in result.stdout
 
 

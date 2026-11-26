@@ -12,7 +12,8 @@ local timers_at_load = #reg.timers -- yüklemede kurulan zamanlayıcılar (ör. 
 local function move(x, y)
   reg.props["mouse-pos"] = { x = x, y = y, hover = true }
   reg.obs["mouse-pos"]("mouse-pos", { x = x, y = y, hover = true }) end
-local function M() return reg.ov[4] or "" end
+-- Menu overlay now sits above Editing (z=6), not on the tracking layer.
+local function M() return reg.ov[8] or "" end
 local function click(x, y)
   move(x, y); reg.cmds = {}
   if reg.bind["track-click-bind"] then reg.bind["track-click-bind"]({ event = "press" }) end

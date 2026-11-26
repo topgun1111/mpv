@@ -185,9 +185,9 @@ render=function()
     rect(bounds,"252525"),rect(header,"383838"),
     text(bounds.x+metrics.pad,header.y+header.h/2,fs+2,"FFFFFF","Editing"),
     text(bounds.x+metrics.pad,bounds.y+header.h+metrics.help/2,math.max(14,fs-4),
-      shown_error and "A0A0FF" or "E5E5E5",shown_error or
-      ((page_count>1 and ("Page "..page.."/"..page_count.." - ") or "")..
-      (bypass and "Original view" or "Live preview").." | Drag title to move"))}
+      shown_error and "A0A0FF" or "E5E5E5",
+      (page_count>1 and ("Page "..page.."/"..page_count.." - ") or "")..
+      (shown_error or ((bypass and "Original view" or "Live preview").." | Drag title to move")))}
   local values=pending or state
   for _,r in ipairs(rows) do
     local c,a,t=r.control,r.area,r.rail
