@@ -105,15 +105,15 @@ function M.encoder_args(encoder,settings)
   end
   error("Unknown editing encoder: "..tostring(encoder))
 end
-local function video_args(exe,source,settings,stream)
+local function video_args(exe,source,settings,stream,encoder)
   local graph=M.graph(settings)
   return {exe,"-hide_banner","-nostdin","-loglevel","error","-n","-i",source,
     "-map",stream and ("0:"..tostring(stream)) or "0:V:0",
     "-vf",(graph~="" and graph.."," or "").."pad=ceil(iw/2)*2:ceil(ih/2)*2",
-    "-pix_fmt","yuv420p"}
+    "-pix_fmt",(encoder=="qsv" or encoder=="amf") and "nv12" or "yuv420p"}
 end
 function M.probe_args(exe,source,settings,stream,encoder,options)
-  local args=video_args(exe,source,settings,stream)
+  local args=video_args(exe,source,settings,stream,encoder)
   append(args,M.encoder_args(encoder,options))
   append(args,{"-an","-sn","-dn","-frames:v","3","-f","null","-"})
   return args
@@ -123,7 +123,7 @@ function M.export_args(exe,source,dest,settings,stream,encoder,options)
     and type(dest)=="string" and dest~="" and source~=dest,"invalid export paths")
   -- Preserve old callers' CPU default and CRF; UI always passes resolved options.
   options=options or {encoder="cpu",crf=M.normalize(settings).crf}
-  local args=video_args(exe,source,settings,stream)
+  local args=video_args(exe,source,settings,stream,encoder or "cpu")
   append(args,M.encoder_args(encoder or "cpu",options))
   append(args,{"-map","0:a?","-map_metadata","0","-c:a","aac","-b:a","192k",
     "-movflags","+faststart","-f","mp4",dest})
