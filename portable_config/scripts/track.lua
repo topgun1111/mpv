@@ -1909,6 +1909,11 @@ if TRACK_SHOW_MENU ~= false then
     for _, p in ipairs(PARTS) do ACT["part_" .. p] = function() set_part(p) end end
     for k, f in pairs(FILES) do ACT[k] = f end
     local NEED_VIDEO = { close = true, save_view = true, load_view = true } -- video yokken gri
+    for _, name in ipairs({ "adjust", "light", "moderate", "strong", "compare", "reset", "export", "cancel" }) do
+      local action = name
+      ACT["edit_" .. action] = function() mp.commandv("script-message-to", "videoediting", "editing-action", action) end
+      if action ~= "cancel" then NEED_VIDEO["edit_" .. action] = true end
+    end
     local LIVE = { release = true, target_remove = true, speed_up = true, speed_down = true, lead_up = true,
       lead_down = true, fill_up = true, fill_down = true }
     local CHECK = { src_auto = function() return source == "auto" end,

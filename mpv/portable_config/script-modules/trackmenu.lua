@@ -88,6 +88,17 @@ M.MENUS = {
     { cmd = "defaults", label = "Varsayılanlara dön", key = "Ctrl+0" },
     { cmd = "dialog", label = "Ayar penceresi…", todo = true },
   } },
+  { id = "editing", label = "Editing", items = {
+    { cmd = "edit_adjust", label = "Adjust video…" },
+    { cmd = "edit_light", label = "Dehaze: light" },
+    { cmd = "edit_moderate", label = "Dehaze: moderate" },
+    { cmd = "edit_strong", label = "Dehaze: strong" },
+    { cmd = "edit_compare", label = "Before / after" },
+    { cmd = "edit_reset", label = "Reset editing" },
+    { sep = true },
+    { cmd = "edit_export", label = "Export edited video…" },
+    { cmd = "edit_cancel", label = "Cancel editing export" },
+  } },
   { id = "help", label = "Yardım", items = {
     { cmd = "update", label = "Güncellemeleri denetle…" },
     { sep = true },
