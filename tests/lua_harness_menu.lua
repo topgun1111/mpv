@@ -91,6 +91,7 @@ move(hx(help), 5); click(hx(help), 5)
 out("UPDATE", tostring(M():find("Güncellemeleri denetle", 1, true) ~= nil))
 reg.bind["trackmenu-ESC"]()
 -- Editing: independent dispatch, without changing tracker state.
+package.loaded.editingui={action=function(a) reg.cmds[#reg.cmds+1]="editing "..a end,over=function() return false end,mouse=function() end,pointer=function() return false end,is_open=function() return false end}
 reg.props.path = "C:/sample.mp4"
 click(hx(editing), 5)
 out("EDITMENU", tostring(M():find("Export edited video",1,true)~=nil))

@@ -1,6 +1,6 @@
 -- Run from repository root: texlua tests/lua_harness_editing.lua
 package.path = "mpv/portable_config/script-modules/?.lua;" .. package.path
-assert(loadfile("mpv/portable_config/scripts/videoediting.lua"))
+assert(loadfile("mpv/portable_config/script-modules/editingui.lua"))
 local E = require "editingcore"
 assert(E.graph(E.defaults())=="")
 assert(E.graph(nil)=="")

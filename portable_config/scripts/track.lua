@@ -33,6 +33,7 @@ local scan_start -- ileri bildirim (A1): hedefle aç + arka plan taraması (Dosy
 -- Üst menü çubuğu (M1): motor script-modules/trackmenu.lua (saf mantık); çizim/bağlama aşağıda.
 -- TRACK_SHOW_MENU=false ile kapanır (testler); modül yoksa menü yok, geri kalan çalışır.
 local menu, menu_hot, render_menu = nil, false, nil
+local EDIT -- independent editor
 -- Zoom çapası: son seçilen dikdörtgenin/noktanın merkezi (video-normalize). Takip kilitli değilken
 -- (+/- zoom) görüntü video merkezi yerine bu noktaya yakınlaşır.
 local anchor = nil
@@ -1104,6 +1105,7 @@ end
 mp.add_key_binding(nil, "pick", function(ev)
   local pos = mouse_xy()
   local e = ev and ev.event or "press"
+  if EDIT and pos and EDIT.over(pos.x,pos.y) then return end
   if e == "press" then
     pick_target()
   elseif e == "down" then
@@ -1166,7 +1168,7 @@ mp.add_key_binding(nil, "pan", function(ev)
   local e = ev and ev.event or "press"
   if e == "down" then
     local pos = mouse_xy()
-    if pos and pos.x and not (panel.hover or zoomc.hover or menu_hot or tp_hot)
+    if pos and pos.x and not (panel.hover or zoomc.hover or menu_hot or tp_hot or (EDIT and EDIT.over(pos.x,pos.y)))
         and (mp.get_property_number("video-zoom", 0) or 0) > PAN_MIN_ZOOM then
       pan.on, pan.x, pan.y, pan.x0, pan.y0, pan.hinted = true, pos.x, pos.y, pos.x, pos.y, false
     end
@@ -1181,6 +1183,7 @@ end, { complex = true })
 -- hızlı arka arkaya zoom +/- tıklaması çift tık sayılıp kaybolmasın).
 local function left_press()
   local mp_ = mouse_xy()
+  if EDIT and mp_ and EDIT.over(mp_.x,mp_.y) and EDIT.pointer({event="press"},mp_) then return end
   if menu_hot and mp_ and menu then
     menu:click(mp_.x, mp_.y)
     menu_hot = menu:over(mp_.x, mp_.y) or menu:is_open()
@@ -1198,10 +1201,12 @@ local function left_press()
 end
 
 sync_click_binding = function()
-  local want = (panel.hover ~= nil) or (zoomc.hover ~= nil) or menu_hot or tp_hot
+  local pos = mouse_xy()
+  local want = (panel.hover ~= nil) or (zoomc.hover ~= nil) or menu_hot or tp_hot or (EDIT and pos and EDIT.over(pos.x,pos.y))
   if want and not panel.bound then
     mp.add_forced_key_binding("MBTN_LEFT", "track-click-bind", function(ev)
       ev = ev or { event = "press" }
+      if EDIT and EDIT.pointer(ev,mouse_xy()) then sync_click_binding();return end
       if ev.event ~= "press" and ev.event ~= "down" then return end
       left_press()
     end, { complex = true })
@@ -1215,7 +1220,8 @@ end
 -- Çift sol tık (input.conf: MBTN_LEFT_DBL → track/dblclick): videoyu oynat/duraklat.
 -- İmleç ekran üstü düğme/menü üstündeyse pause yapmaz, o öğeye tıklanmış sayılır.
 mp.add_key_binding(nil, "dblclick", function()
-  if panel.hover or zoomc.hover or menu_hot or tp_hot then left_press(); return end
+  local pos=mouse_xy()
+  if panel.hover or zoomc.hover or menu_hot or tp_hot or (EDIT and pos and EDIT.over(pos.x,pos.y)) then left_press(); return end
   mp.commandv("cycle", "pause")
 end)
 
@@ -1278,6 +1284,7 @@ local function hide_panel()
 end
 
 mp.observe_property("mouse-pos", "native", function(_, pos)
+  if EDIT then EDIT.mouse(pos) end
   if drag.x0 and pos and pos.x then render_drag(pos.x, pos.y) end -- sürükleme çerçevesi
   if pan.on and pos and pos.hover == false then pan.on = false end -- fare pencereden çıktı: bırak
   if pan.on and pos and pos.x then pan_move(pos) end -- sol tuşla kaydırma
@@ -1837,6 +1844,7 @@ if TRACK_SHOW_MENU ~= false then
         sync_click_binding()
       end
       toggle_tp = function()
+        if EDIT and EDIT.is_open() then EDIT.close() end
         if tpanel:is_open() then
           tpanel:close(); tp_hot = false
         else
@@ -1911,7 +1919,22 @@ if TRACK_SHOW_MENU ~= false then
     local NEED_VIDEO = { close = true, save_view = true, load_view = true } -- video yokken gri
     for _, name in ipairs({ "adjust", "light", "moderate", "strong", "compare", "reset", "export", "cancel" }) do
       local action = name
-      ACT["edit_" .. action] = function() mp.commandv("script-message-to", "videoediting", "editing-action", action) end
+      ACT["edit_" .. action] = function()
+        if not EDIT then
+          local ok,module=pcall(require,"editingui")
+          if not ok then
+            local path=mp.command_native({"expand-path","~~/script-modules/editingui.lua"})
+            if type(path)=="string" then ok,module=pcall(dofile,path) end
+          end
+          if not ok or type(module)~="table" then
+            mp.msg.error("Editing load failed: "..tostring(module))
+            osd("Editing module failed to load; see log",6);return
+          end
+          EDIT=module
+        end
+        if action=="adjust" and tpanel and tpanel:is_open() then tpanel:close();render_tp() end
+        EDIT.action(action);sync_click_binding()
+      end
       if action ~= "cancel" then NEED_VIDEO["edit_" .. action] = true end
     end
     local LIVE = { release = true, target_remove = true, speed_up = true, speed_down = true, lead_up = true,

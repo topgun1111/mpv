@@ -46,7 +46,7 @@ def test_menu_bar_flow(tmp_path):
     assert d["OUTSIDE"] == ["true"]
     assert d["AUTOHIDE"] == ["true", "false"]
     assert d["EDITMENU"] == ["true"]
-    assert d["EDITCMD"] == ["script-message-to videoediting editing-action moderate"]
+    assert d["EDITCMD"] == ["editing moderate"]
     assert d["ROTATE"] == ["90,180,270,0"]
 
 
