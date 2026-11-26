@@ -113,6 +113,34 @@ def main():
             ], env=env)
             data = log.read_text(encoding="utf-8", errors="replace")
             assert "RECORDING_EDITING_OK" in data, data
+            # Try a genuine native Windows video output using the software D3D11 renderer.
+            if os.name == "nt":
+                portrait = temp / "portrait.mp4"
+                run([
+                    ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+                    "-i", "testsrc2=size=180x320:rate=5", "-t", "1",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", portrait,
+                ])
+                env.update(WINDOW_LANDSCAPE=str(clip), WINDOW_PORTRAIT=str(portrait))
+                log = temp / "window.log"
+                native_args = [
+                    mpv, f"--config-dir={pkg / 'mpv/portable_config'}", "--load-scripts=yes",
+                    "--input-ipc-server=", "--vo=gpu", "--gpu-api=d3d11", "--gpu-context=d3d11",
+                    "--d3d11-warp=yes", "--ao=null", "--force-window=immediate", "--idle=yes",
+                    "--geometry=800x500", "--pause=yes", f"--log-file={log}",
+                    f"--script={ROOT / 'tests/recording_native_window.lua'}",
+                ]
+                result = subprocess.run(
+                    [str(a) for a in native_args], capture_output=True, env=env, timeout=45,
+                )
+                data = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+                if "WINDOW_GEOMETRY_AVAILABLE" in data:
+                    assert result.returncode == 0 and "WINDOW_GEOMETRY_OK" in data, data
+                    print("NATIVE_WINDOWS_GEOMETRY_OK")
+                elif "WINDOW_GEOMETRY_UNAVAILABLE" in data:
+                    print("NATIVE_WINDOWS_GEOMETRY_SKIPPED: runner has no usable native window")
+                else:
+                    raise RuntimeError("Native window test failed to start: " + data)
     print("PACKAGED_EDITING_TESTS_OK")
 
 

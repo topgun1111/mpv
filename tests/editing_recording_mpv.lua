@@ -8,6 +8,10 @@ local function owns()
 end
 local function fail(msg) mp.msg.error(msg);mp.commandv("quit",1) end
 local function check()
+  for _,name in ipairs({"auto-window-resize","keepaspect-window","hidpi-window-scale"}) do
+    if mp.get_property("options/"..name)~="no" then fail("Window policy not loaded: "..name);return end
+  end
+  if mp.get_property("options/keepaspect")~="yes" then fail("Video aspect must be preserved");return end
   mp.commandv("script-message-to","kayit","editing-action","moderate")
   mp.add_timeout(.5,function()
     if not owns() then fail("Recording editing menu did not install preset");return end

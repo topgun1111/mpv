@@ -205,3 +205,12 @@ def test_wiring_in_config_and_no_tracking_code():
     assert 'require,"recordingmenu"' in lua
     low = lua.lower()
     assert not any(w in low for w in ("onnx", "yolo", "tracker", "track-point", "models"))
+
+
+def test_responsive_hud_and_window_config(run):
+    d, _ = run
+    assert d["RESPONSIVE_HUD"][0] == ["true"]
+    conf = (CONF / "mpv.conf").read_text(encoding="utf-8")
+    for option in ("auto-window-resize=no", "keepaspect-window=no", "keepaspect=yes",
+                   "force-window=yes", "idle=yes", "hidpi-window-scale=no"):
+        assert option in conf

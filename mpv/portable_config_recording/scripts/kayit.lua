@@ -104,7 +104,8 @@ end
 local V = { 0, 0, 0 }
 local rec = { on = false, run = false, started = false, armed = false, id = 0, gen = 0, keys = {}, breaks = {}, brk = false, t = 0 }
 local drag = { on = false, x = 0, y = 0 }
-local hud = { ov = nil, last = nil }
+local hud = { ov = nil, last = nil, w = 0, h = 0 }
+local hud_font, hud_status_font = 26,30
 local exp = { running = false, id = 0, out = nil, prog = nil } -- dışa aktarma durumu (aşağıda doldurulur)
 local menu
 
@@ -113,7 +114,11 @@ local function osd(msg, sec) mp.osd_message("Kayıt: " .. msg, sec or 2) end
 local function mouse_xy()
   local p = mp.get_property_native("mouse-pos")
   if p and p.x then return p end
-  if mp.get_mouse_pos then return mp.get_mouse_pos() end
+  if mp.get_mouse_pos then
+    local x,y=mp.get_mouse_pos()
+    if type(x)=="table" then return x end
+    if type(x)=="number" and type(y)=="number" then return {x=x,y=y} end
+  end
   return nil
 end
 
@@ -134,9 +139,34 @@ local function box()
   return { x = (w - bw) / 2, y = (h - bh) / 2, w = bw, h = bh }
 end
 
+-- All drawing and hit testing share actual client pixels, not a stretched virtual canvas.
+local function viewport()
+  local d=mp.get_property_native("osd-dimensions") or {}
+  local w,h=d.w or 0,d.h or 0
+  if w<=0 or h<=0 then
+    w,h=mp.get_property_number("osd-width",0) or 0,mp.get_property_number("osd-height",0) or 0
+  end
+  if w<=0 or h<=0 then return nil end
+  return math.floor(w),math.floor(h)
+end
+
+local function hud_layout(w,h,top,dpi)
+  local scale=math.min(clamp(dpi or 1,.75,3),w/580,math.max(1,h-top)/100)
+  local function px(n) return math.max(1,math.floor(n*scale+.5)) end
+  local right=w-px(12)
+  local function place(b,width,gap)
+    b.w,b.h=px(width),px(46)
+    b.x,b.y=right-b.w,top
+    right=b.x-px(gap)
+  end
+  place(BTN,178,12);place(SPD,178,10);place(ROTR,84,6);place(ROTL,84,10)
+  hud_font,hud_status_font=math.max(10,px(26)),math.max(10,px(30))
+  return px(24),top+BTN.h+px(6)
+end
+
 local function box_ass(b, col, label)
   return string.format("\n{\\an7\\pos(%d,%d)\\bord0\\shad0\\1c%s\\p1}m 0 0 l %d 0 %d %d 0 %d{\\p0}", b.x, b.y, col, b.w, b.w, b.h, b.h)
-    .. string.format("\n{\\an5\\pos(%d,%d)\\fs26\\bord0\\shad0\\1c&HFFFFFF&}%s", b.x + b.w / 2, b.y + b.h / 2, label)
+    .. string.format("\n{\\an5\\pos(%d,%d)\\fs%d\\bord0\\shad0\\1c&HFFFFFF&}%s", math.floor(b.x+b.w/2), math.floor(b.y+b.h/2),hud_font,label)
 end
 
 -- Döndürme düğmeleri yalnız kayıt BAŞLAMADAN (boşta / hazır) görünür ve çalışır; kayıt başlayınca döndürme kilitli.
@@ -159,10 +189,15 @@ local function hud_update()
     hud.ov = mp.create_osd_overlay("ass-events")
     hud.ov.z = HUD_Z
   end
-  local zoom, txt = 2 ^ V[1], nil
+  local w,h=viewport()
+  if not w then
+    if rawget(_G,"KAYIT_EXPOSE") then w,h=1280,720 else return end
+  end
+  local dpi=mp.get_property_number("display-hidpi-scale",1) or 1
   local top=menu and menu.hud_top() or 12
-  for _,b in ipairs({BTN,SPD,ROTL,ROTR}) do b.y=top end
-  local head=string.format("{\\an7\\pos(24,%d)\\fs30\\bord2}",top+4)
+  local sx,sy=hud_layout(w,h,top,dpi)
+  local zoom, txt = 2 ^ V[1], nil
+  local head=string.format("{\\an7\\pos(%d,%d)\\fs%d\\bord2}",sx,sy,hud_status_font)
   if rec.on and rec.run then
     txt = string.format("%s{\\1c&H0000FF&}●{\\1c&HFFFFFF&} KAYIT  %.1f×  %.1f sn", head, zoom, rec.t or 0)
   elseif rec.on and rec.started then
@@ -172,10 +207,15 @@ local function hud_update()
   else
     txt = string.format("%s%.1f×", head, zoom) -- zoom değeri her zaman görünür
   end
+  if w<720 then
+    if rec.on and rec.run then txt=string.format("%s● KAYIT %.1f× %.1f sn",head,zoom,rec.t or 0)
+    elseif rec.on and rec.started then txt=string.format("%sDURAKLADI %.1f×",head,zoom)
+    elseif rec.on then txt=string.format("%sHAZIR %.1f×",head,zoom) end
+  end
   txt = txt .. buttons_ass(exp and exp.running)
-  if txt ~= hud.last then
-    hud.last = txt
-    hud.ov.res_x, hud.ov.res_y = 1280, 720
+  if txt ~= hud.last or w~=hud.w or h~=hud.h then
+    hud.last,hud.w,hud.h = txt,w,h
+    hud.ov.res_x, hud.ov.res_y = w,h
     hud.ov.data = txt
     hud.ov:update()
   end
@@ -191,13 +231,10 @@ end
 
 local start_export -- aşağıda
 local toggle_record, speed_cycle, rotate_by -- aşağıda tanımlanır
-local function hit(pos, b) -- imleç ekrandaki düğmenin üstünde mi (osd piksel → 1280×720)
-  local d = mp.get_property_native("osd-dimensions")
-  local w, h = mp.get_property_number("osd-width", 0) or 0, mp.get_property_number("osd-height", 0) or 0
-  if not (w > 0 and h > 0) and d then w, h = d.w, d.h end
-  if not (w and h and w > 0 and h > 0) then return false end
-  local x, y = pos.x / w * 1280, pos.y / h * 720
-  return x >= b.x and x <= b.x + b.w and y >= b.y and y <= b.y + b.h
+local function hit(pos,b)
+  if not pos or not pos.x or not pos.y or pos.hover==false then return false end
+  hud_update()
+  return pos.x>=b.x and pos.x<b.x+b.w and pos.y>=b.y and pos.y<b.y+b.h
 end
 
 -- ---- fare: SOL tuş basılı sürükle = kaydır; sol tık ekrandaki düğmelerde = KAYDET / HIZ; sağ tık HIZ'da =
@@ -227,7 +264,8 @@ end, { complex = true })
 
 mp.observe_property("mouse-pos", "native", function(_, pos)
   if menu then menu.mouse(pos) end
-  if not (drag.on and pos and pos.x) then return end
+  if not pos or pos.hover==false then drag.on=false;return end
+  if not (drag.on and pos.x and pos.y) then return end
   local b = box()
   if not b then return end
   local ax, ay = (drag.x - b.x) / b.w, (drag.y - b.y) / b.h -- tutulan nokta (önceki imleç konumu)
@@ -390,8 +428,9 @@ mp.add_key_binding(nil, "space", space)
 -- seek (geri sarma / ileri atlama): yeni parça başlar; seek bitene (playback-restart) kadar eski time-pos yazılmaz
 mp.register_event("seek", function() if rec.on and rec.started then rec.armed, rec.brk = false, true end end)
 mp.register_event("playback-restart", function() if rec.on and rec.started then rec.armed = true end end)
-mp.register_event("end-file", function() stop_rec() end)
+mp.register_event("end-file", function() drag.on=false;stop_rec() end)
 mp.register_event("file-loaded", function()
+  drag.on=false
   set_view({ 0, 0, 0 })
   mp.set_property("pause", "yes") -- video açılınca oynatma kendiliğinden başlamaz
 end)
@@ -495,12 +534,25 @@ if not rawget(_G,"KAYIT_EXPOSE") then
           exporting=exp.running, local_video=vp~=nil, saved=saved and saved.is_file or false}
       end,
     })
-    mp.observe_property("osd-dimensions","native",function() hud_update() end)
+    local last_w,last_h
+    mp.observe_property("osd-dimensions","native",function()
+      local w,h=viewport()
+      -- Zoom changes OSD margins too. Cancel a drag only on an actual client resize.
+      if w~=last_w or h~=last_h then drag.on=false;last_w,last_h=w,h end
+      hud_update()
+    end)
+    mp.observe_property("display-hidpi-scale","number",function() hud_update() end)
   else mp.msg.error("Recording menu unavailable: "..tostring(mod)) end
 end
 
 if rawget(_G, "KAYIT_EXPOSE") then -- yalnız testler (tests/lua_harness_kayit.lua)
   KAYIT_API = { apply_gesture_at = apply_gesture_at, set_zoom_at = set_zoom_at, clamp_view = clamp_view,
-    clamp_speed = clamp_speed, key_dt = key_dt, append_key = append_key, state = function() return rec, V end, exp = exp }
+    clamp_speed = clamp_speed, key_dt = key_dt, append_key = append_key, state = function() return rec, V end, exp = exp,
+    hud_layout=function(w,h,top,dpi)
+      hud_layout(w,h,top,dpi)
+      local out={}
+      for i,b in ipairs({BTN,SPD,ROTL,ROTR}) do out[i]={x=b.x,y=b.y,w=b.w,h=b.h} end
+      return out,hud_font
+    end }
 end
 hud_update()

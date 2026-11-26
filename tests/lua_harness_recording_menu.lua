@@ -4,15 +4,17 @@ local calls,bindings,messages,events={}, {}, {}, {}
 local state={recording=false,started=false,running=false,exporting=false,local_video=true,saved=true}
 local props={path="C:/clips/source.mp4",["video-params/w"]=640,pause=true}
 local overlay,dialog
+local dims={w=1280,h=720}
+local observers={}
 local mp={
   get_property=function(k,d) return props[k] or d end,
   get_property_number=function(k,d) return props[k] or d end,
   get_property_native=function(k)
-    if k=="osd-dimensions" then return {w=1280,h=720} end
+    if k=="osd-dimensions" then return dims end
     return props[k]
   end,
   create_osd_overlay=function() overlay={update=function() end};return overlay end,
-  observe_property=function() end,
+  observe_property=function(k,_,fn) observers[k]=fn end,
   register_event=function(k,fn) events[k]=fn end,
   add_key_binding=function(_,k,fn) bindings[k]=fn end,
   add_forced_key_binding=function(_,k,fn) bindings[k]=fn end,
@@ -64,4 +66,14 @@ click("Editing");click("Dehaze: moderate");assert(edits[#edits]=="moderate")
 click("File")
 assert(m.pointer({event="down"},{x=1000,y=500}),"dismiss should consume click")
 assert(m.pointer({event="up"},{x=1000,y=500}))
+for _,size in ipairs({{640,360,1},{420,700,2},{1920,1080,2},{1280,720,1}}) do
+  dims={w=size[1],h=size[2]}
+  props["display-hidpi-scale"]=size[3]
+  observers["osd-dimensions"]()
+  assert(overlay.res_x==dims.w and overlay.res_y==dims.h)
+  click("Editing")
+  local b=locate("Cancel editing export")
+  assert(b.x>=0 and b.x<dims.w and b.y>=0 and b.y<dims.h,"menu item outside window")
+  click("Editing")
+end
 print("RECORDING_MENU_OK")

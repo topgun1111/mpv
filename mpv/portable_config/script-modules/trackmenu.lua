@@ -122,7 +122,7 @@ end
 
 -- Saf yerleşim: çubuk başlıkları. W,H pencere pikseli. -> rects, bh (çubuk yüksekliği), fs.
 -- minh: en küçük çubuk yüksekliği (px). Küçük pencerede (H<700) çubuk küçülmez, biraz büyür; `hd` ekran ölçeği.
-function M.bar_layout(W, H, menus, hd)
+function M.bar_layout(W, H, menus, hd, responsive)
   hd = math.max(1, math.min(hd or 1, 3))
   local b = H / 700
   local boost = (b >= 1) and 1 or math.min(1 + (1 - b) * 0.5, 1.35)
@@ -139,28 +139,36 @@ function M.bar_layout(W, H, menus, hd)
   local bh = math.max(math.floor(32 * boost * hd), math.floor(H * 0.05))
   local rects, fs, total = build(bh)
   if total > W and W > 0 then -- başlıklar sığmıyorsa orantılı küçült (en az 24 px)
-    bh = math.max(24, math.floor(bh * W / total))
+    bh = math.max(responsive and 12 or 24, math.floor(bh * W / total))
     rects, fs = build(bh)
   end
   return rects, bh, fs
 end
 
 -- Saf yerleşim: açılır liste (başlığın altı, pencereye sığacak şekilde kıstırılır).
-function M.drop_layout(W, bh, fs, items, hx, labels, keys)
+function M.drop_layout(W, bh, fs, items, hx, labels, keys, H)
   local wide = 0
   for i = 1, #items do
     local n = nchars(labels[i] or "") + (keys[i] ~= "" and nchars(keys[i]) + 4 or 0)
     if n > wide then wide = n end
   end
-  local w = math.floor(wide * fs * 0.62 + bh * 0.9)
+  local row,df=bh,fs
+  if H then
+    local units=0
+    for _,it in ipairs(items) do units=units+(it.sep and .3 or 1) end
+    row=math.max(1,math.min(bh,math.floor(math.max(1,H-bh-4)/math.max(1,units))))
+    df=math.max(6,math.min(fs,math.floor(row*.7),math.floor((W-row*.9)/math.max(1,wide*.62))))
+  end
+  local w = math.floor(wide * df * 0.62 + row * 0.9)
+  if H then w=math.min(W,math.max(1,w)) end
   local x = math.max(0, math.min(hx, W - w))
   local rects, y = {}, bh
   for i, it in ipairs(items) do
-    local h = it.sep and math.floor(bh * 0.3) or bh
+    local h = it.sep and math.floor(row * 0.3) or row
     rects[i] = { x = x, y = y, w = w, h = h }
     y = y + h
   end
-  return rects, { x = x, y = bh, w = w, h = y - bh }
+  return rects, { x = x, y = bh, w = w, h = y - bh },df,row
 end
 
 function M.new(ctx)
@@ -176,7 +184,7 @@ function M.new(ctx)
   function e:resize(W, H)
     if W == self.W and H == self.H and self.hrects[1] then return end
     self.W, self.H = W, H
-    self.hrects, self.bh, self.fs = M.bar_layout(W, H, M.MENUS, self.hd)
+    self.hrects, self.bh, self.fs = M.bar_layout(W, H, M.MENUS, self.hd,ctx.responsive)
     self:relayout()
   end
 
@@ -191,8 +199,8 @@ function M.new(ctx)
         labels[i], keys[i] = "    " .. lab, it.key or ""
       else labels[i], keys[i] = "", "" end
     end
-    self.drects, self.dbox = M.drop_layout(self.W, self.bh, self.fs, m.items,
-      self.hrects[self.open].x, labels, keys)
+    self.drects,self.dbox,self.drop_fs,self.drop_row=M.drop_layout(self.W,self.bh,self.fs,m.items,
+      self.hrects[self.open].x,labels,keys,ctx.responsive and self.H or nil)
   end
 
   local function selectable(it) return not it.sep and (st(it)) end
@@ -329,6 +337,7 @@ function M.new(ctx)
       text(r.x + math.floor(r.w / 2), math.floor(bh / 2), 5, "E6E6E6", m.label)
     end
     if self.open and self.dbox then
+      fs,bh=self.drop_fs or fs,self.drop_row or bh
       local b = self.dbox
       box({ x = b.x + 3, y = b.y + 3, w = b.w, h = b.h }, "000000", "A0") -- gölge
       box({ x = b.x - 1, y = b.y - 1, w = b.w + 2, h = b.h + 2 }, "555555", "00") -- çerçeve

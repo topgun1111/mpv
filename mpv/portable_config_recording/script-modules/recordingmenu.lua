@@ -53,7 +53,7 @@ function M.new(ctx)
   local render,keys
   local function status(cmd)
     local s=ctx.state()
-    local video=mp.get_property_number("video-params/w",0)>0
+    local video=(mp.get_property_number("video-params/w",0) or 0)>0
     local busy=s.exporting or editor.busy() or dialog
     local idle=not s.recording and not busy
     if cmd=="open" or cmd=="quit" then return {enabled=idle} end
@@ -119,7 +119,7 @@ function M.new(ctx)
     elseif cmd=="fullscreen" or cmd=="mute" then mp.commandv("cycle",cmd)
     else ctx.run(cmd) end
   end
-  local engine=menus.new({run=action,state=status})
+  local engine=menus.new({run=action,state=status,responsive=true})
   render=function()
     local d=mp.get_property_native("osd-dimensions") or {}
     local w,h=d.w or 0,d.h or 0
@@ -147,7 +147,7 @@ function M.new(ctx)
     end
   end
   function self.hud_top()
-    return engine.H>0 and math.ceil(engine.bh*720/engine.H)+8 or 70
+    return engine.bh+math.max(4,math.floor(8*engine.hd))
   end
   function self.over(pos)
     return pos and pos.x and (engine:over(pos.x,pos.y) or editor.over(pos.x,pos.y))

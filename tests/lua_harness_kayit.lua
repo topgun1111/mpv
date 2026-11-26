@@ -236,3 +236,18 @@ out("SEG_PRE", tostring(n_pre))
 out("SEG_JSON", seg_json)
 out("SEG_T", string.format("%.2f", A.state().t))
 if keep_json then write(VID .. ".rec.json", keep_json) end
+
+-- Exercise layout independently of a particular video resolution.
+for _,size in ipairs({{1280,720,1},{600,360,1},{400,800,1.5},{1920,1080,2},{3440,800,1}}) do
+  local w,h,dpi=size[1],size[2],size[3]
+  local b,fs=A.hud_layout(w,h,40,dpi)
+  assert(fs>=10)
+  for i,v in ipairs(b) do
+    assert(v.x>=0 and v.y>=0 and v.x+v.w<=w and v.y+v.h<=h,"HUD outside viewport")
+    for j=i+1,#b do
+      local z=b[j]
+      assert(v.x>=z.x+z.w or z.x>=v.x+v.w,"overlapping HUD controls")
+    end
+  end
+end
+out("RESPONSIVE_HUD","true")
