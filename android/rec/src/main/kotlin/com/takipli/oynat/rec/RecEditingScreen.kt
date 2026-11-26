@@ -4,6 +4,7 @@ import android.net.Uri
 import android.view.TextureView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,6 +13,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -27,6 +31,9 @@ import com.takipli.oynat.core.Grade
 import com.takipli.oynat.core.GradeControl
 import com.takipli.oynat.core.GradeQuality
 import com.takipli.oynat.core.HazePreset
+import com.takipli.oynat.core.View as CamView
+import com.takipli.oynat.core.applyGestureAt
+import com.takipli.oynat.core.viewTransform
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
@@ -36,6 +43,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /** A dedicated editor: original camera keys/zoom/recording state are never touched. */
@@ -49,6 +57,8 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
     var options by remember { mutableStateOf(EditOutput()) }
     var showOptions by remember { mutableStateOf(false) }
     var largePreview by remember { mutableStateOf(false) }
+    // Inspection zoom belongs to the UI only; never pass it to EditExporter.
+    var previewView by remember(source) { mutableStateOf(CamView(0.0, 0.0, 0.0)) }
     var active by remember { mutableStateOf<Transformer?>(null) }
     var saving by remember { mutableStateOf(false) }
     var temp by remember { mutableStateOf<File?>(null) }
@@ -202,6 +212,11 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
                         onSeek = { pos = it; player.seekTo(it) },
                         onCompare = { original = !original },
                         onExpand = { largePreview = !largePreview },
+                        previewView = previewView,
+                        onGesture = { ax, ay, dx, dy, zoom ->
+                            previewView = applyGestureAt(previewView, ax, ay, dx, dy, zoom, 4.0)
+                        },
+                        onResetZoom = { previewView = CamView(0.0, 0.0, 0.0) },
                         modifier = Modifier.weight(1.15f).fillMaxHeight(),
                     )
                     if (!largePreview) {
@@ -218,6 +233,11 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
                         onSeek = { pos = it; player.seekTo(it) },
                         onCompare = { original = !original },
                         onExpand = { largePreview = !largePreview },
+                        previewView = previewView,
+                        onGesture = { ax, ay, dx, dy, zoom ->
+                            previewView = applyGestureAt(previewView, ax, ay, dx, dy, zoom, 4.0)
+                        },
+                        onResetZoom = { previewView = CamView(0.0, 0.0, 0.0) },
                         modifier = Modifier.weight(1.8f).fillMaxWidth(),
                     )
                     if (!largePreview) {
@@ -283,19 +303,45 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
 private fun EditingPreview(
     player: ExoPlayer, info: VideoInfo, pos: Long, duration: Long,
     playing: Boolean, original: Boolean, busy: Boolean, large: Boolean,
-    onSeek: (Long) -> Unit, onCompare: () -> Unit, onExpand: () -> Unit, modifier: Modifier,
+    onSeek: (Long) -> Unit, onCompare: () -> Unit, onExpand: () -> Unit,
+    previewView: CamView, onGesture: (Double, Double, Double, Double, Double) -> Unit,
+    onResetZoom: () -> Unit, modifier: Modifier,
 ) {
+    val aspect = (info.width.toFloat() / info.height.coerceAtLeast(1)).coerceIn(0.1f, 10f)
+    val currentGesture by rememberUpdatedState(onGesture)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         BoxWithConstraints(
-            Modifier.weight(1f).fillMaxWidth().background(Color.Black),
+            Modifier.weight(1f).fillMaxWidth().background(Color.Black).clipToBounds()
+                .pointerInput(aspect, busy) {
+                    if (!busy) detectTransformGestures { centroid, pan, zoom, _ ->
+                        val bw = size.width.toFloat()
+                        val bh = size.height.toFloat()
+                        val fw = minOf(bw, bh * aspect)
+                        val fh = fw / aspect
+                        if (fw > 0f && fh > 0f && zoom.isFinite() && zoom > 0f &&
+                            centroid.x.isFinite() && centroid.y.isFinite() &&
+                            pan.x.isFinite() && pan.y.isFinite()
+                        ) {
+                            val ax = ((centroid.x - (bw - fw) / 2f) / fw).coerceIn(0f, 1f)
+                            val ay = ((centroid.y - (bh - fh) / 2f) / fh).coerceIn(0f, 1f)
+                            currentGesture(ax.toDouble(), ay.toDouble(), (pan.x / fw).toDouble(),
+                                (pan.y / fh).toDouble(), zoom.toDouble())
+                        }
+                    }
+                },
             contentAlignment = Alignment.Center,
         ) {
-            val aspect = (info.width.toFloat() / info.height.coerceAtLeast(1)).coerceIn(0.1f, 10f)
             val w = minOf(maxWidth, maxHeight * aspect)
             AndroidView(
                 factory = { c -> TextureView(c).also { player.setVideoTextureView(it) } },
                 onRelease = { player.clearVideoTextureView(it) },
-                modifier = Modifier.size(w, w / aspect),
+                modifier = Modifier.size(w, w / aspect).graphicsLayer {
+                    val transform = viewTransform(previewView)
+                    scaleX = transform[0].toFloat()
+                    scaleY = transform[0].toFloat()
+                    translationX = (transform[1] * size.width).toFloat()
+                    translationY = (transform[2] * size.height).toFloat()
+                },
             )
             Text(
                 if (original) "ORIGINAL" else "EDITED",
@@ -303,6 +349,14 @@ private fun EditingPreview(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 color = Color.White, style = MaterialTheme.typography.labelSmall,
             )
+            TextButton(
+                onClick = onResetZoom, enabled = !busy && previewView.zoom > 0.0,
+                modifier = Modifier.align(Alignment.TopEnd).background(Color.Black.copy(alpha = 0.65f)),
+                contentPadding = PaddingValues(horizontal = 8.dp),
+            ) {
+                Text(String.format(java.util.Locale.ROOT, "%.1f×", 2.0.pow(previewView.zoom)),
+                    color = Color.White)
+            }
         }
         Slider(
             value = pos.toFloat().coerceIn(0f, duration.toFloat().coerceAtLeast(1f)),

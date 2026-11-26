@@ -38,3 +38,23 @@ def test_editor_enables_replayable_cache_on_its_own_player():
     assert ".setClock(getClock())" in factory
     assert "EditingRenderersFactory" not in (REC / "RecScreen.kt").read_text(encoding="utf-8")
     assert "FlowRow(" in screen
+
+
+def test_editing_zoom_is_preview_only_and_survives_layout_changes():
+    screen = (REC / "RecEditingScreen.kt").read_text(encoding="utf-8")
+    assert "var previewView by remember(source)" in screen
+    assert screen.count("previewView = previewView,") == 2
+    assert screen.count("onResetZoom = { previewView = CamView(0.0, 0.0, 0.0) }") == 2
+    assert "detectTransformGestures" in screen and "viewTransform(previewView)" in screen
+    assert "pointerInput(aspect, busy)" in screen and "rememberUpdatedState(onGesture)" in screen
+    assert "applyGestureAt(previewView, ax, ay, dx, dy, zoom, 4.0)" in screen
+    export = screen.split("fun export() {", 1)[1].split("    Column(", 1)[0]
+    assert "previewView" not in export and "EditExporter.start" in export
+
+
+def test_recording_preview_accepts_gestures_without_recording_keys():
+    screen = (REC / "RecScreen.kt").read_text(encoding="utf-8")
+    assert screen.count("PreviewSurface(player, view, aspect, !exporting,") == 2
+    assert "if (gesturesEnabled) detectTransformGestures" in screen
+    assert "LaunchedEffect(recording)" in screen and "while (recording)" in screen
+    assert 'keys = emptyList(); view = ZERO_VIEW; exportMessage = ""' in screen

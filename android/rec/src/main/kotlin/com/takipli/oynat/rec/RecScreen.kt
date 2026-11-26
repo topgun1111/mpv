@@ -317,7 +317,7 @@ fun RecScreen() {
     if (fullscreen && loaded) {
         // ---- Full screen: the preview fills the screen, everything else is an overlay ----
         Box(Modifier.fillMaxSize().background(Color.Black)) {
-            PreviewSurface(player, view, aspect, recording, onGesture, Modifier.fillMaxSize())
+            PreviewSurface(player, view, aspect, !exporting, onGesture, Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().safeDrawingPadding().padding(8.dp)) {
                 Row(Modifier.fillMaxWidth().align(Alignment.TopCenter), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     OverlayButton(stringResource(R.string.exit_full_screen), { if (recording) stopRecording(); fullscreen = false })
@@ -387,7 +387,7 @@ fun RecScreen() {
             if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
             if (loaded && vi != null) {
                 Box(Modifier.fillMaxWidth().height((androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.5f).dp.coerceIn(220.dp, 560.dp)).clip(RoundedCornerShape(22.dp)).background(Color.Black)) {
-                    PreviewSurface(player, view, aspect, recording, onGesture, Modifier.fillMaxSize())
+                    PreviewSurface(player, view, aspect, !exporting, onGesture, Modifier.fillMaxSize())
                     if (recording) Text(stringResource(R.string.rec_badge), color = REC_RED, fontWeight = FontWeight.Bold, modifier = Modifier.padding(12.dp))
                     OverlayButton(stringResource(R.string.full_screen), { fullscreen = true }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp))
                 }
@@ -451,20 +451,24 @@ fun RecScreen() {
 }
 
 /**
- * The video surface. Fills the given area, shows the frame letterboxed, applies the camera [view] (zoom + pan) to it and, while
- * [recording], turns two-finger pinch + drag on the WHOLE area into [onGesture] (finger centre and shift as fractions of the video frame).
+ * The video surface accepts pinch + drag while previewing or recording, except during export.
+ * Only recording samples the camera view into keyframes. Starting a new take resets the view.
  */
 @Composable
 private fun PreviewSurface(
-    player: ExoPlayer, view: CamView, aspect: Float, recording: Boolean,
+    player: ExoPlayer, view: CamView, aspect: Float, gesturesEnabled: Boolean,
     onGesture: (ax: Double, ay: Double, dx: Double, dy: Double, zoom: Double) -> Unit,
     modifier: Modifier,
 ) {
     BoxWithConstraints(
-        modifier.background(Color.Black).clipToBounds().pointerInput(recording, aspect) {
-            if (recording) detectTransformGestures { centroid, pan, zoom, _ ->
+        modifier.background(Color.Black).clipToBounds().pointerInput(gesturesEnabled, aspect) {
+            if (gesturesEnabled) detectTransformGestures { centroid, pan, zoom, _ ->
                 val bw = size.width.toFloat(); val bh = size.height.toFloat()
                 val fw = min(bw, bh * aspect); val fh = fw / aspect
+                if (fw <= 0f || fh <= 0f || !zoom.isFinite() || zoom <= 0f ||
+                    !centroid.x.isFinite() || !centroid.y.isFinite() ||
+                    !pan.x.isFinite() || !pan.y.isFinite()
+                ) return@detectTransformGestures
                 val ox = (bw - fw) / 2f; val oy = (bh - fh) / 2f
                 val ax = ((centroid.x - ox) / fw).coerceIn(0f, 1f)
                 val ay = ((centroid.y - oy) / fh).coerceIn(0f, 1f)
