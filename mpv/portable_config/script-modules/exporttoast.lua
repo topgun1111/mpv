@@ -29,7 +29,17 @@ local function render()
       parts[#parts+1]=ch;count=count+1
     end
   end
-  escaped=mp.command_native({"escape-ass",table.concat(parts)}) or escaped
+  local lines={}
+  local wrapped=table.concat(parts)
+  local maxlines=math.max(1,math.min(4,math.floor((y-h*.25)/(fs*1.3))))
+  for line in (wrapped.."\n"):gmatch("(.-)\n") do
+    if #lines>=maxlines then
+      lines[#lines]=lines[#lines].."…"
+      break
+    end
+    lines[#lines+1]=mp.command_native({"escape-ass",line}) or ""
+  end
+  escaped=table.concat(lines,"\\N")
   -- \an2 anchors the bottom of the message above the transport bar.
   -- Opaque dark outline provides contrast without a hit-testable panel.
   local data=string.format("{\\an2\\pos(%d,%d)\\fnSegoe UI\\fs%d\\q2\\bord%d\\shad0\\1c&HFFFFFF&\\3c&H202020&}%s",

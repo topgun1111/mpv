@@ -35,7 +35,7 @@ dims={w=420,h=320};dpi=2
 observers["osd-dimensions"]()
 x,y,fs=position()
 assert(overlay.res_x==420 and overlay.res_y==320 and x==210 and y>160 and y<320)
-T.show("Export completed {example}.mp4",8)
+T.show("Saved {example}.mp4",8)
 assert(overlay.data:find("\\{example}",1,true))
 local old=timers[#timers]
 T.show("Exporting another file",0)
