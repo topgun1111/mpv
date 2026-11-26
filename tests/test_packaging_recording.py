@@ -102,7 +102,7 @@ def test_make_package_recording_ships_export_flow(tmp_path):
     modules = out / "mpv/portable_config/script-modules"
     canonical = ROOT / "mpv/portable_config/script-modules"
     for name in ("editingui.lua", "editingcore.lua", "editinggpu.lua", "takipli_grade.glsl",
-                 "trackfiles.lua", "trackmenu.lua"):
+                 "trackfiles.lua", "trackmenu.lua", "exporttoast.lua"):
         assert (modules / name).read_bytes() == (canonical / name).read_bytes()
     assert (modules / "recordingmenu.lua").is_file()
 

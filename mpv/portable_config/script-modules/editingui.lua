@@ -11,6 +11,7 @@ end
 local core=load_module("editingcore")
 local files=load_module("trackfiles")
 local gpu=load_module("editinggpu")
+local toast=load_module("exporttoast")
 local M={}
 local backend="none"
 local preview_mode="auto"
@@ -28,6 +29,7 @@ local output=core.export_settings(nil)
 local encoder_names={auto="Auto",nvenc="NVIDIA NVENC",qsv="Intel Quick Sync",amf="AMD AMF",cpu="CPU (libx264)"}
 local label = "@videoediting"
 local function notice(s, seconds) mp.osd_message("Editing: "..s, seconds or 3) end
+local function export_notice(s,seconds) toast.show("Editing: "..s,seconds) end
 local function local_source()
   local p = mp.get_property("path")
   if not p or files.is_url(p) then return nil end
@@ -382,7 +384,7 @@ local function ffmpeg_path()
   return nil
 end
 local function export_options(done)
-  if dialog or job then notice("Export or settings already active");return end
+  if dialog or job then export_notice("Export or settings already active");return end
   local initial=core.export_settings({encoder=output.encoder,gpu=output.gpu,crf=state.crf})
   local index=0
   for i,v in ipairs(core.encoder_options) do if v==initial.encoder then index=i-1 end end
@@ -459,33 +461,33 @@ $f.Dispose()
     if generation~=g then return end
     if not ok or not res or res.status~=0 then
       mp.msg.error("Editing options: "..tostring(res and res.stderr or "subprocess failure"))
-      notice("Export options could not be opened",5);return
+      export_notice("Export options could not be opened",5);return
     end
     local raw=files.clean_all(res.stdout)
     if not raw then return end
     local obj=utils.parse_json(raw)
-    if type(obj)~="table" then notice("Invalid export options",5);return end
+    if type(obj)~="table" then export_notice("Invalid export options",5);return end
     output=core.export_settings(obj)
     state.crf=output.crf
-    notice(encoder_names[output.encoder].." | quality "..output.crf)
+    export_notice(encoder_names[output.encoder].." | quality "..output.crf)
     render()
     if done then done() end
   end)
 end
 local function export()
-  if job or dialog then notice("Export or save dialog already active");return end
+  if job or dialog then export_notice("Export or save dialog already active");return end
   if not video_ok() then return end
   flush()
   local source,exe,g=local_source(),ffmpeg_path(),generation
-  if not source then notice("Export needs a local video file",5);return end
-  if not exe then notice("Bundled FFmpeg not found",5);return end
+  if not source then export_notice("Export needs a local video file",5);return end
+  if not exe then export_notice("Bundled FFmpeg not found",5);return end
   local snapshot=core.normalize(state)
   local options=core.export_settings({encoder=output.encoder,gpu=output.gpu,crf=snapshot.crf})
   -- Export quality alone can be used without applying color filters.
   local stream
   for _,tr in ipairs(mp.get_property_native("track-list") or {}) do
     if tr.type=="video" and tr.selected then
-      if tr.external or tr.albumart then notice("Select an internal video track first");return end
+      if tr.external or tr.albumart then export_notice("Select an internal video track first");return end
       stream=tr["ff-index"];break
     end
   end
@@ -500,12 +502,12 @@ local function export()
   dialog=true
   mp.command_native_async({name="subprocess",playback_only=false,capture_stdout=true,args=files.ps_args(ps)},function(ok,res)
     dialog=false
-    if not ok or not res or res.status~=0 then notice("Save dialog failed",5);return end
+    if not ok or not res or res.status~=0 then export_notice("Save dialog failed",5);return end
     local dest=files.clean(res.stdout)
     if not dest then return end
-    if generation~=g then notice("Video changed; export not started");return end
-    if dest:lower():sub(-4)~=".mp4" then notice("Choose an MP4 filename");return end
-    if utils.file_info(dest) then notice("Choose a new filename; existing files are never overwritten",6);return end
+    if generation~=g then export_notice("Video changed; export not started");return end
+    if dest:lower():sub(-4)~=".mp4" then export_notice("Choose an MP4 filename");return end
+    if utils.file_info(dest) then export_notice("Choose a new filename; existing files are never overwritten",6);return end
     local current={cancelled=false,started=mp.get_time(),dest=dest,phase="Checking encoder"}
     job=current
     local probe_timer
@@ -513,7 +515,7 @@ local function export()
       if probe_timer then probe_timer:kill();probe_timer=nil end
       if timer then timer:kill();timer=nil end
       if job==current then job=nil end
-      notice(message,seconds or 6)
+      export_notice(message,seconds or 6)
     end
     local function start(encoder)
       if current.cancelled then finish("Export cancelled");return end
@@ -530,7 +532,7 @@ local function export()
         end
       end)
       if not current.id then finish("Could not start FFmpeg");return end
-      notice(current.phase,4)
+      export_notice(current.phase,0)
     end
     local candidates=core.candidates(options)
     local function probe(i)
@@ -538,7 +540,7 @@ local function export()
       local encoder=candidates[i]
       if not encoder then finish("No working encoder found. See mpv log.",8);return end
       current.phase="Testing "..encoder_names[encoder]
-      notice(current.phase,3)
+      export_notice(current.phase,0)
       local timed_out=false
       current.id=mp.command_native_async({name="subprocess",playback_only=false,capture_stderr=true,
         args=core.probe_args(exe,source,snapshot,stream,encoder,options)},function(success,result,err)
@@ -559,7 +561,7 @@ local function export()
       end)
     end
     timer=mp.add_periodic_timer(2,function()
-      notice(string.format("%s... %ds",current.phase,math.floor(mp.get_time()-current.started)),2.2)
+      export_notice(string.format("%s... %ds",current.phase,math.floor(mp.get_time()-current.started)),0)
     end)
     probe(1)
   end)
@@ -572,7 +574,10 @@ function M.action(action)
   if action=="next" then page=math.min(page+1,page_count);render();return end
   if action=="prev" then page=math.max(page-1,1);render();return end
   if action=="cancel" then
-    if job and job.id then job.cancelled=true;mp.abort_async_command(job.id) else notice("No export running") end
+    if job and job.id then
+      job.cancelled=true;job.phase="Cancelling export"
+      export_notice(job.phase,0);mp.abort_async_command(job.id)
+    else export_notice("No export running") end
     return
   end
   if not video_ok() then return end

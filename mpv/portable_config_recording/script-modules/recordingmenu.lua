@@ -9,6 +9,7 @@ end
 local menus=shared("trackmenu")
 local editor=shared("editingui")
 local files=shared("trackfiles")
+local toast=shared("exporttoast")
 local M={}
 local editing
 for _,m in ipairs(menus.MENUS) do if m.id=="editing" then editing=m;break end end
@@ -223,6 +224,7 @@ function M.new(ctx)
     if editor.pointer(ev,pos) then captured=e=="down";return true end
     return false
   end
+  function self.export_notice(text,seconds) toast.show(text,seconds) end
   function self.busy() return dialog or editor.busy() end
   function self.close_editor() editor.close();engine:close();render();keys() end
   local vw,vh

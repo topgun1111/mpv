@@ -478,49 +478,60 @@ local function python_exe() -- <mpv klasörünün üstü>/python/ (build_embedde
   return nil
 end
 
+local function export_notice(msg,sec)
+  if menu and menu.export_notice then menu.export_notice("Kayıt: "..msg,sec)
+  else osd(msg,(sec and sec>0) and sec or 3) end
+end
+
 local function export_done(_, res)
   exp.running = false
   hud_update()
   mp.remove_key_binding("export-cancel")
   local st, t = res and res.status, read_text(exp.prog) or ""
   if st == 0 then
-    osd("Kaydedildi: " .. basename(exp.out), 8)
+    export_notice("Kaydedildi: " .. basename(exp.out), 8)
   elseif st == 3 or jfield(t, "state") == "cancelled" then
-    osd("dışa aktarma iptal edildi", 4)
+    export_notice("dışa aktarma iptal edildi", 4)
   else
-    osd("dışa aktarma başarısız: " .. (jfield(t, "error") or (res and res.error_string) or ("kod " .. tostring(st))), 8)
+    export_notice("dışa aktarma başarısız: " .. (jfield(t, "error") or (res and res.error_string) or ("kod " .. tostring(st))), 8)
   end
 end
 
 local function poll_export(id)
   if not (exp.running and exp.id == id) then return end
   local t = read_text(exp.prog) or ""
-  if jfield(t, "state") == "running" then
-    osd(string.format("dışa aktarılıyor %%%s (Esc: iptal)", t:match('"pct"%s*:%s*(%d+)') or "?"), 1.5)
+  if exp.cancelling then
+    export_notice("iptal ediliyor…",0)
+  elseif jfield(t, "state") == "running" then
+    export_notice(string.format("dışa aktarılıyor %%%s (Esc: iptal)", t:match('"pct"%s*:%s*(%d+)') or "?"), 0)
+  else
+    export_notice("dışa aktarma hazırlanıyor… (Esc: iptal)",0)
   end
   mp.add_timeout(1, function() poll_export(id) end)
 end
 
 function start_export()
-  if menu and menu.busy() then osd("Editing export is active");return end
-  if exp.running then osd("dışa aktarma sürüyor (Esc: iptal)", 2); return end
-  if rec.on then osd("kayıt sürerken dışa aktarılamaz"); return end
+  if menu and menu.busy() then export_notice("Editing export is active");return end
+  if exp.running then export_notice("dışa aktarma sürüyor (Esc: iptal)", 2); return end
+  if rec.on then export_notice("kayıt sürerken dışa aktarılamaz"); return end
   local vp = video_path()
-  if not vp then osd("yalnız yerel video dışa aktarılır"); return end
-  if not read_text(vp .. ".rec.json") then osd("önce kayıt yap (R)", 3); return end
+  if not vp then export_notice("yalnız yerel video dışa aktarılır"); return end
+  if not read_text(vp .. ".rec.json") then export_notice("önce kayıt yap (R)", 3); return end
   local py = python_exe()
-  if not py then osd("python/ bulunamadı: dışa aktarma başlatılamadı", 4); return end
+  if not py then export_notice("python/ bulunamadı: dışa aktarma başlatılamadı", 4); return end
   local out = vp:gsub("%.[^./\\]+$", "") .. ".kamera.mp4" -- recorder.keys.default_out ile aynı
   exp.running, exp.id, exp.out, exp.prog = true, exp.id + 1, out, out .. ".export.json"
+  exp.cancelling=false
   os.remove(exp.prog) -- önceki koşunun eski durumu karışmasın
   mp.add_forced_key_binding("ESC", "export-cancel", function()
     local f = io.open(out .. ".export.cancel", "wb")
     if f then f:close() end
-    osd("iptal ediliyor…", 2)
+    exp.cancelling=true
+    export_notice("iptal ediliyor…", 0)
   end)
   mp.command_native_async({ name = "subprocess", playback_only = false, capture_stdout = false,
     capture_stderr = false, args = { py, "-m", "recorder", "export", vp, "--out", out } }, export_done)
-  osd("dışa aktarma başladı: " .. basename(out), 3)
+  export_notice("dışa aktarma başladı: " .. basename(out), 0)
   hud_update()
   poll_export(exp.id)
 end

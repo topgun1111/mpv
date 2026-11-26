@@ -124,3 +124,15 @@ def test_gpu_preview_preserves_other_shaders_and_options():
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "EDITING_GPU_OK" in result.stdout
+
+
+def test_export_toast_layout_and_lifetime():
+    lua = shutil.which("texlua") or shutil.which("lua") or shutil.which("luajit")
+    if not lua:
+        pytest.skip("Lua interpreter unavailable")
+    result = subprocess.run(
+        [lua, "tests/lua_harness_export_toast.lua"], cwd=ROOT,
+        capture_output=True, text=True, timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "EXPORT_TOAST_OK" in result.stdout

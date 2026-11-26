@@ -74,7 +74,7 @@ def build_recording(out: Path) -> None:
     modules = out / "mpv" / "portable_config" / "script-modules"
     modules.mkdir(parents=True, exist_ok=True)
     for name in ("editingui.lua", "editingcore.lua", "editinggpu.lua", "takipli_grade.glsl",
-                 "trackfiles.lua", "trackmenu.lua"):
+                 "trackfiles.lua", "trackmenu.lua", "exporttoast.lua"):
         shutil.copy2(ROOT / "mpv" / "portable_config" / "script-modules" / name, modules / name)
     _copy_launchers(ROOT / "launcher_recording", out)
     _finish(out, "requirements-recording.txt")
