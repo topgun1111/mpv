@@ -42,35 +42,49 @@ mp.register_event("file-loaded",function()
           phase=2;mp.commandv("loadfile",second,"replace")
         end)
       end
-      assert(mp.commandv("screenshot-to-file",shotdir.."/before.png","window"))
-      mp.commandv("script-message-to","kayit","editing-action","moderate")
-      mp.add_timeout(1.2,function()
-        if not shader_active() or cpu_active() then fail("GPU preview not active");return end
-        local opts=mp.get_property_native("options/glsl-shader-opts") or {}
-        if tonumber(opts["takipli_grade/tg_haze"])~=.16 then fail("GPU parameters missing");return end
-        if mp.get_property("options/hwdec")~="auto" then fail("GPU preview changed decoder");return end
-        assert(mp.commandv("screenshot-to-file",shotdir.."/after.png","window"))
-        mp.commandv("script-message-to","kayit","editing-action","reset")
-        mp.add_timeout(.8,function()
-          if shader_active() or cpu_active() then fail("GPU preview reset failed");return end
-          assert(mp.commandv("screenshot-to-file",shotdir.."/reset.png","window"))
-          mp.msg.info("GPU_PREVIEW_OK")
-          -- Validate that the real preview can play, not only display a paused screenshot.
-          mp.commandv("script-message-to","kayit","editing-action","strong")
+      local presets={{"light",.08,"light"},{"moderate",.16,"after"},{"strong",.28,"strong"}}
+      local function shot(name)
+        if not mp.commandv("screenshot-to-file",shotdir.."/"..name..".png","window") then
+          fail("screenshot failed: "..name);return false
+        end
+        return true
+      end
+      local function preset(i)
+        local p=presets[i]
+        mp.commandv("script-message-to","kayit","editing-action",p[1])
+        mp.add_timeout(1.2,function()
+          if not shader_active() or cpu_active() then fail(p[1].." GPU preview not active");return end
+          local opts=mp.get_property_native("options/glsl-shader-opts") or {}
+          if tonumber(opts["takipli_grade/tg_haze"])~=p[2] then
+            fail(p[1].." GPU parameters missing");return
+          end
+          if mp.get_property("options/hwdec")~="auto" then fail("GPU preview changed decoder");return end
+          if not shot(p[3]) then return end
+          if i<#presets then preset(i+1);return end
+          -- Compare and reset before playback so all screenshots show the identical source frame.
+          mp.commandv("script-message-to","kayit","editing-action","reset")
           mp.add_timeout(.8,function()
-            if not shader_active() or cpu_active() then fail("strong GPU preview missing");return end
-            mp.set_property("pause","no")
-            mp.add_timeout(.6,function()
-              if (mp.get_property_number("time-pos",0) or 0)<.2 then
-                fail("GPU preview playback did not advance");return
-              end
-              mp.set_property("pause","yes")
-              mp.commandv("script-message-to","kayit","editing-action","reset")
-              mp.add_timeout(.4,rotate_first)
+            if shader_active() or cpu_active() then fail("GPU preview reset failed");return end
+            if not shot("reset") then return end
+            mp.msg.info("GPU_PREVIEW_OK")
+            mp.commandv("script-message-to","kayit","editing-action","strong")
+            mp.add_timeout(.8,function()
+              if not shader_active() or cpu_active() then fail("strong GPU preview missing");return end
+              local t=mp.get_property_number("time-pos",0) or 0
+              mp.set_property("pause","no")
+              mp.add_timeout(.6,function()
+                if (mp.get_property_number("time-pos",0) or 0)-t<.2 then
+                  fail("GPU preview playback did not advance");return
+                end
+                mp.set_property("pause","yes")
+                mp.commandv("script-message-to","kayit","editing-action","reset")
+                mp.add_timeout(.4,rotate_first)
+              end)
             end)
           end)
         end)
-      end)
+      end
+      if shot("before") then preset(1) end
     elseif phase==2 then
       if not same("portrait") then return end
       if mp.get_property_number("video-rotate",0)~=0 then fail("portrait inherited rotation");return end

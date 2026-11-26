@@ -122,7 +122,16 @@ def main():
                     "-i", "testsrc2=size=180x320:rate=5", "-t", "1",
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", portrait,
                 ])
-                env.update(WINDOW_LANDSCAPE=str(clip), WINDOW_PORTRAIT=str(portrait),
+                # A washed-out neutral gradient with soft contrast is a meaningful haze fixture.
+                # Saturated test bars clip at the channel limits and can hide a real dehaze effect.
+                washed = temp / "washed.mp4"
+                run([
+                    ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+                    "-i", "nullsrc=size=320x240:rate=10,"
+                    "geq=lum='150+35*X/W+15*mod(floor(X/24)+floor(Y/24),2)':cb=128:cr=128",
+                    "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", washed,
+                ])
+                env.update(WINDOW_LANDSCAPE=str(washed), WINDOW_PORTRAIT=str(portrait),
                            WINDOW_SHOTS=str(temp))
                 log = temp / "window.log"
                 native_args = [
@@ -147,14 +156,21 @@ def main():
                             "-i", temp / name, "-vf", "crop=200:160:(iw-200)/2:(ih-160)/2",
                             "-pix_fmt", "rgb24", "-f", "rawvideo", "-",
                         ])
-                    before, after, reset = (
-                        screenshot_pixels(name) for name in ("before.png", "after.png", "reset.png")
+                    before, light, moderate, strong, reset = (
+                        screenshot_pixels(name + ".png")
+                        for name in ("before", "light", "after", "strong", "reset")
                     )
-                    assert len(before) == len(after) == len(reset) == 200 * 160 * 3
-                    delta = sum(abs(a-b) for a, b in zip(before, after)) / len(before)
-                    restored = sum(abs(a-b) for a, b in zip(before, reset)) / len(before)
-                    assert delta > 2.0 and restored < 1.0, (delta, restored)
-                    print(f"GPU_PREVIEW_PIXELS_OK: changed={delta:.3f}, reset={restored:.3f}")
+                    assert all(len(frame) == 200 * 160 * 3
+                               for frame in (before, light, moderate, strong, reset))
+                    def difference(frame):
+                        return sum(abs(a-b) for a, b in zip(before, frame)) / len(before)
+
+                    dl, dm, ds, restored = map(difference, (light, moderate, strong, reset))
+                    # Do not weaken the original threshold. Check monotonic effect strength too.
+                    assert 2.0 < dl < dm < ds and restored < 1.0, (dl, dm, ds, restored)
+                    assert sum(before) > sum(light) > sum(moderate) > sum(strong)
+                    print(f"GPU_PREVIEW_PIXELS_OK: light={dl:.3f}, moderate={dm:.3f}, "
+                          f"strong={ds:.3f}, reset={restored:.3f}")
                     print("NATIVE_WINDOWS_GEOMETRY_OK (WARP; not a physical GPU benchmark)")
                 elif "WINDOW_GEOMETRY_UNAVAILABLE" in data:
                     print("NATIVE_WINDOWS_GEOMETRY_SKIPPED: runner has no usable native window")
