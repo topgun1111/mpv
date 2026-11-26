@@ -20,6 +20,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoFrameProcessor
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.transformer.Transformer
 import com.takipli.oynat.core.Grade
@@ -32,6 +33,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -46,6 +48,7 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
     var original by remember { mutableStateOf(false) }
     var options by remember { mutableStateOf(EditOutput()) }
     var showOptions by remember { mutableStateOf(false) }
+    var largePreview by remember { mutableStateOf(false) }
     var active by remember { mutableStateOf<Transformer?>(null) }
     var saving by remember { mutableStateOf(false) }
     var temp by remember { mutableStateOf<File?>(null) }
@@ -92,14 +95,22 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
             delay(100)
         }
     }
-    // Update the GL uniforms without rebuilding the player or allocating new LUTs.
-    // A paused preview needs a new frame; debounce seeks during rapid slider gestures.
-    LaunchedEffect(grade, original, busy) {
-        ref.set(if (original) Grade() else grade)
-        if (!busy && !player.isPlaying && player.mediaItemCount > 0 && player.playerError == null) {
-            delay(120)
-            player.seekTo(player.currentPosition.coerceAtLeast(0))
-        }
+    // A same-position seek may be ignored by ExoPlayer. Media3 1.8 supports
+    // REDRAW of its cached input frame, without seeking or restarting playback.
+    // Keep the GL thread's snapshot current, even during continuous slider drags.
+    SideEffect { ref.set(if (original) Grade() else grade) }
+    LaunchedEffect(player) {
+        snapshotFlow { Triple(grade, original, active != null || saving) }
+            .collect { (settings, before, exporting) ->
+                ref.set(if (before) Grade() else settings)
+                if (!exporting && !player.isPlaying && player.mediaItemCount > 0 &&
+                    player.playerError == null
+                ) {
+                    player.setVideoEffects(VideoFrameProcessor.REDRAW)
+                }
+                // snapshotFlow conflates rapid updates; limit redraw requests to 20/s.
+                delay(50)
+            }
     }
     LaunchedEffect(active) {
         val t = active ?: return@LaunchedEffect
@@ -116,7 +127,11 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
         status = "Export cancelled"
         load(pos)
     }
-    BackHandler { if (active != null) cancel() else if (!saving) onClose() }
+    BackHandler {
+        if (active != null) cancel()
+        else if (!saving && largePreview) largePreview = false
+        else if (!saving) onClose()
+    }
 
     fun export() {
         if (busy) return
@@ -176,43 +191,41 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
             Text("Editing", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             TextButton(onClick = { showOptions = true }, enabled = !busy) { Text("Export settings") }
         }
-        // Fixed preview above a scrolling control list, including landscape orientation.
-        BoxWithConstraints(Modifier.fillMaxWidth().weight(0.85f).background(Color.Black), contentAlignment = Alignment.Center) {
-            val aspect = (info.width.toFloat() / info.height.coerceAtLeast(1)).coerceIn(0.1f, 10f)
-            val w = minOf(maxWidth, maxHeight * aspect)
-            AndroidView(factory = { c -> TextureView(c).also { player.setVideoTextureView(it) } },
-                modifier = Modifier.size(w, w / aspect))
-        }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = {
-                if (player.isPlaying) player.pause() else {
-                    if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
-                    player.play()
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            // Unfolded screens and landscape use the full height of the workspace.
+            // Narrow portrait screens give the preview most of the available height.
+            val sideBySide = maxWidth >= 500.dp || maxWidth > maxHeight * 1.2f
+            if (sideBySide) {
+                Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    EditingPreview(
+                        player, info, pos, duration, playing, original, busy, largePreview,
+                        onSeek = { pos = it; player.seekTo(it) },
+                        onCompare = { original = !original },
+                        onExpand = { largePreview = !largePreview },
+                        modifier = Modifier.weight(1.15f).fillMaxHeight(),
+                    )
+                    if (!largePreview) {
+                        EditingControls(grade, original, busy,
+                            onGrade = { grade = it; original = false },
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        )
+                    }
                 }
-            }, enabled = !busy) { Text(if (playing) "Pause" else "Play") }
-            Slider(value = pos.toFloat().coerceIn(0f, duration.toFloat()),
-                onValueChange = { pos = it.toLong(); player.seekTo(pos) },
-                valueRange = 0f..duration.toFloat(), enabled = !busy, modifier = Modifier.weight(1f))
-            TextButton(onClick = { original = !original }, enabled = !busy) {
-                Text(if (original) "Show edited" else "Show original")
-            }
-        }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            HazePreset.entries.forEach { p ->
-                FilterChip(selected = grade == p.grade && !original, enabled = !busy,
-                    onClick = { grade = p.grade; original = false }, label = { Text(p.label) })
-            }
-            OutlinedButton(onClick = { grade = Grade(); original = false }, enabled = !busy) { Text("Reset") }
-        }
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
-            GradeControl.entries.forEach { c ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(c.label, modifier = Modifier.width(100.dp))
-                    Slider(value = grade[c].toFloat(), onValueChange = {
-                        grade = grade.with(c, it.roundToInt()); original = false
-                    }, valueRange = c.min.toFloat()..c.max.toFloat(),
-                        enabled = !busy, modifier = Modifier.weight(1f))
-                    Text(grade[c].toString(), modifier = Modifier.width(34.dp))
+            } else {
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    EditingPreview(
+                        player, info, pos, duration, playing, original, busy, largePreview,
+                        onSeek = { pos = it; player.seekTo(it) },
+                        onCompare = { original = !original },
+                        onExpand = { largePreview = !largePreview },
+                        modifier = Modifier.weight(1.8f).fillMaxWidth(),
+                    )
+                    if (!largePreview) {
+                        EditingControls(grade, original, busy,
+                            onGrade = { grade = it; original = false },
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                        )
+                    }
                 }
             }
         }
@@ -262,5 +275,87 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
             confirmButton = { Button(onClick = { showOptions = false; export() }) { Text("Export") } },
             dismissButton = { TextButton(onClick = { showOptions = false }) { Text("Done") } },
         )
+    }
+}
+
+/** Controls never cover the actual image. The preview keeps its aspect ratio, without cropping. */
+@Composable
+private fun EditingPreview(
+    player: ExoPlayer, info: VideoInfo, pos: Long, duration: Long,
+    playing: Boolean, original: Boolean, busy: Boolean, large: Boolean,
+    onSeek: (Long) -> Unit, onCompare: () -> Unit, onExpand: () -> Unit, modifier: Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        BoxWithConstraints(
+            Modifier.weight(1f).fillMaxWidth().background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            val aspect = (info.width.toFloat() / info.height.coerceAtLeast(1)).coerceIn(0.1f, 10f)
+            val w = minOf(maxWidth, maxHeight * aspect)
+            AndroidView(
+                factory = { c -> TextureView(c).also { player.setVideoTextureView(it) } },
+                onRelease = { player.clearVideoTextureView(it) },
+                modifier = Modifier.size(w, w / aspect),
+            )
+            Text(
+                if (original) "ORIGINAL" else "EDITED",
+                modifier = Modifier.align(Alignment.TopStart).background(Color.Black.copy(alpha = 0.65f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                color = Color.White, style = MaterialTheme.typography.labelSmall,
+            )
+        }
+        Slider(
+            value = pos.toFloat().coerceIn(0f, duration.toFloat().coerceAtLeast(1f)),
+            onValueChange = { onSeek(it.toLong()) },
+            valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+            enabled = !busy, modifier = Modifier.fillMaxWidth(),
+        )
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = {
+                if (player.isPlaying) player.pause() else {
+                    if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
+                    player.play()
+                }
+            }, enabled = !busy, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text(if (playing) "Pause" else "Play")
+            }
+            TextButton(onClick = onCompare, enabled = !busy, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text(if (original) "Edited" else "Original")
+            }
+            TextButton(onClick = onExpand, enabled = !busy, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text(if (large) "Controls" else "Enlarge")
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditingControls(
+    grade: Grade, original: Boolean, busy: Boolean, onGrade: (Grade) -> Unit, modifier: Modifier,
+) {
+    Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            HazePreset.entries.forEach { p ->
+                FilterChip(selected = grade == p.grade && !original, enabled = !busy,
+                    onClick = { onGrade(p.grade) }, label = { Text(p.label) })
+            }
+            OutlinedButton(onClick = { onGrade(Grade()) }, enabled = !busy) { Text("Reset") }
+        }
+        GradeControl.entries.forEach { c ->
+            Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(c.label, style = MaterialTheme.typography.labelLarge)
+                    Text(grade[c].toString(), style = MaterialTheme.typography.labelLarge)
+                }
+                Slider(value = grade[c].toFloat(), onValueChange = {
+                    onGrade(grade.with(c, it.roundToInt()))
+                }, valueRange = c.min.toFloat()..c.max.toFloat(),
+                    enabled = !busy, modifier = Modifier.fillMaxWidth())
+            }
+        }
     }
 }
