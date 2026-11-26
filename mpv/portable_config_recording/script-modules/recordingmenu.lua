@@ -44,6 +44,15 @@ menus.MENUS={
     {cmd="camera_export",label="Export camera recording…",key="S"},
   }},
   editing,
+  {id="performance",label="Performance",items={
+    {cmd="gpu_copy",label="GPU decoding (editing compatible)"},
+    {cmd="gpu_direct",label="Direct GPU decoding (fastest)"},
+    {cmd="gpu_cpu",label="Software decoding"},
+    {sep=true},
+    {cmd="sync_display",label="Smooth display sync"},
+    {cmd="sync_audio",label="Standard audio sync"},
+    {cmd="playback_stats",label="Playback diagnostics",key="I"},
+  }},
 }
 function M.new(ctx)
   local self={}
@@ -51,6 +60,12 @@ function M.new(ctx)
   local captured,dialog=false,false
   local recent={recent={}}
   local render,keys
+  local function has_edit_filter()
+    for _,filter in ipairs(mp.get_property_native("vf") or {}) do
+      if filter.label=="videoediting" then return true end
+    end
+    return false
+  end
   local function status(cmd)
     local s=ctx.state()
     local video=(mp.get_property_number("video-params/w",0) or 0)>0
@@ -61,6 +76,16 @@ function M.new(ctx)
     if cmd=="close" then return {enabled=idle and mp.get_property("path")~=nil} end
     if cmd=="fullscreen" then return {enabled=true,checked=mp.get_property_native("fullscreen")==true} end
     if cmd=="mute" then return {enabled=video,checked=mp.get_property_native("mute")==true} end
+    if cmd=="gpu_copy" or cmd=="gpu_direct" or cmd=="gpu_cpu" then
+      local mode=mp.get_property("hwdec","auto-copy")
+      local target=({gpu_copy="auto-copy",gpu_direct="auto",gpu_cpu="no"})[cmd]
+      return {enabled=idle and (cmd~="gpu_direct" or not has_edit_filter()),checked=mode==target}
+    end
+    if cmd=="sync_display" or cmd=="sync_audio" then
+      local target=cmd=="sync_display" and "display-resample" or "audio"
+      return {enabled=idle,checked=mp.get_property("video-sync")==target}
+    end
+    if cmd=="playback_stats" then return {enabled=video} end
     if cmd=="edit_cancel" then return {enabled=editor.busy()} end
     if cmd:match("^edit_") then return {enabled=video and idle} end
     if cmd=="record" then
@@ -111,7 +136,23 @@ function M.new(ctx)
   local function action(cmd)
     if status(cmd).enabled==false then return end
     local name=cmd:match("^edit_(.+)$")
-    if name then editor.action(name)
+    if name then
+      -- CPU filters need accessible decoded frames; direct mode is for unedited playback.
+      if name~="cancel" and name~="reset" and mp.get_property("hwdec")=="auto" then
+        mp.set_property("hwdec","auto-copy")
+        mp.osd_message("GPU decoding switched to editing-compatible mode",2)
+      end
+      editor.action(name)
+    elseif cmd=="gpu_copy" or cmd=="gpu_direct" or cmd=="gpu_cpu" then
+      local target=({gpu_copy="auto-copy",gpu_direct="auto",gpu_cpu="no"})[cmd]
+      if mp.get_property("hwdec")~=target then mp.set_property("hwdec",target) end
+    elseif cmd=="sync_display" or cmd=="sync_audio" then
+      mp.set_property("video-sync",cmd=="sync_display" and "display-resample" or "audio")
+    elseif cmd=="playback_stats" then
+      mp.commandv("script-binding","stats/display-stats-toggle")
+      local dec=mp.get_property("hwdec-current","no")
+      local drops=mp.get_property_number("frame-drop-count",0) or 0
+      mp.osd_message("Decoder: "..dec.." | Dropped frames: "..drops,4)
     elseif cmd=="open" then choose(files.open_script(recent.dir))
     elseif cmd=="recent" then choose(files.recent_script(recent.recent))
     elseif cmd=="close" then editor.close();mp.commandv("stop")
@@ -120,16 +161,22 @@ function M.new(ctx)
     else ctx.run(cmd) end
   end
   local engine=menus.new({run=action,state=status,responsive=true})
+  local last_data,last_w,last_h
   render=function()
     local d=mp.get_property_native("osd-dimensions") or {}
     local w,h=d.w or 0,d.h or 0
     if w<=0 or h<=0 then
-      ov.data="";ov:update();return
+      if last_data~="" then ov.data="";ov:update();last_data="" end
+      return
     end
     local hd=mp.get_property_number("display-hidpi-scale",1) or 1
     if hd~=engine.hd then engine.hd=hd;engine.W=0 end
     engine:resize(w,h);engine:relayout()
-    ov.res_x,ov.res_y=w,h;ov.data=engine:render();ov:update()
+    local data=engine:render()
+    if data~=last_data or w~=last_w or h~=last_h then
+      last_data,last_w,last_h=data,w,h
+      ov.res_x,ov.res_y=w,h;ov.data=data;ov:update()
+    end
   end
   -- Only capture navigation keys while a drop-down is open.
   local keymap={LEFT="left",RIGHT="right",UP="up",DOWN="down",ENTER="enter",ESC="esc"}
@@ -180,7 +227,11 @@ function M.new(ctx)
   end
   function self.busy() return dialog or editor.busy() end
   function self.close_editor() editor.close();engine:close();render();keys() end
-  mp.observe_property("osd-dimensions","native",render)
+  local vw,vh
+  mp.observe_property("osd-dimensions","native",function(_,d)
+    d=d or {}
+    if d.w~=vw or d.h~=vh then vw,vh=d.w,d.h;render() end
+  end)
   mp.observe_property("display-hidpi-scale","number",render)
   mp.observe_property("pause","native",render)
   mp.observe_property("fullscreen","native",render)

@@ -251,3 +251,17 @@ for _,size in ipairs({{1280,720,1},{600,360,1},{400,800,1.5},{1920,1080,2},{3440
   end
 end
 out("RESPONSIVE_HUD","true")
+
+-- Repeated reset and unchanged gesture must not repeatedly write player properties.
+local writes=0
+local original_set=mpx.set_property_number
+mpx.set_property_number=function(k,v)
+  writes=writes+1;return original_set(k,v)
+end
+reg.bind.reset()
+writes=0
+reg.bind.reset()
+assert(writes==0,"unchanged view caused redundant property writes")
+reg.bind["zoom-in"]()
+assert(writes==1,"zoom-only update should write one property")
+out("VIEW_WRITE_OPTIMIZATION","true")

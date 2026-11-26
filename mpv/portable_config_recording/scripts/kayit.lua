@@ -102,6 +102,8 @@ end
 
 -- ---- durum + pencere/video geometrisi -----------------------------------------------------------
 local V = { 0, 0, 0 }
+local applied_view
+local last_hud_bucket
 local rec = { on = false, run = false, started = false, armed = false, id = 0, gen = 0, keys = {}, breaks = {}, brk = false, t = 0 }
 local drag = { on = false, x = 0, y = 0 }
 local hud = { ov = nil, last = nil, w = 0, h = 0 }
@@ -224,10 +226,16 @@ end
 
 local function set_view(nv)
   V = clamp_view(nv)
-  mp.set_property_number("video-zoom", V[1])
-  mp.set_property_number("video-pan-x", V[2])
-  mp.set_property_number("video-pan-y", V[3])
-  hud_update()
+  local previous=applied_view
+  local names={"video-zoom","video-pan-x","video-pan-y"}
+  for i,name in ipairs(names) do
+    if not previous or math.abs(previous[i]-V[i])>1e-9 then
+      mp.set_property_number(name,V[i])
+    end
+  end
+  applied_view={V[1],V[2],V[3]}
+  -- Pure panning does not change any HUD label.
+  if not previous or math.abs(previous[1]-V[1])>1e-9 then hud_update() end
 end
 
 local start_export -- aşağıda
@@ -373,7 +381,9 @@ local function tick(gen)
   if not (rec.on and rec.run and rec.gen == gen) then return end
   local t = mp.get_property_number("time-pos", nil)
   if rec.armed and t then push_key(t, key_dt(mp.get_property_number("speed", 1) or 1) * 0.5) end
-  hud_update()
+  -- Continue sampling camera motion at 30 Hz; redraw the elapsed-time HUD only at 5 Hz.
+  local bucket=math.floor((rec.t or 0)*5)
+  if bucket~=last_hud_bucket then last_hud_bucket=bucket;hud_update() end
   rec.timer = mp.add_timeout(WALL_DT, function() tick(gen) end)
 end
 
@@ -381,6 +391,7 @@ local function open_rec()
   if exp.running or (menu and menu.busy()) then osd("Export is active");return end
   if menu then menu.close_editor() end
   if not video_path() then osd("yalnız yerel video dosyası kaydedilir"); return end
+  last_hud_bucket=nil
   rec = { on = true, run = false, started = false, armed = false,
           id = rec.id + 1, gen = 0, keys = {}, breaks = {}, brk = false, t = 0 }
   set_view({ 0, 0, 0 })
@@ -432,6 +443,8 @@ mp.register_event("playback-restart", function() if rec.on and rec.started then 
 mp.register_event("end-file", function() drag.on=false;stop_rec() end)
 mp.register_event("file-loaded", function()
   drag.on=false
+  applied_view=nil
+  last_hud_bucket=nil
   set_view({ 0, 0, 0 })
   mp.set_property("pause", "yes") -- video açılınca oynatma kendiliğinden başlamaz
 end)
@@ -539,8 +552,9 @@ if not rawget(_G,"KAYIT_EXPOSE") then
     mp.observe_property("osd-dimensions","native",function()
       local w,h=viewport()
       -- Zoom changes OSD margins too. Cancel a drag only on an actual client resize.
-      if w~=last_w or h~=last_h then drag.on=false;last_w,last_h=w,h end
-      hud_update()
+      if w~=last_w or h~=last_h then
+        drag.on=false;last_w,last_h=w,h;hud_update()
+      end
     end)
     mp.observe_property("display-hidpi-scale","number",function() hud_update() end)
   else mp.msg.error("Recording menu unavailable: "..tostring(mod)) end

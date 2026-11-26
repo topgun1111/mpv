@@ -12,6 +12,8 @@ local function check()
     if mp.get_property("options/"..name)~="no" then fail("Window policy not loaded: "..name);return end
   end
   if mp.get_property("options/keepaspect")~="yes" then fail("Video aspect must be preserved");return end
+  if mp.get_property("options/hwdec")~="auto-copy" then fail("GPU decoding default missing");return end
+  if mp.get_property("options/video-sync")~="display-resample" then fail("Display sync default missing");return end
   mp.commandv("script-message-to","kayit","editing-action","moderate")
   mp.add_timeout(.5,function()
     if not owns() then fail("Recording editing menu did not install preset");return end

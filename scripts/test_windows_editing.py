@@ -136,7 +136,7 @@ def main():
                 data = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
                 if "WINDOW_GEOMETRY_AVAILABLE" in data:
                     assert result.returncode == 0 and "WINDOW_GEOMETRY_OK" in data, data
-                    print("NATIVE_WINDOWS_GEOMETRY_OK")
+                    print("NATIVE_WINDOWS_GEOMETRY_OK (WARP; not a physical GPU benchmark)")
                 elif "WINDOW_GEOMETRY_UNAVAILABLE" in data:
                     print("NATIVE_WINDOWS_GEOMETRY_SKIPPED: runner has no usable native window")
                 elif ("Error opening/initializing the selected video_out" in data

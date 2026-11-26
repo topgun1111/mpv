@@ -2,7 +2,7 @@
 package.path="mpv/portable_config_recording/script-modules/?.lua;mpv/portable_config/script-modules/?.lua;"..package.path
 local calls,bindings,messages,events={}, {}, {}, {}
 local state={recording=false,started=false,running=false,exporting=false,local_video=true,saved=true}
-local props={path="C:/clips/source.mp4",["video-params/w"]=640,pause=true}
+local props={path="C:/clips/source.mp4",["video-params/w"]=640,pause=true,hwdec="auto-copy"}
 local overlay,dialog
 local dims={w=1280,h=720}
 local observers={}
@@ -21,6 +21,7 @@ local mp={
   remove_key_binding=function(k) bindings[k]=nil end,
   register_script_message=function(k,fn) messages[k]=fn end,
   commandv=function(...) calls[#calls+1]={...} end,
+  set_property=function(k,v) props[k]=v;return true end,
   command_native_async=function(t,fn) dialog={args=t.args,fn=fn};return 1 end,
   osd_message=function() end,
 }
@@ -45,7 +46,7 @@ local function click(label)
   assert(m.pointer({event="down"},p))
   assert(m.pointer({event="up"},p))
 end
-for _,label in ipairs({"File","View","Playback","Recording","Editing"}) do assert(locate(label)) end
+for _,label in ipairs({"File","View","Playback","Recording","Editing","Performance"}) do assert(locate(label)) end
 click("File");click("Open file…")
 assert(dialog and dialog.args[#dialog.args]:find("OpenFileDialog",1,true))
 dialog.fn(true,{status=0,stdout="C:/clips/a b.mp4"})
@@ -69,11 +70,25 @@ assert(m.pointer({event="up"},{x=1000,y=500}))
 for _,size in ipairs({{640,360,1},{420,700,2},{1920,1080,2},{1280,720,1}}) do
   dims={w=size[1],h=size[2]}
   props["display-hidpi-scale"]=size[3]
-  observers["osd-dimensions"]()
+  observers["osd-dimensions"]("osd-dimensions",dims)
   assert(overlay.res_x==dims.w and overlay.res_y==dims.h)
   click("Editing")
   local b=locate("Cancel editing export")
   assert(b.x>=0 and b.x<dims.w and b.y>=0 and b.y<dims.h,"menu item outside window")
   click("Editing")
 end
+click("Performance");click("Direct GPU decoding (fastest)")
+assert(props.hwdec=="auto")
+messages["editing-action"]("moderate")
+assert(props.hwdec=="auto-copy","editing must use compatible decoding")
+click("Performance");click("Standard audio sync")
+assert(props["video-sync"]=="audio")
+props.vf={{label="videoediting"}}
+messages["recording-menu-action"]("gpu_direct")
+assert(props.hwdec=="auto-copy","direct decoding should not break active editor")
+props.vf={}
+messages["recording-menu-action"]("gpu_cpu")
+assert(props.hwdec=="no")
+messages["recording-menu-action"]("gpu_copy")
+assert(props.hwdec=="auto-copy")
 print("RECORDING_MENU_OK")
