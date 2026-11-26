@@ -150,7 +150,7 @@ fun RecScreen() {
     var editResumeAt by remember { mutableLongStateOf(0L) }
     val player = remember { ExoPlayer.Builder(ctx).build() }
     val hostView = LocalView.current
-    SideEffect { hostView.keepScreenOn = recording || exporter != null || fullscreen }
+    SideEffect { hostView.keepScreenOn = recording || exporter != null || fullscreen || editing }
     DisposableEffect(Unit) { onDispose { exporter?.cancel(); player.release(); hostView.keepScreenOn = false } }
     var volume by remember { mutableStateOf(1f) }; var muted by remember { mutableStateOf(false) } // preview volume only; the export is unaffected
     SideEffect { player.volume = if (muted) 0f else volume }

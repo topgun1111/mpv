@@ -29,6 +29,7 @@ import com.takipli.oynat.core.HazePreset
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -54,6 +55,7 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
     var duration by remember { mutableLongStateOf((info.durationS * 1000).toLong().coerceAtLeast(1)) }
     var playing by remember { mutableStateOf(false) }
     val ref = remember { AtomicReference(Grade()) }
+    val disposed = remember { AtomicReference(false) }
     val player = remember { ExoPlayer.Builder(ctx).build() }
     val effect = remember { GradeEffect { ref.get() } }
     val busy = active != null || saving
@@ -71,6 +73,7 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
         player.addListener(listener)
         load(initialPosition)
         onDispose {
+            disposed.set(true)
             active?.cancel()
             // Completed exports may be copying in the IO coroutine; never remove its input mid-copy.
             if (!saving) temp?.delete()
@@ -93,7 +96,7 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
     // A paused preview needs a new frame; debounce seeks during rapid slider gestures.
     LaunchedEffect(grade, original, busy) {
         ref.set(if (original) Grade() else grade)
-        if (!busy && !player.isPlaying && player.mediaItemCount > 0) {
+        if (!busy && !player.isPlaying && player.mediaItemCount > 0 && player.playerError == null) {
             delay(120)
             player.seekTo(player.currentPosition.coerceAtLeast(0))
         }
@@ -127,22 +130,33 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
         var finished = false
         fun finish(message: String) {
             finished = true
+            out.delete()
+            if (disposed.get()) return
             active = null; saving = false
-            out.delete(); temp = null
+            temp = null
             status = message
             load(at)
         }
         try {
             val t = EditExporter.start(ctx, source, info, snapshot, selected, out,
                 onDone = {
+                    if (disposed.get()) {
+                        out.delete()
+                    } else {
                     active = null; saving = true
                     status = "Saving edited video..."
                     scope.launch {
                         try {
                             val name = "Edited_" + UUID.randomUUID().toString().take(8) + ".mp4"
-                            withContext(Dispatchers.IO) { RecExporter.saveToMovies(ctx, out, name) }
+                            withContext(Dispatchers.IO) {
+                                try { RecExporter.saveToMovies(ctx, out, name) } finally { out.delete() }
+                            }
                             finish("Saved to Movies/TakipliOynat/" + name)
+                        } catch (e: CancellationException) {
+                            out.delete()
+                            throw e
                         } catch (e: Exception) { finish("Save failed: " + e.message) }
+                    }
                     }
                 },
                 onError = { e -> finish("Export failed: " + e.errorCodeName + " " + (e.message ?: "")) },

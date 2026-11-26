@@ -86,6 +86,11 @@ vec3 crossBlur(vec2 d) {
           + sampleAt(vUv + vec2(0.0, d.y)) + sampleAt(vUv - vec2(0.0, d.y))) * 0.25;
 }
 void main() {
+    if (all(equal(uTone, vec4(0.0))) && all(equal(uColor, vec4(0.0))) &&
+        all(equal(uDetail, vec3(0.0)))) {
+        gl_FragColor = texture2D(uTex, vUv);
+        return;
+    }
     vec3 rgb = sampleAt(vUv);
     // Edge-aware spatial noise reduction and two scales of local contrast.
     if (uDetail.y > 0.0 || uDetail.z > 0.0) {
