@@ -106,3 +106,10 @@ Windows paketine **koymaz**. APK'ya giren bileşenler:
 
 Not: Android sürümü yalnız `arm64-v8a` içindir. Sürüm numarası PC ile ortak `VERSION` dosyasından gelir.
 Android arayüzünde (Ana ekran) kısa bir lisans özeti vardır; ayrıntı bu belgededir.
+
+
+## Public Windows Tracking release payload
+
+Public Windows installers and portable ZIPs retain the tracking and editing application, YOLOX-S and both SAM graph families. The Ultralytics pose, OSNet and RTMPose weights are removed before packaging; existing local weights in `models/` are not removed by upgrades. Private builds retain their original model set. This does not change the separate restriction on public Android Pose/SAM APKs.
+
+EdgeTAM and SAM 2.1 checkpoints are provided by Meta under Apache-2.0 (see https://github.com/facebookresearch/EdgeTAM and https://github.com/facebookresearch/sam2). The packaged ONNX adaptations include the Apache license and modification notice in `sam-models/`. The original notices and obligations for other third-party components continue to apply.

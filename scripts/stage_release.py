@@ -7,6 +7,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from public_tracking import verify_release_pair
 from release_assets import classify, pick
 
 
@@ -29,6 +30,8 @@ def stage(patterns: list[str], tag: str, private: bool, tag_release: bool) -> in
         print(f"Not published: {name}: {reason}")
     if not chosen:
         return 0
+    if not private:
+        verify_release_pair(chosen)
     draft = subprocess.check_output(
         ["gh", "release", "view", tag, "--json", "isDraft", "--jq", ".isDraft"],
         text=True,
@@ -47,6 +50,8 @@ def verify(root: Path, private: bool, tag_release: bool, full: str) -> int:
     )
     if not chosen or skipped or wrong_version:
         raise SystemExit(f"Invalid staged release assets: {skipped}")
+    if not private:
+        verify_release_pair(chosen)
     return 0
 
 

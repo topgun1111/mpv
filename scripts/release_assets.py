@@ -1,10 +1,11 @@
 """Choose the files that go on the GitHub Release of one CI run (called by the `release` job in build-all.yml).
 
 All five builds (PC full, PC recording, Android pose, Android sam, Android record) land on ONE release, which carries
-the shared version (see scripts/version.py). Licence rules, unchanged from the old per-workflow publishing:
-  - PC full installer/zip and the Android pose/sam APKs contain the Ultralytics pose models (AGPL-3.0, personal use).
-    Android pose/sam: private repositories only. PC full: private repositories, or a v* tag (as before).
-  - The recording apps (PC + Android) have no models and are always published.
+the shared version (see scripts/version.py). Public distribution rules:
+  - Public PC full retains YOLOX and Apache-licensed SAM graphs. Optional weights are removed
+    before packaging (scripts/public_tracking.py). Private builds retain all models.
+  - Android pose/sam: private repositories only.
+  - Recording apps have no models and are always published.
 
 Usage: python scripts/release_assets.py DIR --private true|false --tag-release true|false --list assets.txt --notes notes.md
 Writes DIR/SHA256SUMS.txt, the list of files to upload (one per line) and the release notes header. Exit 1 if nothing is left.
@@ -19,8 +20,8 @@ from pathlib import Path
 
 # (file name prefix, extension, group, contains AGPL models)
 RULES = (
-    ("TakipliOynat-Setup-", ".exe", "PC full", True),
-    ("TakipliOynat-Portable-", ".zip", "PC full", True),
+    ("TakipliOynat-Setup-", ".exe", "PC full", False),
+    ("TakipliOynat-Portable-", ".zip", "PC full", False),
     ("TakipliOynatKayit-Setup-", ".exe", "PC recording", False),
     ("TakipliOynatKayit-Portable-", ".zip", "PC recording", False),
     ("TakipliOynat-Android-", ".apk", "Android pose/sam", True),
@@ -42,9 +43,8 @@ def classify(name: str) -> tuple[str, bool] | None:
 
 
 def allowed(name: str, group: str, agpl: bool, private: bool, tag_release: bool) -> bool:
-    if not agpl or private:
-        return True
-    return group == "PC full" and tag_release  # public repository: only the PC release on a v* tag (as before)
+    # Public PC payload is sanitized and checked separately by stage_release.py.
+    return not agpl or private
 
 
 def pick(files: list[Path], private: bool, tag_release: bool) -> tuple[list[Path], list[tuple[str, str]]]:

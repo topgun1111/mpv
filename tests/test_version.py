@@ -83,8 +83,8 @@ ALL = ["TakipliOynat-Setup-1.2.0-b5.exe", "TakipliOynat-Portable-1.2.0-b5.zip",
 @pytest.mark.parametrize("private,tag,expected_missing", [
     (True, False, set()),
     (True, True, set()),
-    (False, False, {ALL[0], ALL[1], ALL[4], ALL[5]}),  # genel depo, main: AGPL modelli her şey dışarıda
-    (False, True, {ALL[4], ALL[5]}),                   # genel depo, v* etiketi: PC ana eskisi gibi eklenir, Android hayır
+    (False, False, {ALL[4], ALL[5]}),
+    (False, True, {ALL[4], ALL[5]}),
 ])
 def test_release_assets_follow_the_agpl_rule(tmp_path, private, tag, expected_missing):
     ra = _load("release_assets")
@@ -104,7 +104,7 @@ def test_release_assets_main_writes_list_notes_and_checksums(tmp_path):
     argv = [str(d), "--private", "false", "--tag-release", "false", "--list", str(lst), "--notes", str(notes)]
     assert ra.main(argv) == 0
     listed = [Path(x) for x in lst.read_text().splitlines()]  # Windows'ta ters eğik çizgi: Path ile karşılaştır
-    assert d / "SHA256SUMS.txt" in listed and len(listed) == 4  # 3 kayıt dosyası + SHA256SUMS
+    assert d / "SHA256SUMS.txt" in listed and len(listed) == 6  # five assets and sums
     assert "AGPL" in notes.read_text() and "TakipliKayit-Android" in notes.read_text()
     assert "TakipliOynatKayit-Setup-1.2.0-b5.exe" in (d / "SHA256SUMS.txt").read_text()
     empty = tmp_path / "empty"

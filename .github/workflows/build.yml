@@ -212,6 +212,9 @@ jobs:
           if ($proc.ExitCode -ne 0 -or -not (Test-Path $log) -or (Get-Content $log -Raw) -notmatch 'EDITING_MPV_SMOKE_OK') { if (Test-Path $log) { Get-Content $log }; throw "MPV Editing smoke test failed" }
           Remove-Item $log -ErrorAction SilentlyContinue
           Remove-Item blank.jpg, blank_out.jpg, ff_test.mp4 -ErrorAction SilentlyContinue
+      - name: Prepare public tracking payload (retain YOLOX and SAM)
+        if: ${{ !github.event.repository.private }}
+        run: python scripts/public_tracking.py dist/TakipliOynat
       - name: Taşınabilir ZIP
         shell: pwsh
         run: Compress-Archive -Path dist/TakipliOynat -DestinationPath dist/TakipliOynat-portable.zip

@@ -136,7 +136,7 @@ jobs:
           python3 scripts/release_assets.py release-files --private "$PRIVATE" --tag-release "$IS_TAG" --list assets.txt --notes notes.md
           python3 scripts/stage_release.py verify release-files --private "$PRIVATE" --tag-release "$IS_TAG" --full "$FULL"
           if [ "$PRIVATE" = "false" ]; then
-            printf '\nPublic repository: AI APKs are excluded by the existing model licence policy. Full Windows binaries are eligible only on stable version tags.\n' >> notes.md
+            printf '\nPublic Windows Tracking includes YOLOX, EdgeTAM and SAM 2.1. Optional pose, Re-ID and whole-body weights are not bundled; existing local weights are retained. AI Android APKs remain excluded by the model licence policy.\n' >> notes.md
           fi
       - name: Publish the completed draft
         env:
