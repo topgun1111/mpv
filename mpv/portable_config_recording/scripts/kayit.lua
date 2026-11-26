@@ -445,6 +445,11 @@ mp.register_event("file-loaded", function()
   drag.on=false
   applied_view=nil
   last_hud_bucket=nil
+  -- video-rotate is an additional rotation, not the embedded orientation.
+  -- Never inherit the previous clip's manual camera rotation.
+  if (mp.get_property_number("video-rotate",0) or 0)~=0 then
+    mp.set_property_number("video-rotate",0)
+  end
   set_view({ 0, 0, 0 })
   mp.set_property("pause", "yes") -- video açılınca oynatma kendiliğinden başlamaz
 end)

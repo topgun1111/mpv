@@ -115,7 +115,7 @@ jobs:
   # Only verified assets are published; keep the original licence policy.
   release:
     needs: [version, tests, prepare, pc-full, pc-recording, android, android-rec]
-    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.tests.result == 'success' && (needs.version.outputs.prerelease == 'true' || (!contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped'))) }}
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.tests.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -134,7 +134,7 @@ jobs:
           FULL: ${{ needs.version.outputs.full }}
         run: |
           python3 scripts/release_assets.py release-files --private "$PRIVATE" --tag-release "$IS_TAG" --list assets.txt --notes notes.md
-          python3 scripts/stage_release.py verify release-files --private "$PRIVATE" --tag-release "$IS_TAG" --full "$FULL"
+          python3 scripts/stage_release.py verify release-files --private "$PRIVATE" --tag-release "$IS_TAG" --full "$FULL" --complete
           if [ "$PRIVATE" = "false" ]; then
             printf '\nPublic Windows Tracking includes YOLOX, EdgeTAM and SAM 2.1. Optional pose, Re-ID and whole-body weights are not bundled; existing local weights are retained. AI Android APKs remain excluded by the model licence policy.\n' >> notes.md
           fi

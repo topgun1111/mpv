@@ -73,3 +73,23 @@ def test_verify_rejects_wrong_version_and_forbidden_asset(tmp_path, stage_module
     with pytest.raises(ValueError, match="extra="):
         stage_module.verify(tmp_path, False, True, "1.2.3-b4")
     assert stage_module.verify(tmp_path, True, True, "1.2.3-b4") == 0
+
+
+def test_complete_release_rejects_missing_variants(tmp_path, stage_module):
+    version = "1.2.3-b4"
+    _tracking_pair(tmp_path, version)
+    with pytest.raises(SystemExit, match="Incomplete release"):
+        stage_module.verify(tmp_path, False, False, version, complete=True)
+    for name in (f"TakipliOynatKayit-Setup-{version}.exe",
+                 f"TakipliOynatKayit-Portable-{version}.zip",
+                 f"TakipliKayit-Android-{version}.apk"):
+        (tmp_path / name).write_bytes(b"binary")
+    assert stage_module.verify(tmp_path, False, False, version, complete=True) == 0
+    with pytest.raises(SystemExit, match="Incomplete release"):
+        stage_module.verify(tmp_path, True, False, version, complete=True)
+    for flavor in ("pose", "sam"):
+        (tmp_path / f"TakipliOynat-Android-{flavor}-{version}.apk").write_bytes(b"binary")
+    assert stage_module.verify(tmp_path, True, False, version, complete=True) == 0
+    (tmp_path / f"TakipliOynatKayit-Setup-{version}.exe").write_bytes(b"")
+    with pytest.raises(SystemExit, match="Empty release asset"):
+        stage_module.verify(tmp_path, True, False, version, complete=True)

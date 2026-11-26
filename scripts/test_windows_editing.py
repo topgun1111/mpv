@@ -108,6 +108,7 @@ def main():
             run([
                 mpv, f"--config-dir={pkg / 'mpv/portable_config'}", "--load-scripts=yes",
                 "--input-ipc-server=", "--vo=null", "--ao=null", "--pause=yes",
+                "--save-position-on-quit=no", "--resume-playback=no",
                 "--keep-open=yes", f"--log-file={log}",
                 f"--script={ROOT / 'tests/editing_recording_mpv.lua'}", clip,
             ], env=env)
@@ -127,6 +128,7 @@ def main():
                     mpv, f"--config-dir={pkg / 'mpv/portable_config'}", "--load-scripts=yes",
                     "--input-ipc-server=", "--vo=gpu", "--gpu-api=d3d11", "--gpu-context=d3d11",
                     "--d3d11-warp=yes", "--ao=null", "--force-window=immediate", "--idle=yes",
+                    "--save-position-on-quit=no", "--resume-playback=no",
                     "--geometry=800x500", "--pause=yes", f"--log-file={log}",
                     f"--script={ROOT / 'tests/recording_native_window.lua'}",
                 ]

@@ -177,6 +177,7 @@ def test_screen_buttons_right_drag_and_s_export(run):
     assert d["DRAG_BTN"][0] == ["true", "true", "yes"]
     assert d["BTN_STOP"][0] == ["false", "true", "true", "true"]  # durdu, otomatik dışa aktarma YOK
     assert d["S_EXPORT"][0] == [f"C:/app/python/pythonw.exe|-m|recorder|export|{video}|--out|{out}"]
+    assert d["LOADED_ROTATION"][0] == ["0"]
     assert d["LOADED_PAUSED"][0] == ["yes"]  # video açılınca duraklı
 
 

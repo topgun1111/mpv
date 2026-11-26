@@ -22,9 +22,17 @@ mp.register_event("file-loaded",function()
   mp.add_timeout(.8,function()
     if phase==1 then
       if not same("landscape") then return end
-      phase=2;mp.commandv("loadfile",second,"replace")
+      if mp.get_property_number("video-rotate",0)~=0 then fail("landscape inherited rotation");return end
+      -- Intentionally rotate the first clip before replacing it.
+      mp.commandv("script-message-to","kayit","recording-menu-action","rotate_right")
+      mp.add_timeout(.8,function()
+        if mp.get_property_number("video-rotate",0)~=90 then fail("first rotation");return end
+        if not same("first rotation") then return end
+        phase=2;mp.commandv("loadfile",second,"replace")
+      end)
     elseif phase==2 then
       if not same("portrait") then return end
+      if mp.get_property_number("video-rotate",0)~=0 then fail("portrait inherited rotation");return end
       mp.commandv("script-message-to","kayit","recording-menu-action","rotate_right")
       mp.add_timeout(.8,function()
         if mp.get_property_number("video-rotate",0)~=90 then fail("rotation action");return end
@@ -32,6 +40,7 @@ mp.register_event("file-loaded",function()
         phase=3;mp.commandv("loadfile",first,"replace")
       end)
     elseif phase==3 and same("reopen") then
+      if mp.get_property_number("video-rotate",0)~=0 then fail("reopen inherited rotation");return end
       mp.msg.info("WINDOW_GEOMETRY_OK");mp.commandv("quit",0)
     end
   end)

@@ -42,7 +42,8 @@ def stage(patterns: list[str], tag: str, private: bool, tag_release: bool) -> in
     return 0
 
 
-def verify(root: Path, private: bool, tag_release: bool, full: str) -> int:
+def verify(root: Path, private: bool, tag_release: bool, full: str,
+           *, complete: bool = False) -> int:
     files = [p for p in root.iterdir() if p.is_file() and p.name != "SHA256SUMS.txt"]
     chosen, skipped = pick(files, private, tag_release)
     wrong_version = any(
@@ -50,6 +51,25 @@ def verify(root: Path, private: bool, tag_release: bool, full: str) -> int:
     )
     if not chosen or skipped or wrong_version:
         raise SystemExit(f"Invalid staged release assets: {skipped}")
+    if complete:
+        required = {
+            f"TakipliOynat-Setup-{full}.exe",
+            f"TakipliOynat-Portable-{full}.zip",
+            f"TakipliOynatKayit-Setup-{full}.exe",
+            f"TakipliOynatKayit-Portable-{full}.zip",
+            f"TakipliKayit-Android-{full}.apk",
+        }
+        if private:
+            required.update(f"TakipliOynat-Android-{flavor}-{full}.apk"
+                            for flavor in ("pose", "sam"))
+        actual = {p.name for p in chosen}
+        if actual != required:
+            raise SystemExit(
+                f"Incomplete release: missing={sorted(required - actual)}, "
+                f"unexpected={sorted(actual - required)}"
+            )
+        if any(p.stat().st_size == 0 for p in chosen):
+            raise SystemExit("Empty release asset")
     if not private:
         verify_release_pair(chosen)
     return 0
@@ -65,12 +85,15 @@ def main() -> int:
     v.add_argument("--private", choices=("true", "false"), required=True)
     v.add_argument("--tag-release", choices=("true", "false"), required=True)
     v.add_argument("--full", required=True)
+    v.add_argument("--complete", action="store_true",
+                   help="Require every permitted variant before publication")
     a = ap.parse_args()
     if a.command == "upload":
         return stage(a.patterns, os.environ.get("RELEASE_TAG", ""),
                      os.environ.get("PRIVATE", "false") == "true",
                      os.environ.get("IS_TAG", "false") == "true")
-    return verify(a.root, a.private == "true", a.tag_release == "true", a.full)
+    return verify(a.root, a.private == "true", a.tag_release == "true", a.full,
+                  complete=a.complete)
 
 
 if __name__ == "__main__":

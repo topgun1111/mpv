@@ -56,3 +56,13 @@ def test_only_build_all_publishes_releases():
     assert "gh release download" in all_wf and "scripts/stage_release.py verify" in all_wf
     assert "GH_REPO: ${{ github.repository }}" in all_wf
     assert "enableCrossOsArchive: true" in (WF / "build.yml").read_text(encoding="utf-8")
+
+
+def test_publication_requires_all_builds_and_complete_assets():
+    t = (WF / "build-all.yml").read_text(encoding="utf-8")
+    release = t.split("\n  release:\n", 1)[1].split("\n  discard-draft:", 1)[0]
+    gate = next(line for line in release.splitlines() if line.strip().startswith("if:"))
+    for result in ("failure", "cancelled", "skipped"):
+        assert f"!contains(needs.*.result, '{result}')" in gate
+    assert "prerelease" not in gate
+    assert '--full "$FULL" --complete' in release

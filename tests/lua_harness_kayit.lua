@@ -213,8 +213,9 @@ out("BTN_STOP", tostring(r8.on), tostring(has(hud(), "KAYDET")), tostring(async 
 reg.bind.export() -- S
 out("S_EXPORT", async and table.concat(async.t.args, "|") or "<yok>")
 async.cb(true, { status = 0 })
-reg.props.pause = "no"; reg.ev["file-loaded"]()
+reg.props.pause = "no"; reg.props["video-rotate"]=270; reg.ev["file-loaded"]()
 out("LOADED_PAUSED", tostring(reg.props.pause))
+out("LOADED_ROTATION",tostring(reg.props["video-rotate"]))
 if keep_json then write(VID .. ".rec.json", keep_json) end -- bölüm 4'ün kaydı (Python testi okur) geri konur
 
 -- 9) geri sarma da kayda girer: 0→1.0, geri 0.5→1.0, geri 0.5→0.8, duraklıyken geri sarıp 0.2→0.3 (4 parça)
