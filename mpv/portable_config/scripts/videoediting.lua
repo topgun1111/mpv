@@ -52,7 +52,7 @@ local function choose()
   local g = generation
   local items = {}
   for i,c in ipairs(core.controls) do items[i] = c[2]..": "..state[c[1]] end
-  input.select({prompt="Editing - select adjustment",items=items,submit=function(i)
+  input.select({prompt="Editing - select adjustment",items=items,keep_open=true,submit=function(i)
     if generation ~= g or not video_ok() then return end
     local c=core.controls[i]
     if not c then return end

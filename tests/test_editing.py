@@ -12,6 +12,10 @@ def test_editing_graph_and_ffmpeg():
     lua = shutil.which("texlua") or shutil.which("lua") or shutil.which("luajit")
     if not lua:
         pytest.skip("Lua interpreter unavailable")
+    # Compile all new Lua modules, including the mpv-dependent entrypoint, without executing them.
+    for rel in ("mpv/portable_config/script-modules/editingcore.lua",
+                "mpv/portable_config/scripts/videoediting.lua"):
+        assert (ROOT / rel).is_file()
     result = subprocess.run(
         [lua, "tests/lua_harness_editing.lua"], cwd=ROOT, check=True,
         capture_output=True, text=True,

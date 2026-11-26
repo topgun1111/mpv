@@ -29,8 +29,8 @@ def test_menu_bar_flow(tmp_path):
     assert d["HIDDEN"] == ["true", "false"]  # fare hareketi yok: çubuk yok
     assert d["CENTER"] == ["false", "false"]  # fare hareketinde çubuk görünür; tık yakalanmaz
     assert d["SHOWN"] == ["true", "true", "true"]  # çubuk üstünde: tık yakalanır, todo gri
-    # 8 başlık (B3: «Parça», Tracker paneli: «Tracker» eklendi)
-    assert d["TITLES"] == [",".join(["true"] * 8)]
+    # 9 başlık: bağımsız Editing menüsü dahil
+    assert d["TITLES"] == [",".join(["true"] * 9)]
     assert d["PARTMENU"] == ["true", "true"]  # B3: Parça menüsü tüm ön ayarları listeler
     assert d["PARTSEL"] == ["script-message track-part left_arm", "true"]  # seçim + kapanır
     assert d["PARTCHK"] == ["true"] and d["PARTLBL"] == ["true"]  # ✓ + dinamik «Vücut parçası: …»
@@ -45,6 +45,8 @@ def test_menu_bar_flow(tmp_path):
     assert d["ENTER"] == ["true", "0.25"]  # ↓ Enter: "Yakınlaştır" → video-zoom 0.25
     assert d["OUTSIDE"] == ["true"]
     assert d["AUTOHIDE"] == ["true", "false"]
+    assert d["EDITMENU"] == ["true"]
+    assert d["EDITCMD"] == ["script-message-to videoediting editing-action moderate"]
     assert d["ROTATE"] == ["90,180,270,0"]
 
 

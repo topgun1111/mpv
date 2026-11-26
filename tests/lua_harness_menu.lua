@@ -85,9 +85,21 @@ reg.bind["trackmenu-ESC"]()
 reg.cmds = {}; reg.bind.part() -- G: sonraki parça (sol kol → sağ kol)
 out("PARTKEY", reg.cmds[1] or "-")
 -- Yardım menüsü: güncelleme öğesi var ve etkin
-move(hx(8), 5); click(hx(8), 5) -- 8: Yardım (5. sekme «Tracker» eklendi)
+local help, editing
+for i,m in ipairs(TM.MENUS) do if m.id=="help" then help=i elseif m.id=="editing" then editing=i end end
+move(hx(help), 5); click(hx(help), 5)
 out("UPDATE", tostring(M():find("Güncellemeleri denetle", 1, true) ~= nil))
 reg.bind["trackmenu-ESC"]()
+-- Editing: independent dispatch, without changing tracker state.
+reg.props.path = "C:/sample.mp4"
+click(hx(editing), 5)
+out("EDITMENU", tostring(M():find("Export edited video",1,true)~=nil))
+do local m=TM.MENUS[editing]; local labels,keys={},{}
+  for i,it in ipairs(m.items) do labels[i]=it.sep and "" or "    "..it.label;keys[i]=it.key or "" end
+  local d=TM.drop_layout(W,bh,fs,m.items,bar[editing].x,labels,keys)
+  click(d[3].x+20,d[3].y+math.floor(d[3].h/2))
+end
+out("EDITCMD", reg.cmds[1] or "-")
 -- K: döndürme 90 → 180 → 270 → 0
 local rots = {}
 for _ = 1, 4 do reg.bind.rotate(); rots[#rots + 1] = tostring(reg.set["video-rotate"]) end
