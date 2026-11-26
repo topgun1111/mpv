@@ -100,3 +100,15 @@ def test_editing_cpu_export_quality_and_probe(tmp_path):
              "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-"],
             check=True, capture_output=True, timeout=30,
         )
+
+
+def test_recording_topbar_actions():
+    lua = shutil.which("texlua") or shutil.which("lua") or shutil.which("luajit")
+    if not lua:
+        pytest.skip("Lua interpreter unavailable")
+    result = subprocess.run(
+        [lua, "tests/lua_harness_recording_menu.lua"], cwd=ROOT,
+        capture_output=True, text=True, timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "RECORDING_MENU_OK" in result.stdout

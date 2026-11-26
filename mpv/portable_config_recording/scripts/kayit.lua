@@ -107,16 +107,6 @@ local drag = { on = false, x = 0, y = 0 }
 local hud = { ov = nil, last = nil }
 local exp = { running = false, id = 0, out = nil, prog = nil } -- dışa aktarma durumu (aşağıda doldurulur)
 local menu
--- Load the shared editor in the packaged application; old geometry-only harness stays independent.
-if not rawget(_G,"KAYIT_EXPOSE") then
-  local ok,mod=pcall(require,"recordingmenu")
-  if not ok then
-    local path=mp.command_native({"expand-path","~~/script-modules/recordingmenu.lua"})
-    if type(path)=="string" then ok,mod=pcall(dofile,path) end
-  end
-  if ok then menu=mod.new(function() return not rec.on and not exp.running end)
-  else mp.msg.error("Editing menu unavailable: "..tostring(mod)) end
-end
 
 local function osd(msg, sec) mp.osd_message("Kayıt: " .. msg, sec or 2) end
 
@@ -349,7 +339,7 @@ local function tick(gen)
 end
 
 local function open_rec()
-  if menu and menu.busy() then osd("Editing export is active");return end
+  if exp.running or (menu and menu.busy()) then osd("Export is active");return end
   if menu then menu.close_editor() end
   if not video_path() then osd("yalnız yerel video dosyası kaydedilir"); return end
   rec = { on = true, run = false, started = false, armed = false,
@@ -407,7 +397,6 @@ mp.register_event("file-loaded", function()
 end)
 mp.observe_property("eof-reached", "native", function(_, v) if v and rec.on then stop_rec() end end)
 mp.observe_property("speed", "native", function() hud_update() end)
-if menu then mp.observe_property("osd-dimensions","native",function() hud_update() end) end
 
 -- ---- dışa aktarma (R3): E = `pythonw -m recorder export`; ilerleme <çıktı>.export.json, Esc = iptal -----
 local utils = require("mp.utils")
@@ -478,6 +467,37 @@ function start_export()
   poll_export(exp.id)
 end
 mp.add_key_binding(nil, "export", function() start_export() end)
+
+-- Native menu actions use the same camera functions and recording state as the HUD.
+if not rawget(_G,"KAYIT_EXPOSE") then
+  local ok,mod=pcall(require,"recordingmenu")
+  if not ok then
+    local path=mp.command_native({"expand-path","~~/script-modules/recordingmenu.lua"})
+    if type(path)=="string" then ok,mod=pcall(dofile,path) end
+  end
+  if ok then
+    local actions={
+      zoom_in=function() zoom_key(1) end,
+      zoom_out=function() zoom_key(-1) end,
+      reset=function() set_view({0,0,0}) end,
+      rotate_left=function() rotate_by(-90) end,
+      rotate_right=function() rotate_by(90) end,
+      record=toggle_record, record_pause=space, camera_export=start_export,
+      slower=function() speed_step(-1) end, faster=function() speed_step(1) end,
+      play_pause=function() if rec.on then space() else mp.commandv("cycle","pause") end end,
+    }
+    menu=mod.new({
+      run=function(cmd) if actions[cmd] then actions[cmd]() end end,
+      state=function()
+        local vp=video_path()
+        local saved=vp and utils.file_info(vp..".rec.json")
+        return {recording=rec.on, started=rec.started, running=rec.run,
+          exporting=exp.running, local_video=vp~=nil, saved=saved and saved.is_file or false}
+      end,
+    })
+    mp.observe_property("osd-dimensions","native",function() hud_update() end)
+  else mp.msg.error("Recording menu unavailable: "..tostring(mod)) end
+end
 
 if rawget(_G, "KAYIT_EXPOSE") then -- yalnız testler (tests/lua_harness_kayit.lua)
   KAYIT_API = { apply_gesture_at = apply_gesture_at, set_zoom_at = set_zoom_at, clamp_view = clamp_view,

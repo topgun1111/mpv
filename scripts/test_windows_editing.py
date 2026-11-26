@@ -97,6 +97,13 @@ def main():
         ], env=env, cwd=ROOT)
         assert "EDITING_UI_OK" in log.read_text(encoding="utf-8", errors="replace")
         if args.recording:
+            env["EDITING_HARNESS"] = str(ROOT / "tests/lua_harness_recording_menu.lua")
+            log = temp / "menu.log"
+            run([
+                mpv, "--no-config", "--vo=null", "--ao=null", "--idle=yes",
+                f"--log-file={log}", f"--script={ROOT / 'tests/editing_harness_mpv.lua'}",
+            ], env=env, cwd=ROOT)
+            assert "EDITING_UI_OK" in log.read_text(encoding="utf-8", errors="replace")
             log = temp / "recording.log"
             run([
                 mpv, f"--config-dir={pkg / 'mpv/portable_config'}", "--load-scripts=yes",

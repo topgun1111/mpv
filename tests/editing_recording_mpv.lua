@@ -16,7 +16,25 @@ local function check()
       mp.commandv("script-message-to","kayit","editing-action","reset")
       mp.add_timeout(.4,function()
         if owns() then fail("Recording editor reset failed");return end
-        mp.msg.info("RECORDING_EDITING_OK");mp.commandv("quit",0)
+        mp.commandv("script-message-to","kayit","recording-menu-action","zoom_in")
+        mp.add_timeout(.2,function()
+          if (mp.get_property_number("video-zoom",0) or 0)<=0 then
+            fail("Recording View menu zoom failed");return
+          end
+          mp.commandv("script-message-to","kayit","recording-menu-action","reset")
+          mp.add_timeout(.2,function()
+            if mp.get_property_number("video-zoom",0)~=0 then fail("View reset failed");return end
+            mp.commandv("script-message-to","kayit","recording-menu-action","rotate_right")
+            mp.add_timeout(.2,function()
+              if mp.get_property_number("video-rotate",0)~=90 then fail("Rotate failed");return end
+              mp.commandv("script-message-to","kayit","recording-menu-action","mute")
+              mp.add_timeout(.2,function()
+                if not mp.get_property_native("mute") then fail("Mute failed");return end
+                mp.msg.info("RECORDING_EDITING_OK");mp.commandv("quit",0)
+              end)
+            end)
+          end)
+        end)
       end)
     end)
   end)
