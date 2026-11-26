@@ -39,10 +39,10 @@ def stage(patterns: list[str], tag: str, private: bool, tag_release: bool) -> in
     return 0
 
 
-def verify(root: Path, private: bool, tag_release: bool) -> int:
+def verify(root: Path, private: bool, tag_release: bool, full: str) -> int:
     files = [p for p in root.iterdir() if p.is_file() and p.name != "SHA256SUMS.txt"]
     chosen, skipped = pick(files, private, tag_release)
-    if not chosen or skipped or any(classify(p.name) is None for p in files):
+    if not chosen or skipped or any(classify(p.name) is None or not p.stem.endswith("-" + full) for p in files):
         raise SystemExit(f"Invalid staged release assets: {skipped}")
     return 0
 
@@ -56,12 +56,13 @@ def main() -> int:
     v.add_argument("root", type=Path)
     v.add_argument("--private", choices=("true", "false"), required=True)
     v.add_argument("--tag-release", choices=("true", "false"), required=True)
+    v.add_argument("--full", required=True)
     a = ap.parse_args()
     if a.command == "upload":
         return stage(a.patterns, os.environ.get("RELEASE_TAG", ""),
                      os.environ.get("PRIVATE", "false") == "true",
                      os.environ.get("IS_TAG", "false") == "true")
-    return verify(a.root, a.private == "true", a.tag_release == "true")
+    return verify(a.root, a.private == "true", a.tag_release == "true", a.full)
 
 
 if __name__ == "__main__":

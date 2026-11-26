@@ -74,12 +74,13 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
           PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
-          if gh release view "$TAG" --json isDraft --jq .isDraft > existing.txt 2>/dev/null; then
-            test "$(cat existing.txt)" = true || { echo "::error::Release already published; bump version or start a new main build"; exit 1; }
+          title="Draft $TAG (run $GITHUB_RUN_ID)"
+          if gh release view "$TAG" --json isDraft,name > existing.json 2>/dev/null; then
+            jq -e --arg title "$title" '.isDraft and .name == $title' existing.json >/dev/null || { echo "::error::Existing release belongs to another run or is already published"; exit 1; }
           elif [ "$PRERELEASE" = "true" ]; then
-            gh release create "$TAG" --target "$GITHUB_SHA" --draft --prerelease --title "$TAG" --generate-notes
+            gh release create "$TAG" --target "$GITHUB_SHA" --draft --prerelease --title "$title" --generate-notes
           else
-            gh release create "$TAG" --verify-tag --draft --title "$TAG" --generate-notes
+            gh release create "$TAG" --verify-tag --draft --title "$title" --generate-notes
           fi
 
   pc-full:
@@ -130,9 +131,13 @@ jobs:
         env:
           PRIVATE: ${{ github.event.repository.private }}
           IS_TAG: ${{ needs.version.outputs.prerelease == 'false' }}
+          FULL: ${{ needs.version.outputs.full }}
         run: |
           python3 scripts/release_assets.py release-files --private "$PRIVATE" --tag-release "$IS_TAG" --list assets.txt --notes notes.md
-          python3 scripts/stage_release.py verify release-files --private "$PRIVATE" --tag-release "$IS_TAG"
+          python3 scripts/stage_release.py verify release-files --private "$PRIVATE" --tag-release "$IS_TAG" --full "$FULL"
+          if [ "$PRIVATE" = "false" ]; then
+            printf '\nPublic repository: AI APKs are excluded by the existing model licence policy. Full Windows binaries are eligible only on stable version tags.\n' >> notes.md
+          fi
       - name: Publish the completed draft
         env:
           GH_TOKEN: ${{ github.token }}
@@ -140,7 +145,7 @@ jobs:
           PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
           gh release upload "$TAG" release-files/SHA256SUMS.txt --clobber
-          gh release edit "$TAG" --notes-file notes.md --draft=false --prerelease="$PRERELEASE"
+          gh release edit "$TAG" --title "$TAG" --notes-file notes.md --draft=false --prerelease="$PRERELEASE"
           echo "### Release [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG)" >> "$GITHUB_STEP_SUMMARY"
           cat notes.md >> "$GITHUB_STEP_SUMMARY"
           # Keep the newest eight published prereleases. Never delete drafts or stable releases.
@@ -160,7 +165,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
-          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true ]; then
+          if gh release view "$TAG" --json isDraft,name | jq -e --arg title "Draft $TAG (run $GITHUB_RUN_ID)" '.isDraft and .name == $title' >/dev/null; then
             gh release delete "$TAG" --yes
           fi
 
