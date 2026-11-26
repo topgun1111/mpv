@@ -92,7 +92,8 @@ local function install(s,compare)
   if not ok then return false,err end
   local vo=mp.get_property("current-vo")
   if vo and vo~="null" and mp.get_property("hwdec")=="auto" then
-    mp.set_property("hwdec","auto-copy")
+    local ok,err=mp.set_property("hwdec","auto-copy")
+    if not ok then return false,err end
   end
   local actual_graph=cpu_graph(graph)
   ok,err=mp.commandv("vf","add",label..":lavfi=graph=%"..#actual_graph.."%"..actual_graph)

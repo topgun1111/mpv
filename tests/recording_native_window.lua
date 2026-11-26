@@ -55,7 +55,20 @@ mp.register_event("file-loaded",function()
           if shader_active() or cpu_active() then fail("GPU preview reset failed");return end
           assert(mp.commandv("screenshot-to-file",shotdir.."/reset.png","window"))
           mp.msg.info("GPU_PREVIEW_OK")
-          rotate_first()
+          -- Validate that the real preview can play, not only display a paused screenshot.
+          mp.commandv("script-message-to","kayit","editing-action","strong")
+          mp.add_timeout(.8,function()
+            if not shader_active() or cpu_active() then fail("strong GPU preview missing");return end
+            mp.set_property("pause","no")
+            mp.add_timeout(.6,function()
+              if (mp.get_property_number("time-pos",0) or 0)<.2 then
+                fail("GPU preview playback did not advance");return
+              end
+              mp.set_property("pause","yes")
+              mp.commandv("script-message-to","kayit","editing-action","reset")
+              mp.add_timeout(.4,rotate_first)
+            end)
+          end)
         end)
       end)
     elseif phase==2 then

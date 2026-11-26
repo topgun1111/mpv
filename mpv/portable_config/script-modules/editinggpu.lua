@@ -5,12 +5,13 @@ local M={}
 local prefix="takipli_grade/"
 local names={"haze","contrast","brightness","gamma","saturation","shadows","highlights",
   "warmth","clarity","sharpness","denoise"}
-local active_path
+local active_path,cached_path
 local function shader_path()
+  if cached_path then return cached_path end
   local path=mp.command_native({"expand-path","~~/script-modules/takipli_grade.glsl"})
   if type(path)=="string" then
     local info=utils.file_info(path)
-    if info and info.is_file then return path end
+    if info and info.is_file then cached_path=path;return path end
   end
 end
 function M.supported()
