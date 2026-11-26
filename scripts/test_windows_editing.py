@@ -139,6 +139,10 @@ def main():
                     print("NATIVE_WINDOWS_GEOMETRY_OK")
                 elif "WINDOW_GEOMETRY_UNAVAILABLE" in data:
                     print("NATIVE_WINDOWS_GEOMETRY_SKIPPED: runner has no usable native window")
+                elif ("Error opening/initializing the selected video_out" in data
+                      or "Failed to create D3D11 device" in data):
+                    print("NATIVE_WINDOWS_GEOMETRY_SKIPPED: native renderer unavailable")
+                    print(data[-4000:])
                 else:
                     raise RuntimeError("Native window test failed to start: " + data)
     print("PACKAGED_EDITING_TESTS_OK")

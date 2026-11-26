@@ -123,7 +123,9 @@ function M.new(ctx)
   render=function()
     local d=mp.get_property_native("osd-dimensions") or {}
     local w,h=d.w or 0,d.h or 0
-    if w<=0 or h<=0 then return end
+    if w<=0 or h<=0 then
+      ov.data="";ov:update();return
+    end
     local hd=mp.get_property_number("display-hidpi-scale",1) or 1
     if hd~=engine.hd then engine.hd=hd;engine.W=0 end
     engine:resize(w,h);engine:relayout()

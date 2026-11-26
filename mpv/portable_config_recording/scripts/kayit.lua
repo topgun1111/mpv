@@ -195,6 +195,7 @@ local function hud_update()
   end
   local dpi=mp.get_property_number("display-hidpi-scale",1) or 1
   local top=menu and menu.hud_top() or 12
+  top=math.min(top,math.max(0,h-20))
   local sx,sy=hud_layout(w,h,top,dpi)
   local zoom, txt = 2 ^ V[1], nil
   local head=string.format("{\\an7\\pos(%d,%d)\\fs%d\\bord2}",sx,sy,hud_status_font)
@@ -207,7 +208,7 @@ local function hud_update()
   else
     txt = string.format("%s%.1f×", head, zoom) -- zoom değeri her zaman görünür
   end
-  if w<720 then
+  if w<720 or w/hud_status_font<24 then
     if rec.on and rec.run then txt=string.format("%s● KAYIT %.1f× %.1f sn",head,zoom,rec.t or 0)
     elseif rec.on and rec.started then txt=string.format("%sDURAKLADI %.1f×",head,zoom)
     elseif rec.on then txt=string.format("%sHAZIR %.1f×",head,zoom) end
