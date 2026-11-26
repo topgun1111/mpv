@@ -47,6 +47,7 @@ Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\recorder"
 Type: filesandordirs; Name: "{app}\ffmpeg"
 Type: filesandordirs; Name: "{app}\mpv\portable_config\scripts"
+Type: filesandordirs; Name: "{app}\mpv\portable_config\script-modules"
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\mpv\mpv.exe"; Parameters: "--player-operation-mode=pseudo-gui"; WorkingDir: "{app}"

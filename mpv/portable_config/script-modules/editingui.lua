@@ -14,6 +14,7 @@ local M={}
 local opened, overlay, drag, old_window_drag = false,nil,nil,nil
 local rows, buttons, bounds = {},{},nil
 local header, move_drag, position, metrics
+local resize_drag, resize_handle, requested
 local compact, page, page_count = false, 1, 1
 local pending, pending_timer, shown_error
 local render, close, flush
@@ -63,7 +64,11 @@ local function apply(new,compare)
   local prev=bypass and "" or core.graph(state)
   if graph~=prev or (graph~="" and not owns_filter()) then
     local ok,err=install(graph)
-    if not ok or (graph~="" and not owns_filter()) then
+    local actual
+    for _,f in ipairs(mp.get_property_native("vf") or {}) do
+      if f.label=="videoediting" then actual=f.params and f.params.graph;break end
+    end
+    if not ok or (graph~="" and actual~=graph) or (graph=="" and owns_filter()) then
       shown_error="Preview failed - see mpv log"
       mp.msg.error("Editing filter: "..tostring(err or "filter not present"))
       install(prev);notice(shown_error,5)
@@ -93,7 +98,7 @@ end
 local function layout()
   local d=mp.get_property_native("osd-dimensions") or {}
   local W,H=d.w or 0,d.h or 0
-  rows,buttons={},{}
+  rows,buttons={},{};resize_handle=nil
   if W<280 or H<250 then bounds,header,metrics=nil,nil,nil;return W,H end
   local dpi=clamp(mp.get_property_number("display-hidpi-scale",1) or 1,1,3)
   local scale=math.max(1,math.min(3,math.max(dpi,math.min(W/1280,H/720))))
@@ -104,6 +109,7 @@ local function layout()
   local usableW=W-16
   local width=math.min(usableW,math.floor((compact and 620 or 1000)*scale),math.floor(W*(compact and .68 or .86)))
   width=math.min(usableW,math.max(width,math.min(380,usableW)))
+  if requested then width=clamp(math.floor(requested.w),math.min(380,usableW),usableW) end
   local cols=(not compact and width>=720) and 2 or 1
   local pad=math.max(12,math.floor(18*math.min(scale,width/600)))
   local font=math.max(16,math.floor((compact and 19 or 22)*math.min(scale,math.max(1,width/(cols*480)))))
@@ -113,9 +119,12 @@ local function layout()
   local gap=math.max(5,math.floor(font*.35))
   local buttonRows=width<650 and 2 or 1
   local footerH=buttonRows*(buttonH+gap)+gap+pad
-  local contentH=avail-headerH-helpH-footerH
-  -- In narrow/short windows use pages, not microscopic text.
+  -- A user-sized panel may be shorter than the automatic layout; keep pagination readable.
   local minLine=math.max(32,math.floor(font*1.55))
+  local minHeight=headerH+helpH+footerH+minLine
+  local targetH=requested and clamp(math.floor(requested.h),math.min(minHeight,avail),avail) or avail
+  local contentH=targetH-headerH-helpH-footerH
+  -- In narrow/short windows use pages, not microscopic text.
   local capacity=math.max(1,math.floor(contentH/minLine))*cols
   local total=#core.controls
   page_count=math.max(1,math.ceil(total/capacity))
@@ -124,7 +133,7 @@ local function layout()
   local last=math.min(total,first+capacity-1)
   local count=math.ceil((last-first+1)/cols)
   local line=math.max(minLine,math.min(math.floor(font*2.45),math.floor(contentH/count)))
-  local height=headerH+helpH+count*line+footerH
+  local height=requested and targetH or (headerH+helpH+count*line+footerH)
   -- Tiny viewports may not fit even one readable row: use a clear message.
   if height>avail or width<280 then bounds,header,metrics=nil,nil,nil;return W,H end
   local x=position and position.x or (W-width)/2
@@ -135,6 +144,8 @@ local function layout()
   x,y=bounds.x,bounds.y
   if position then position={x=x,y=y} end
   header=box(x,y,width,headerH)
+  local grip=math.max(18,math.floor(font*.85))
+  resize_handle=box(x+width-grip,y+height-grip,grip,grip)
   metrics={font=font,help=helpH,pad=pad,top=top,bottom=bottom}
   local colw=(width-pad*2)/cols
   local names={haze="Dehaze",contrast="Contrast",brightness="Brightness",gamma="Gamma",saturation="Saturation",shadows="Shadows",highlights="Highlights",warmth="Warmth",clarity="Clarity",sharpness="Sharpness",denoise="Denoise",crf="Export CRF"}
@@ -187,7 +198,7 @@ render=function()
     text(bounds.x+metrics.pad,bounds.y+header.h+metrics.help/2,math.max(14,fs-4),
       shown_error and "A0A0FF" or "E5E5E5",
       (page_count>1 and ("Page "..page.."/"..page_count.." - ") or "")..
-      (shown_error or ((bypass and "Original view" or "Live preview").." | Drag title to move")))}
+      (shown_error or ((bypass and "Original view" or "Live preview").." | Drag title / corner to move / resize")))}
   local values=pending or state
   for _,r in ipairs(rows) do
     local c,a,t=r.control,r.area,r.rail
@@ -207,6 +218,12 @@ render=function()
     o[#o+1]=rect(a,v.action=="export" and "986436" or "515151")
     o[#o+1]=text(a.x+6,a.y+a.h/2,math.max(13,math.min(fs-2,math.floor((a.w-12)/math.max(1,#v.name)*1.65))),"FFFFFF",v.name)
   end
+  -- The bottom-right grip sits in the footer padding, not on an export button.
+  if resize_handle then
+    local g=resize_handle
+    o[#o+1]=rect(g,"777777")
+    o[#o+1]=text(g.x+2,g.y+g.h/2,math.max(13,fs-4),"FFFFFF","↘")
+  end
   overlay.data=table.concat(o,"\n");overlay:update()
 end
 flush=function()
@@ -223,15 +240,19 @@ local function queue(r,x)
   s[c[1]]=v;pending=s;render()
   if not pending_timer then pending_timer=mp.add_timeout(.10,flush) end
 end
-function M.over(x,y) return opened and (drag~=nil or move_drag~=nil or inside(bounds,x,y)) end
+function M.over(x,y) return opened and (drag~=nil or move_drag~=nil or resize_drag~=nil or inside(bounds,x,y)) end
 function M.mouse(pos)
   if not opened then return end
   if not pos or pos.hover==false then
     if drag then drag=nil;flush() end
-    move_drag=nil
+    move_drag=nil;resize_drag=nil
     return
   end
-  if move_drag and pos.x and pos.y then
+  if resize_drag and pos.x and pos.y then
+    position={x=resize_drag.x,y=resize_drag.y}
+    requested={w=resize_drag.w+pos.x-resize_drag.mx,h=resize_drag.h+pos.y-resize_drag.my}
+    render()
+  elseif move_drag and pos.x and pos.y then
     position={x=pos.x-move_drag.dx,y=pos.y-move_drag.dy};render()
   elseif drag and pos.x then queue(drag,pos.x) end
 end
@@ -239,12 +260,19 @@ function M.pointer(ev,pos)
   if not opened then return false end
   local e=ev and ev.event or "press"
   if e=="up" then
+    if resize_drag then M.mouse(pos);resize_drag=nil;return true end
     if move_drag then M.mouse(pos);move_drag=nil;return true end
     if drag then if pos and pos.x then queue(drag,pos.x) end;drag=nil;flush();return true end
     return false
   end
   if not pos or not inside(bounds,pos.x,pos.y) then return false end
   if e~="press" and e~="down" then return true end
+  if inside(resize_handle,pos.x,pos.y) then
+    if e=="down" then
+      resize_drag={x=bounds.x,y=bounds.y,w=bounds.w,h=bounds.h,mx=pos.x,my=pos.y}
+    end
+    return true
+  end
   for _,v in ipairs(buttons) do
     if inside(v.area,pos.x,pos.y) then M.action(v.action);return true end
   end
@@ -262,11 +290,21 @@ function M.pointer(ev,pos)
   return true
 end
 close=function()
-  flush();drag=nil;move_drag=nil;opened=false
+  flush();drag=nil;move_drag=nil;resize_drag=nil;opened=false
   if old_window_drag~=nil then mp.set_property("options/window-dragging",old_window_drag);old_window_drag=nil end
   mp.remove_key_binding("editing-close");render()
 end
 function M.is_open() return opened end
+function M.busy() return dialog or job~=nil end
+-- Programmatic control uses exactly the same validation and filter application as the sliders.
+function M.set_control(name,value)
+  if not video_ok() then return false end
+  flush()
+  for _,c in ipairs(core.controls) do
+    if c[1]==name then local s=core.normalize(state);s[name]=value;return apply(s,false) end
+  end
+  return false
+end
 function M.close() if opened then close() end end
 local function choose()
   if opened then close();return end
@@ -476,7 +514,7 @@ function M.action(action)
   if action=="close" then M.close();return end
   flush()
   if action=="center" then position=nil;render();return end
-  if action=="size" then compact=not compact;page=1;position=nil;render();return end
+  if action=="size" then compact=not compact;page=1;position=nil;requested=nil;render();return end
   if action=="next" then page=math.min(page+1,page_count);render();return end
   if action=="prev" then page=math.max(page-1,1);render();return end
   if action=="cancel" then
@@ -499,7 +537,7 @@ end
 local function reset_file()
   generation=generation+1
   if pending_timer then pending_timer:kill();pending_timer=nil end
-  pending=nil;drag=nil;move_drag=nil;M.close();remove();state=core.defaults();state.crf=output.crf;bypass=false;shown_error=nil;page=1
+  pending=nil;drag=nil;move_drag=nil;resize_drag=nil;M.close();remove();state=core.defaults();state.crf=output.crf;bypass=false;shown_error=nil;page=1
 end
 mp.register_event("start-file",reset_file)
 mp.register_event("end-file",reset_file)

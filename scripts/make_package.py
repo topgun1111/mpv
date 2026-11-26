@@ -70,6 +70,11 @@ def build_recording(out: Path) -> None:
     """Kayıt varyantı: `recorder/` + kendi mpv ayarları; tracker/, models/, Offline.bat YOK."""
     _copytree(ROOT / "recorder", out / "recorder")
     _copytree(ROOT / "mpv" / "portable_config_recording", out / "mpv" / "portable_config")
+    # A single canonical editor/menu implementation is shipped byte-for-byte in both variants.
+    modules = out / "mpv" / "portable_config" / "script-modules"
+    modules.mkdir(parents=True, exist_ok=True)
+    for name in ("editingui.lua", "editingcore.lua", "trackfiles.lua", "trackmenu.lua"):
+        shutil.copy2(ROOT / "mpv" / "portable_config" / "script-modules" / name, modules / name)
     _copy_launchers(ROOT / "launcher_recording", out)
     _finish(out, "requirements-recording.txt")
 

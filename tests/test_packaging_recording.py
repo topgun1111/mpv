@@ -99,6 +99,11 @@ def test_make_package_recording_ships_export_flow(tmp_path):
     assert not list(out.rglob("*.onnx")) and not (out / "tracker").exists()
     assert not (out / "models").exists()
     assert (out / "THIRD_PARTY_NOTICES.md").is_file()
+    modules = out / "mpv/portable_config/script-modules"
+    canonical = ROOT / "mpv/portable_config/script-modules"
+    for name in ("editingui.lua", "editingcore.lua", "trackfiles.lua", "trackmenu.lua"):
+        assert (modules / name).read_bytes() == (canonical / name).read_bytes()
+    assert (modules / "recordingmenu.lua").is_file()
 
 
 def test_lua_and_python_agree_on_export_command_and_state_file():

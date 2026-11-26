@@ -42,7 +42,7 @@ function M.graph(settings)
   local s = M.normalize(settings)
   local filters = {}
   if s.denoise > 0 then
-    filters[#filters+1] = "hqdn3d=" .. fmt(s.denoise/20) .. ":" .. fmt(s.denoise/15) .. ":0:0"
+    filters[#filters+1] = "hqdn3d=" .. fmt(s.denoise/8) .. ":" .. fmt(s.denoise/6) .. ":0:0"
   end
   -- Approximate neutral veiling light inversion, then independently grade.
   -- FFmpeg eq pivots contrast at middle grey. A negative brightness term
@@ -63,8 +63,8 @@ function M.graph(settings)
     filters[#filters+1] = "colorbalance=rs="..fmt(w/2)..":bs="..fmt(-w/2)
       ..":rm="..fmt(w)..":bm="..fmt(-w)..":rh="..fmt(w/2)..":bh="..fmt(-w/2)..":pl=1"
   end
-  if s.clarity > 0 then filters[#filters+1] = "unsharp=13:13:"..fmt(s.clarity/100)..":5:5:0" end
-  if s.sharpness > 0 then filters[#filters+1] = "unsharp=5:5:"..fmt(s.sharpness/100)..":5:5:0" end
+  if s.clarity > 0 then filters[#filters+1] = "unsharp=13:13:"..fmt(s.clarity/40)..":5:5:0" end
+  if s.sharpness > 0 then filters[#filters+1] = "unsharp=5:5:"..fmt(s.sharpness/30)..":5:5:0" end
   return table.concat(filters,",")
 end
 -- Separate output settings: the grading graph never depends on encoder selection.

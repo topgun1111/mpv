@@ -1,0 +1,108 @@
+"""Headless Windows integration checks against the actual packaged MPV/FFmpeg executables."""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def run(args, **kwargs):
+    result = subprocess.run([str(a) for a in args], capture_output=True, timeout=90, **kwargs)
+    if result.returncode:
+        raise RuntimeError(
+            f"{args[0]} failed ({result.returncode}): "
+            + result.stderr.decode("utf-8", errors="replace")
+            + result.stdout.decode("utf-8", errors="replace")
+        )
+    return result.stdout
+
+
+def pixels(ffmpeg, raw, graph):
+    return run([
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-filter_threads", "1",
+        "-f", "rawvideo", "-pixel_format", "yuv420p", "-video_size", "160x120",
+        "-framerate", "5", "-i", raw, "-vf", graph or "null",
+        "-frames:v", "1", "-pix_fmt", "yuv420p", "-f", "rawvideo", "-",
+    ])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("package", type=Path)
+    parser.add_argument("--recording", action="store_true")
+    args = parser.parse_args()
+    pkg = args.package.resolve()
+    mpv = pkg / "mpv/mpv.com"
+    if not mpv.is_file():
+        mpv = pkg / "mpv/mpv.exe"
+    ffmpeg = pkg / "ffmpeg/ffmpeg.exe"
+    modules = pkg / "mpv/portable_config/script-modules"
+    env = dict(os.environ, EDITING_MODULES=str(modules))
+    with tempfile.TemporaryDirectory() as tmp:
+        temp = Path(tmp)
+        clip = temp / "video.mp4"
+        raw = temp / "frame.yuv"
+        # Low contrast edges, gradient, fine noise and chroma variation; not a flat test card.
+        y = bytes(
+            65 + x // 3 + (25 if (x // 20 + yy // 20) % 2 else 0)
+            + ((x * 17 + yy * 31) % 17) - 8
+            for yy in range(120) for x in range(160)
+        )
+        u = bytes(95 + (x * 3 + yy) % 65 for yy in range(60) for x in range(80))
+        v = bytes(100 + (x + yy * 3) % 60 for yy in range(60) for x in range(80))
+        raw.write_bytes(y + u + v)
+        run([
+            ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+            "-i", "testsrc2=size=320x240:rate=10", "-t", "1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", clip,
+        ])
+        log = temp / "mpv.log"
+        run([
+            mpv, "--no-config", "--vo=null", "--ao=null", "--pause=yes", "--keep-open=yes",
+            f"--log-file={log}", f"--script={ROOT / 'tests/editing_mpv_smoke.lua'}", clip,
+        ], env=env)
+        data = log.read_text(encoding="utf-8", errors="replace")
+        assert "EDITING_MPV_SMOKE_OK" in data, data
+        graphs = dict(re.findall(r"EDITING_GRAPH\|([^|\r\n]+)\|([^\r\n]+)", data))
+        expected = {
+            "haze", "contrast", "brightness", "gamma", "saturation", "shadows",
+            "highlights", "warmth", "clarity", "sharpness", "denoise",
+            "contrast_negative", "brightness_negative", "gamma_negative",
+            "saturation_negative", "shadows_negative", "highlights_negative", "warmth_negative",
+        }
+        assert set(graphs) == expected, set(graphs)
+        baseline = pixels(ffmpeg, raw, "")
+        for name, graph in sorted(graphs.items()):
+            changed = pixels(ffmpeg, raw, graph.strip())
+            assert len(changed) == len(baseline)
+            diff = sum(abs(a - b) for a, b in zip(baseline, changed)) / len(baseline)
+            assert diff > 0.15, f"{name} had negligible effect: {diff:.3f}"
+            print(f"PIXEL CHANGE {name}: mean absolute difference {diff:.3f}")
+        # Execute real Lua mouse/resize regression in the shipped mpv interpreter.
+        env["EDITING_HARNESS"] = str(ROOT / "tests/lua_harness_editing_ui.lua")
+        log = temp / "ui.log"
+        run([
+            mpv, "--no-config", "--vo=null", "--ao=null", "--idle=yes",
+            f"--log-file={log}", f"--script={ROOT / 'tests/editing_harness_mpv.lua'}",
+        ], env=env, cwd=ROOT)
+        assert "EDITING_UI_OK" in log.read_text(encoding="utf-8", errors="replace")
+        if args.recording:
+            log = temp / "recording.log"
+            run([
+                mpv, f"--config-dir={pkg / 'mpv/portable_config'}", "--load-scripts=yes",
+                "--input-ipc-server=", "--vo=null", "--ao=null", "--pause=yes",
+                "--keep-open=yes", f"--log-file={log}",
+                f"--script={ROOT / 'tests/editing_recording_mpv.lua'}", clip,
+            ], env=env)
+            data = log.read_text(encoding="utf-8", errors="replace")
+            assert "RECORDING_EDITING_OK" in data, data
+    print("PACKAGED_EDITING_TESTS_OK")
+
+
+if __name__ == "__main__":
+    main()

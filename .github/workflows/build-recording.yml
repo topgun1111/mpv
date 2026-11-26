@@ -64,6 +64,8 @@ jobs:
           .\python\python.exe -m recorder export smoke.mp4
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path smoke.kamera.mp4)) { throw "recorder export duman testi başarısız" }
           Remove-Item smoke.mp4, smoke.mp4.rec.json, smoke.kamera.mp4, smoke.kamera.mp4.export.json -ErrorAction SilentlyContinue
+      - name: Windows packaged editing pixel, menu and resize regression
+        run: python scripts/test_windows_editing.py dist/TakipliOynatKayit --recording
       - name: Taşınabilir ZIP
         shell: pwsh
         run: Compress-Archive -Path dist/TakipliOynatKayit -DestinationPath dist/TakipliOynatKayit-portable.zip

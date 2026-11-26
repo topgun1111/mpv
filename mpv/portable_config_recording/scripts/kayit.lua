@@ -106,6 +106,15 @@ local rec = { on = false, run = false, started = false, armed = false, id = 0, g
 local drag = { on = false, x = 0, y = 0 }
 local hud = { ov = nil, last = nil }
 local exp = { running = false, id = 0, out = nil, prog = nil } -- dışa aktarma durumu (aşağıda doldurulur)
+local menu
+-- Load the shared editor in the packaged application; old geometry-only harness stays independent.
+if not rawget(_G,"KAYIT_EXPOSE") then
+  local ok,mod=pcall(require,"recordingmenu")
+  if ok then
+    menu=mod.new(function() return not rec.on and not exp.running end)
+    for _,b in ipairs({BTN,SPD,ROTL,ROTR}) do b.y=70 end
+  else mp.msg.error("Editing menu unavailable: "..tostring(mod)) end
+end
 
 local function osd(msg, sec) mp.osd_message("Kayıt: " .. msg, sec or 2) end
 
@@ -159,7 +168,7 @@ local function hud_update()
     hud.ov.z = HUD_Z
   end
   local zoom, txt = 2 ^ V[1], nil
-  local head = "{\\an7\\pos(24,16)\\fs30\\bord2}"
+  local head = menu and "{\\an7\\pos(24,74)\\fs30\\bord2}" or "{\\an7\\pos(24,16)\\fs30\\bord2}"
   if rec.on and rec.run then
     txt = string.format("%s{\\1c&H0000FF&}●{\\1c&HFFFFFF&} KAYIT  %.1f×  %.1f sn", head, zoom, rec.t or 0)
   elseif rec.on and rec.started then
@@ -201,8 +210,9 @@ end
 -- yavaşlat; tekerlek = imleç etrafında zoom (sürüklerken de, aynı anda). Çift tık oynatmayı değiştirmez. ---
 mp.add_key_binding(nil, "drag", function(ev)
   local e = ev and ev.event or "press"
+  local pos = mouse_xy()
+  if menu and menu.pointer(ev,pos) then drag.on=false;return end
   if e == "down" then
-    local pos = mouse_xy()
     if pos and pos.x and hit(pos, BTN) then drag.on = false; toggle_record(); return end
     if pos and pos.x and hit(pos, SPD) then drag.on = false; speed_cycle(1); return end
     if pos and pos.x and rot_visible() and hit(pos, ROTL) then drag.on = false; rotate_by(-90); return end
@@ -217,10 +227,12 @@ mp.add_key_binding(nil, "rclick", function(ev) -- sağ tık: yalnız HIZ düğme
   local e = ev and ev.event or "press"
   if e ~= "down" and e ~= "press" then return end
   local pos = mouse_xy()
+  if menu and menu.over(pos) then return end
   if pos and pos.x and hit(pos, SPD) then speed_cycle(-1) end
 end, { complex = true })
 
 mp.observe_property("mouse-pos", "native", function(_, pos)
+  if menu then menu.mouse(pos) end
   if not (drag.on and pos and pos.x) then return end
   local b = box()
   if not b then return end
@@ -232,6 +244,7 @@ end)
 
 local function wheel(dir)
   local pos, b = mouse_xy(), box()
+  if menu and menu.over(pos) then return end
   if not (pos and pos.x and b) then return end
   -- sürüklerken de aynı imleç noktasında uygulanır; sürükleme tutamağı (drag.x/y) değişmez
   set_view(apply_gesture_at(V, (pos.x - b.x) / b.w, (pos.y - b.y) / b.h, 0, 0, 2 ^ (dir * STEP)))
@@ -332,6 +345,8 @@ local function tick(gen)
 end
 
 local function open_rec()
+  if menu and menu.busy() then osd("Editing export is active");return end
+  if menu then menu.close_editor() end
   if not video_path() then osd("yalnız yerel video dosyası kaydedilir"); return end
   rec = { on = true, run = false, started = false, armed = false,
           id = rec.id + 1, gen = 0, keys = {}, breaks = {}, brk = false, t = 0 }
@@ -435,6 +450,7 @@ local function poll_export(id)
 end
 
 function start_export()
+  if menu and menu.busy() then osd("Editing export is active");return end
   if exp.running then osd("dışa aktarma sürüyor (Esc: iptal)", 2); return end
   if rec.on then osd("kayıt sürerken dışa aktarılamaz"); return end
   local vp = video_path()

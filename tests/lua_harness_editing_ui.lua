@@ -71,6 +71,20 @@ assert(filters[2].params.graph==C.graph(C.preset("moderate")),"moving changed se
 E.action("center")
 local cx,cy=panel()
 assert(cx==x and cy==y,"Center did not restore default")
+-- Grab the actual bottom-right corner and shrink on both axes, then grow again.
+local gx,gy=cx+w-8,cy+h-8
+assert(E.pointer({event="down"},{x=gx,y=gy}))
+E.mouse({x=gx-240,y=gy-100,hover=true})
+assert(E.pointer({event="up"},{x=gx-240,y=gy-100}))
+local rx,ry,rw,rh=panel()
+assert(rw<w-100 and rh<h-30,"corner drag did not resize both axes")
+assert(filters[2].params.graph==C.graph(C.preset("moderate")),"resize changed settings")
+assert(E.pointer({event="down"},{x=rx+rw-8,y=ry+rh-8}))
+E.mouse({x=rx+rw+400,y=ry+rh+250,hover=true})
+assert(E.pointer({event="up"},{x=rx+rw+400,y=ry+rh+250}))
+local bx,by,bw,bh=panel()
+assert(bw>rw and bh>rh and bx+bw<=1280 and by+bh<=720,"grow or clamp failed")
+E.action("size");E.action("size") -- restore the automatic default geometry
 sx,sy=locate("Dehaze")
 local tx=sx+math.floor(w*.25)
 assert(E.over(tx,sy))

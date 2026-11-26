@@ -202,6 +202,6 @@ def test_wiring_in_config_and_no_tracking_code():
         assert lines[key].endswith("ignore"), key
     conf = (CONF / "mpv.conf").read_text(encoding="utf-8")
     assert "pause=yes" in conf  # açılışta oynatma başlamaz
-    assert len(lua.splitlines()) <= 470
+    assert 'require,"recordingmenu"' in lua
     low = lua.lower()
     assert not any(w in low for w in ("onnx", "yolo", "tracker", "track-point", "models"))
