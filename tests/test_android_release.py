@@ -39,7 +39,7 @@ def test_android_workflow_release_step():
     assert re.search(r"assemble(\$\{\{ matrix\.gradle_task \}\})?Release", y)  # iki derleme (pose/sam) matrix ile
     assert "matrix.flavor" in y and "- flavor: sam" in y
     # AGPL modelli APK yalnız özel depoda Release'e eklenir: karar scripts/release_assets.py'de, yayın build-all.yml `release` işinde
-    assert "gh release" not in y
+    assert "scripts/stage_release.py upload" in y and "gh release create" not in y
     all_wf = _text(WORKFLOWS / "build-all.yml")
     assert "github.event.repository.private" in all_wf and "release_assets.py" in all_wf
     assert "android" not in _text(WORKFLOWS / "build.yml").lower()  # PC iş akışına dokunulmadı

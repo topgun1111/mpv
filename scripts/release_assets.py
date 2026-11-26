@@ -57,7 +57,7 @@ def pick(files: list[Path], private: bool, tag_release: bool) -> tuple[list[Path
         elif allowed(f.name, c[0], c[1], private, tag_release):
             chosen.append(f)
         else:
-            skipped.append((f.name, "contains AGPL-3.0 models: public repository, kept as a workflow artifact"))
+            skipped.append((f.name, "contains AGPL-3.0 models: public repository, not published"))
     return chosen, skipped
 
 

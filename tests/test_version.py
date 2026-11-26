@@ -127,4 +127,4 @@ def test_no_debug_builds_or_artifacts():
     for name in ("android.yml", "android-rec.yml"):
         t = (WF / name).read_text(encoding="utf-8")
         assert "Debug" not in t and "-debug" not in t, name
-        assert t.count("upload-artifact@v4") == 2, name  # release APK + failure reports only
+        assert "upload-artifact" not in t and "scripts/stage_release.py upload" in t, name

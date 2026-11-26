@@ -2,13 +2,18 @@ name: Android Record
 
 # Record-only Android app (android/rec, package com.takipli.oynat.rec): no pose models, no tracking, no ONNX Runtime / OpenCV.
 # Separate workflow so android.yml (pose / sam) and its tests stay untouched. No models to export, so this one is fast.
-# The APK is a workflow artifact and, on every push, goes onto the shared GitHub Release (release job in build-all.yml). Nothing here is AGPL.
+# Signed record APK goes directly to the shared draft release.
 on:
-  workflow_call:  # started by build-all.yml (push / tag / pull request); this file no longer has its own triggers
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: false
+        default: ""
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write  # upload only to a draft supplied by Build All
 
 jobs:
   android-rec:
@@ -44,15 +49,11 @@ jobs:
           v=$(tr -d "[:space:]" < VERSION)
           mkdir -p dist-rec/release
           cp android/rec/build/outputs/apk/release/rec-release.apk "dist-rec/release/TakipliKayit-Android-$v-b${{ github.run_number }}.apk"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: TakipliKayit-Android-Release
-          path: dist-rec/release/*.apk
-          if-no-files-found: error
-      - name: Test reports on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-rec-reports
-          path: android/**/build/reports
-          if-no-files-found: ignore
+      - name: Stage permitted release files directly
+        if: ${{ inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PRIVATE: ${{ github.event.repository.private }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: python scripts/stage_release.py upload "dist-rec/release/*.apk"

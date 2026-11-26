@@ -1,14 +1,19 @@
 name: Build
 on:
-  workflow_call:  # started by build-all.yml (push / tag / pull request); this file no longer has its own triggers
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: false
+        default: ""
   workflow_dispatch:
 
 permissions:
-  contents: read  # releases are published by the release job in build-all.yml
+  contents: write  # upload only to a draft supplied by Build All
 
 jobs:
   # Build both SAM families on Linux in isolated environments. The Windows
-  # packaging job consumes these exact artifacts; it never tries to install
+  # packaging job consumes the exact cached graphs; it never tries to install
   # EdgeTAM and SAM 2.1 into the same Python environment.
   sam-models:
     uses: ./.github/workflows/sam-export.yml
@@ -23,17 +28,19 @@ jobs:
       PYTHONUTF8: "1"  # Windows konsolu cp1252: Türkçe çıktı (ı, ş...) UnicodeEncodeError veriyordu
     steps:
       - uses: actions/checkout@v4
-      - name: Download verified EdgeTAM models
-        uses: actions/download-artifact@v4
+      - name: Restore verified EdgeTAM models
+        uses: actions/cache/restore@v4
         with:
-          name: sam-models-edgetam
+          key: sam-models-${{ github.run_id }}-${{ github.sha }}-edgetam
           path: sam-models/edgetam
-      - name: Download verified SAM 2.1 Small models
-        uses: actions/download-artifact@v4
+          fail-on-cache-miss: true
+      - name: Restore verified SAM 2.1 Small models
+        uses: actions/cache/restore@v4
         with:
-          name: sam-models-small
+          key: sam-models-${{ github.run_id }}-${{ github.sha }}-small
           path: sam-models/small
-      - name: Verify SAM artifacts before packaging
+          fail-on-cache-miss: true
+      - name: Verify cached SAM graphs before packaging
         shell: pwsh
         run: |
           $variants = @("edgetam", "small")
@@ -214,7 +221,7 @@ jobs:
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
           & $iscc "/DAppVersion=$v" installer.iss
-      # İki ayrı çıktı: kurulum (Setup) ve taşınabilir sürüm (Portable) ayrı artifact/zip olarak iner
+      # İki ayrı çıktı: kurulum (Setup) ve taşınabilir sürüm (Portable) ayrı Release dosyalarıdır
       - name: Dosyaları adlandır
         shell: pwsh
         run: |
@@ -224,13 +231,11 @@ jobs:
           if (-not $exe) { throw "installer .exe üretilmedi" }
           Move-Item $exe.FullName "dist/TakipliOynat-Setup-$full.exe" -Force
           Move-Item dist/TakipliOynat-portable.zip "dist/TakipliOynat-Portable-$full.zip" -Force
-      - uses: actions/upload-artifact@v4
-        with:
-          name: TakipliOynat-Setup
-          path: dist/TakipliOynat-Setup-*.exe
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: TakipliOynat-Portable
-          path: dist/TakipliOynat-Portable-*.zip
-          if-no-files-found: error
+      - name: Stage permitted release files directly
+        if: ${{ inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PRIVATE: ${{ github.event.repository.private }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: python scripts/stage_release.py upload "dist/TakipliOynat-Setup-*.exe" "dist/TakipliOynat-Portable-*.zip"

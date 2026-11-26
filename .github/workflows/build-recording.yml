@@ -2,11 +2,16 @@ name: Build Recording
 # Kayıt varyantı (yalnız elle kamera: zoom + sürükle → kaydet → dışa aktar). Model/ONNX YOK.
 # Ana `build.yml`'den bağımsızdır; sürüm numarası ve Release ortaktır (build-all.yml: `release` işi, scripts/version.py).
 on:
-  workflow_call:  # started by build-all.yml (push / tag / pull request); this file no longer has its own triggers
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: false
+        default: ""
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write  # upload only to a draft supplied by Build All
 
 jobs:
   windows-package:
@@ -79,13 +84,11 @@ jobs:
           if (-not $exe) { throw "installer .exe üretilmedi" }
           Move-Item $exe.FullName "dist/TakipliOynatKayit-Setup-$full.exe" -Force
           Move-Item dist/TakipliOynatKayit-portable.zip "dist/TakipliOynatKayit-Portable-$full.zip" -Force
-      - uses: actions/upload-artifact@v4
-        with:
-          name: TakipliOynatKayit-Setup
-          path: dist/TakipliOynatKayit-Setup-*.exe
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: TakipliOynatKayit-Portable
-          path: dist/TakipliOynatKayit-Portable-*.zip
-          if-no-files-found: error
+      - name: Stage permitted release files directly
+        if: ${{ inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PRIVATE: ${{ github.event.repository.private }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: python scripts/stage_release.py upload "dist/TakipliOynatKayit-Setup-*.exe" "dist/TakipliOynatKayit-Portable-*.zip"

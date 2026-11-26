@@ -1,18 +1,19 @@
 name: Android
 
-# Reusable workflow, started by build-all.yml next to the PC builds (same triggers). It builds only the SIGNED release APK (no debug build, no debug artifact)
-# (the committed app/stable.jks key, or the optional ANDROID_KEYSTORE_* secrets) and uploads it as the artifact
-# TakipliOynat-Android-<flavor>-Release. Publishing is NOT done here: the single `release` job in build-all.yml attaches it to the
-# shared GitHub Release (vX.Y.Z-b<run> on main, vX.Y.Z on a v* tag), in a PRIVATE repository only.
-# Why private only: the APK contains the Ultralytics pose models (AGPL-3.0, personal use; handover-android.md, decisions log).
-# Two builds from one job (matrix): `pose` (pose models + optical-flow trackers) and `sam` (adds EdgeTAM for free-point / region targets;
-# own applicationId com.takipli.oynat.sam, so both install side by side). One failing flavor does not cancel the other.
+# Signed release APKs are staged directly to the common draft when licence policy permits.
+# Standalone and pull-request builds verify without publishing.
+
 on:
-  workflow_call:  # started by build-all.yml (push / tag / pull request); this file no longer has its own triggers
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: false
+        default: ""
   workflow_dispatch:
 
 permissions:
-  contents: read  # the release job in build-all.yml publishes the APKs
+  contents: write  # upload only to a draft supplied by Build All
 
 jobs:
   android:
@@ -163,18 +164,18 @@ jobs:
           v=$(tr -d "[:space:]" < VERSION)
           mkdir -p dist-android/release
           cp android/app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk "dist-android/release/TakipliOynat-Android-${{ matrix.flavor }}-$v-b${{ github.run_number }}.apk"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: TakipliOynat-Android-${{ matrix.flavor }}-Release
-          path: dist-android/release/*.apk
-          if-no-files-found: error
-      - name: Export/build diagnostics (also when a previous step failed)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-reports-${{ matrix.flavor }}
-          path: |
-            android/**/build/reports
-            ${{ runner.temp }}/export-*.log
-            model-logs/**
-          if-no-files-found: ignore
+      - name: Stage permitted release files directly
+        if: ${{ inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PRIVATE: ${{ github.event.repository.private }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: python scripts/stage_release.py upload "dist-android/release/*.apk"
+      - name: Model diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          for f in "$RUNNER_TEMP"/export-*.log; do
+            if [ -f "$f" ]; then echo "=== $f ==="; tail -n 100 "$f"; fi
+          done

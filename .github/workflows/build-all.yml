@@ -7,7 +7,7 @@ name: Build All
 #   pc-recording  Windows recording variant                                 build-recording.yml
 #   android       full app, flavors pose + sam (matrix)                     android.yml
 #   android-rec   record-only app                                           android-rec.yml
-#   release       ONE GitHub Release with every app of this run              (below)
+#   release       ONE GitHub Release with all permitted assets (draft uploads, then publish)
 # The five build files are reusable workflows (workflow_call) and have no triggers of their own, so nothing runs twice.
 #
 # Versioning (all apps share it; the number lives in VERSION and nowhere else you edit by hand):
@@ -15,7 +15,7 @@ name: Build All
 #   tag vX.Y.Z    -> full Release vX.Y.Z                (the tag must equal VERSION; `python scripts/bump_version.py patch`, commit, tag)
 #   every file in the release is named <App>-<X.Y.Z>-b<run number>.<ext>; SHA256SUMS.txt is attached.
 # Pull requests run the tests and the phone apps (no Windows packaging, no release). To run one build alone:
-# Actions -> pick that workflow -> Run workflow (workflow_dispatch still works; it never publishes a release).
+# Actions -> pick that workflow -> Run workflow (standalone builds verify only). Build All on main publishes a prerelease.
 on:
   push:
     branches: [main]
@@ -59,82 +59,110 @@ jobs:
     needs: version
     uses: ./.github/workflows/ci.yml
 
+  prepare:
+    needs: [version, tests]
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create draft release (not visible to updaters)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          if gh release view "$TAG" --json isDraft --jq .isDraft > existing.txt 2>/dev/null; then
+            test "$(cat existing.txt)" = true || { echo "::error::Release already published; bump version or start a new main build"; exit 1; }
+          elif [ "$PRERELEASE" = "true" ]; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --draft --prerelease --title "$TAG" --generate-notes
+          else
+            gh release create "$TAG" --verify-tag --draft --title "$TAG" --generate-notes
+          fi
+
   pc-full:
-    needs: version
-    if: ${{ github.event_name != 'pull_request' }}
+    needs: [version, prepare]
+    if: ${{ !cancelled() && needs.version.result == 'success' && github.event_name != 'pull_request' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
     uses: ./.github/workflows/build.yml
+    with:
+      release_tag: ${{ needs.prepare.result == 'success' && needs.version.outputs.tag || '' }}
 
   pc-recording:
-    needs: version
-    if: ${{ github.event_name != 'pull_request' }}
+    needs: [version, prepare]
+    if: ${{ !cancelled() && needs.version.result == 'success' && github.event_name != 'pull_request' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
     uses: ./.github/workflows/build-recording.yml
+    with:
+      release_tag: ${{ needs.prepare.result == 'success' && needs.version.outputs.tag || '' }}
 
   android:
-    needs: version
+    needs: [version, prepare]
+    if: ${{ !cancelled() && needs.version.result == 'success' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
     uses: ./.github/workflows/android.yml
+    with:
+      release_tag: ${{ needs.prepare.result == 'success' && needs.version.outputs.tag || '' }}
 
   android-rec:
-    needs: version
+    needs: [version, prepare]
+    if: ${{ !cancelled() && needs.version.result == 'success' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
     uses: ./.github/workflows/android-rec.yml
+    with:
+      release_tag: ${{ needs.prepare.result == 'success' && needs.version.outputs.tag || '' }}
 
-  # One release for the whole run, after all builds. main: every build that succeeded goes on the prerelease (a flaky flavor does not
-  # block the others; tests must pass). v* tag: every build must succeed. Licence rule for the AGPL pose models: scripts/release_assets.py.
+  # Uploads happen directly from each build runner to the same draft.
+  # Only verified assets are published; keep the original licence policy.
   release:
-    needs: [version, tests, pc-full, pc-recording, android, android-rec]
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.tests.result == 'success' && (needs.version.outputs.prerelease == 'true' || !contains(needs.*.result, 'failure')) }}
+    needs: [version, tests, prepare, pc-full, pc-recording, android, android-rec]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.tests.result == 'success' && (needs.version.outputs.prerelease == 'true' || (!contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      # Only the finished, named files: installers, portable zips and the signed release APKs (no debug builds exist any more).
-      - uses: actions/download-artifact@v4
-        continue-on-error: true  # a skipped or failed build has no artifact
-        with:
-          pattern: "*-Setup"
-          path: release-files
-          merge-multiple: true
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: "*-Portable"
-          path: release-files
-          merge-multiple: true
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: "*-Release"
-          path: release-files
-          merge-multiple: true
-      - name: Choose the files (licence rules) + SHA256SUMS.txt
-        env:
-          PRIVATE: ${{ github.event.repository.private }}
-          IS_TAG: ${{ needs.version.outputs.prerelease == 'false' }}
-        run: python3 scripts/release_assets.py release-files --private "$PRIVATE" --tag-release "$IS_TAG" --list assets.txt --notes notes.md
-      - name: Publish the release
+      - name: Download staged release assets for checksums (not Actions artifacts)
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
-          FULL: ${{ needs.version.outputs.full }}
+        run: |
+          mkdir -p release-files
+          gh release download "$TAG" --pattern '*.exe' --pattern '*.zip' --pattern '*.apk' --dir release-files
+      - name: Validate release files and generate SHA256SUMS.txt
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+          IS_TAG: ${{ needs.version.outputs.prerelease == 'false' }}
+        run: |
+          python3 scripts/release_assets.py release-files --private "$PRIVATE" --tag-release "$IS_TAG" --list assets.txt --notes notes.md
+          python3 scripts/stage_release.py verify release-files --private "$PRIVATE" --tag-release "$IS_TAG"
+      - name: Publish the completed draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
           PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
-          mapfile -t files < assets.txt
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            if [ "$PRERELEASE" = "true" ]; then
-              gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "$TAG" --notes-file notes.md --generate-notes
-            else
-              gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md --generate-notes
-            fi
-          fi
-          gh release upload "$TAG" "${files[@]}" --clobber
+          gh release upload "$TAG" release-files/SHA256SUMS.txt --clobber
+          gh release edit "$TAG" --notes-file notes.md --draft=false --prerelease="$PRERELEASE"
           echo "### Release [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG)" >> "$GITHUB_STEP_SUMMARY"
           cat notes.md >> "$GITHUB_STEP_SUMMARY"
-          # keep the newest 8 prereleases (their tags go too); full releases are never deleted
-          gh release list --limit 100 --json tagName,isPrerelease,createdAt \
-            -q '[.[] | select(.isPrerelease)] | sort_by(.createdAt) | reverse | .[8:] | .[].tagName' \
+          # Keep the newest eight published prereleases. Never delete drafts or stable releases.
+          gh release list --limit 100 --json tagName,isDraft,isPrerelease,createdAt \
+            -q '[.[] | select(.isPrerelease and (.isDraft | not)) | sort_by(.createdAt) | reverse | .[8:] | .[].tagName' \
             | while read -r old; do gh release delete "$old" --cleanup-tag --yes || true; done
 
+  # Remove a failed draft rather than exposing incomplete downloads.
+  discard-draft:
+    needs: [version, prepare, release]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.release.result != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Remove unpublished draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true ]; then
+            gh release delete "$TAG" --yes
+          fi
+
   # One combined error log for the whole run: only the failed jobs, only the error lines with a little context.
-  # Download the artifact "error-log" (or open the run summary) instead of the per-job logs zip.
+  # The run summary and native job logs replace downloadable diagnostic artifacts.
   error-log:
     if: ${{ !cancelled() }}
     needs: [version, tests, pc-full, pc-recording, android, android-rec, release]
@@ -169,8 +197,4 @@ jobs:
             fi
           done < failed.tsv
           { echo '```'; head -c 900000 "$out"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: error-log
-          path: error-log.txt
-          if-no-files-found: ignore
+          cat "$out"

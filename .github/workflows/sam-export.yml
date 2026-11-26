@@ -125,14 +125,11 @@ jobs:
           ls -lh "sam-models/$VARIANT"
           echo
           echo "MODEL EXPORT: SUCCESS"
-      - name: Upload model files (also on partial failure)
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Cache verified graphs for this exact build
+        uses: actions/cache/save@v4
         with:
-          name: sam-models-${{ matrix.variant }}
+          key: sam-models-${{ github.run_id }}-${{ github.sha }}-${{ matrix.variant }}
           path: sam-models/${{ matrix.variant }}/
-          if-no-files-found: warn
-          retention-days: 30
       - name: Failure diagnostics
         if: failure()
         run: |
@@ -144,10 +141,5 @@ jobs:
             find sam-models -maxdepth 3 -type f -printf '%p %s bytes\n' 2>/dev/null || true
             tail -n 250 "export-$VARIANT.log" 2>/dev/null || true
           } > "failure-$VARIANT.txt"
-      - name: Upload failure report
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sam-export-diagnostics-${{ matrix.variant }}
-          path: failure-${{ matrix.variant }}.txt
-          if-no-files-found: ignore
+          cat "failure-$VARIANT.txt"
+          { echo ' ```'; head -c 500000 "failure-$VARIANT.txt"; echo ' ```'; } >> "$GITHUB_STEP_SUMMARY"
