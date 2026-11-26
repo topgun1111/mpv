@@ -42,7 +42,10 @@ def stage(patterns: list[str], tag: str, private: bool, tag_release: bool) -> in
 def verify(root: Path, private: bool, tag_release: bool, full: str) -> int:
     files = [p for p in root.iterdir() if p.is_file() and p.name != "SHA256SUMS.txt"]
     chosen, skipped = pick(files, private, tag_release)
-    if not chosen or skipped or any(classify(p.name) is None or not p.stem.endswith("-" + full) for p in files):
+    wrong_version = any(
+        classify(p.name) is None or not p.stem.endswith("-" + full) for p in files
+    )
+    if not chosen or skipped or wrong_version:
         raise SystemExit(f"Invalid staged release assets: {skipped}")
     return 0
 
