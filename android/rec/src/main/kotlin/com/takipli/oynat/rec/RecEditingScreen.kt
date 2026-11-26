@@ -59,7 +59,7 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
     var playing by remember { mutableStateOf(false) }
     val ref = remember { AtomicReference(Grade()) }
     val disposed = remember { AtomicReference(false) }
-    val player = remember { ExoPlayer.Builder(ctx).build() }
+    val player = remember { ExoPlayer.Builder(ctx, EditingRenderersFactory(ctx)).build() }
     val effect = remember { GradeEffect { ref.get() } }
     val busy = active != null || saving
 
@@ -333,12 +333,13 @@ private fun EditingPreview(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EditingControls(
     grade: Grade, original: Boolean, busy: Boolean, onGrade: (Grade) -> Unit, modifier: Modifier,
 ) {
     Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             HazePreset.entries.forEach { p ->
                 FilterChip(selected = grade == p.grade && !original, enabled = !busy,
                     onClick = { onGrade(p.grade) }, label = { Text(p.label) })

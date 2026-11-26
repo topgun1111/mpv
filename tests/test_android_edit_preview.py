@@ -24,3 +24,17 @@ def test_preview_has_adaptive_layout_and_expand_control():
     assert 'Text(if (large) "Controls" else "Enlarge")' in screen
     assert "Modifier.size(w, w / aspect)" in screen
     assert "clearVideoTextureView" in screen
+
+
+def test_editor_enables_replayable_cache_on_its_own_player():
+    screen = (REC / "RecEditingScreen.kt").read_text(encoding="utf-8")
+    assert "ExoPlayer.Builder(ctx, EditingRenderersFactory(ctx))" in screen
+    java = ROOT / "android/rec/src/main/java/com/takipli/oynat/rec/EditingRenderersFactory.java"
+    factory = java.read_text(encoding="utf-8")
+    assert "extends DefaultRenderersFactory" in factory
+    assert "createPlaybackVideoGraphWrapper(" in factory
+    assert ".setEnablePlaylistMode(true)" in factory
+    assert ".setEnableReplayableCache(true)" in factory
+    assert ".setClock(getClock())" in factory
+    assert "EditingRenderersFactory" not in (REC / "RecScreen.kt").read_text(encoding="utf-8")
+    assert "FlowRow(" in screen
