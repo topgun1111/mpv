@@ -221,6 +221,6 @@ def test_gpu_playback_config_and_view_write_optimization(run):
     d, _ = run
     assert d["VIEW_WRITE_OPTIMIZATION"][0] == ["true"]
     conf = (CONF / "mpv.conf").read_text(encoding="utf-8")
-    for option in ("vo=gpu", "gpu-api=d3d11", "gpu-context=d3d11", "hwdec=auto-copy",
+    for option in ("vo=gpu", "gpu-api=d3d11", "gpu-context=d3d11", "hwdec=auto",
                    "video-sync=display-resample", "interpolation=no", "framedrop=vo"):
         assert option in conf

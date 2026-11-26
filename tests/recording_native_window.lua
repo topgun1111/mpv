@@ -4,6 +4,17 @@ local first=assert(os.getenv("WINDOW_LANDSCAPE"))
 local second=assert(os.getenv("WINDOW_PORTRAIT"))
 local initial
 local phase=0
+local shotdir=assert(os.getenv("WINDOW_SHOTS"))
+local function shader_active()
+  for _,p in ipairs(mp.get_property_native("options/glsl-shaders") or {}) do
+    if p:find("takipli_grade.glsl",1,true) then return true end
+  end
+  return false
+end
+local function cpu_active()
+  for _,f in ipairs(mp.get_property_native("vf") or {}) do if f.label=="videoediting" then return true end end
+  return false
+end
 local function dims()
   local d=mp.get_property_native("osd-dimensions") or {}
   if d.w and d.h and d.w>0 and d.h>0 then return {w=d.w,h=d.h} end
@@ -23,12 +34,29 @@ mp.register_event("file-loaded",function()
     if phase==1 then
       if not same("landscape") then return end
       if mp.get_property_number("video-rotate",0)~=0 then fail("landscape inherited rotation");return end
-      -- Intentionally rotate the first clip before replacing it.
-      mp.commandv("script-message-to","kayit","recording-menu-action","rotate_right")
-      mp.add_timeout(.8,function()
-        if mp.get_property_number("video-rotate",0)~=90 then fail("first rotation");return end
-        if not same("first rotation") then return end
-        phase=2;mp.commandv("loadfile",second,"replace")
+      local function rotate_first()
+        mp.commandv("script-message-to","kayit","recording-menu-action","rotate_right")
+        mp.add_timeout(.8,function()
+          if mp.get_property_number("video-rotate",0)~=90 then fail("first rotation");return end
+          if not same("first rotation") then return end
+          phase=2;mp.commandv("loadfile",second,"replace")
+        end)
+      end
+      assert(mp.commandv("screenshot-to-file",shotdir.."/before.png","window"))
+      mp.commandv("script-message-to","kayit","editing-action","moderate")
+      mp.add_timeout(1.2,function()
+        if not shader_active() or cpu_active() then fail("GPU preview not active");return end
+        local opts=mp.get_property_native("options/glsl-shader-opts") or {}
+        if tonumber(opts["takipli_grade/tg_haze"])~=.16 then fail("GPU parameters missing");return end
+        if mp.get_property("options/hwdec")~="auto" then fail("GPU preview changed decoder");return end
+        assert(mp.commandv("screenshot-to-file",shotdir.."/after.png","window"))
+        mp.commandv("script-message-to","kayit","editing-action","reset")
+        mp.add_timeout(.8,function()
+          if shader_active() or cpu_active() then fail("GPU preview reset failed");return end
+          assert(mp.commandv("screenshot-to-file",shotdir.."/reset.png","window"))
+          mp.msg.info("GPU_PREVIEW_OK")
+          rotate_first()
+        end)
       end)
     elseif phase==2 then
       if not same("portrait") then return end

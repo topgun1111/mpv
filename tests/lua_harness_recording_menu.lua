@@ -80,12 +80,12 @@ end
 click("Performance");click("Direct GPU decoding (fastest)")
 assert(props.hwdec=="auto")
 messages["editing-action"]("moderate")
-assert(props.hwdec=="auto-copy","editing must use compatible decoding")
+assert(props.hwdec=="auto","GPU editing should not force a readback")
 click("Performance");click("Standard audio sync")
 assert(props["video-sync"]=="audio")
-props.vf={{label="videoediting"}}
+props.hwdec="auto-copy";props.vf={{label="videoediting"}}
 messages["recording-menu-action"]("gpu_direct")
-assert(props.hwdec=="auto-copy","direct decoding should not break active editor")
+assert(props.hwdec=="auto-copy","direct decoding request is ignored with active CPU filter")
 props.vf={}
 messages["recording-menu-action"]("gpu_cpu")
 assert(props.hwdec=="no")

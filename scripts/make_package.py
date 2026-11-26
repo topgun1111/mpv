@@ -73,7 +73,8 @@ def build_recording(out: Path) -> None:
     # A single canonical editor/menu implementation is shipped byte-for-byte in both variants.
     modules = out / "mpv" / "portable_config" / "script-modules"
     modules.mkdir(parents=True, exist_ok=True)
-    for name in ("editingui.lua", "editingcore.lua", "trackfiles.lua", "trackmenu.lua"):
+    for name in ("editingui.lua", "editingcore.lua", "editinggpu.lua", "takipli_grade.glsl",
+                 "trackfiles.lua", "trackmenu.lua"):
         shutil.copy2(ROOT / "mpv" / "portable_config" / "script-modules" / name, modules / name)
     _copy_launchers(ROOT / "launcher_recording", out)
     _finish(out, "requirements-recording.txt")

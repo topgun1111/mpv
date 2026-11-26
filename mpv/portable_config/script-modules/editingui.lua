@@ -10,7 +10,10 @@ local function load_module(name)
 end
 local core=load_module("editingcore")
 local files=load_module("trackfiles")
+local gpu=load_module("editinggpu")
 local M={}
+local backend="none"
+local preview_mode="auto"
 local opened, overlay, drag, old_window_drag = false,nil,nil,nil
 local rows, buttons, bounds = {},{},nil
 local header, move_drag, position, metrics
@@ -51,27 +54,67 @@ local function owns_filter()
   return false
 end
 local function remove()
+  local ok,err=gpu.remove()
+  if not ok then return false,err end
   if owns_filter() then return mp.commandv("vf","remove",label) end
   return true
 end
-local function install(graph)
-  if graph=="" then return remove() end
-  return mp.commandv("vf","add",label..":lavfi=graph=%"..#graph.."%"..graph)
+local function cpu_graph(graph)
+  local vo=mp.get_property("current-vo")
+  if vo and vo~="null" then
+    local w=mp.get_property_number("video-params/w",0) or 0
+    local h=mp.get_property_number("video-params/h",0) or 0
+    if w>1280 or h>720 then
+      -- Bound work on the CPU fallback only; preserve aspect ratio and export resolution.
+      graph="scale=w='min(iw,1280)':h='min(ih,720)':force_original_aspect_ratio=decrease:force_divisible_by=2,"..graph
+    end
+  end
+  return graph
 end
-local function apply(new,compare)
+local function install(s,compare)
+  local graph=compare and "" or core.graph(s)
+  if graph=="" then
+    local ok,err=remove()
+    if ok then backend="none" end
+    return ok,err
+  end
+  if preview_mode~="cpu" and gpu.supported() then
+    if owns_filter() then
+      local ok,err=mp.commandv("vf","remove",label)
+      if not ok then return false,err end
+    end
+    local ok,err=gpu.apply(s)
+    if ok then backend="gpu";return true end
+    mp.msg.warn("GPU preview unavailable: "..tostring(err))
+    notice("GPU preview unavailable; using reduced CPU preview",4)
+  end
+  local ok,err=gpu.remove()
+  if not ok then return false,err end
+  local vo=mp.get_property("current-vo")
+  if vo and vo~="null" and mp.get_property("hwdec")=="auto" then
+    mp.set_property("hwdec","auto-copy")
+  end
+  local actual_graph=cpu_graph(graph)
+  ok,err=mp.commandv("vf","add",label..":lavfi=graph=%"..#actual_graph.."%"..actual_graph)
+  local actual
+  for _,f in ipairs(mp.get_property_native("vf") or {}) do
+    if f.label=="videoediting" then actual=f.params and f.params.graph;break end
+  end
+  if not ok or actual~=actual_graph then return false,err or "filter not present" end
+  backend="cpu"
+  return true
+end
+local function apply(new,compare,force)
   new=core.normalize(new)
   local graph=compare and "" or core.graph(new)
   local prev=bypass and "" or core.graph(state)
-  if graph~=prev or (graph~="" and not owns_filter()) then
-    local ok,err=install(graph)
-    local actual
-    for _,f in ipairs(mp.get_property_native("vf") or {}) do
-      if f.label=="videoediting" then actual=f.params and f.params.graph;break end
-    end
-    if not ok or (graph~="" and actual~=graph) or (graph=="" and owns_filter()) then
+  local active=owns_filter() or gpu.active()
+  if force or graph~=prev or (graph~="" and not active) or (graph=="" and active) then
+    local ok,err=install(new,compare)
+    if not ok then
       shown_error="Preview failed - see mpv log"
-      mp.msg.error("Editing filter: "..tostring(err or "filter not present"))
-      install(prev);notice(shown_error,5)
+      mp.msg.error("Editing filter: "..tostring(err))
+      install(state,bypass);notice(shown_error,5)
       if render then render() end
       return false
     end
@@ -199,7 +242,7 @@ render=function()
     text(bounds.x+metrics.pad,bounds.y+header.h+metrics.help/2,math.max(14,fs-4),
       shown_error and "A0A0FF" or "E5E5E5",
       (page_count>1 and ("Page "..page.."/"..page_count.." - ") or "")..
-      (shown_error or ((bypass and "Original view" or "Live preview").." | Drag corner to resize")))}
+      (shown_error or ((bypass and "Original view" or (backend=="gpu" and "GPU preview (approx.)" or (backend=="cpu" and "CPU preview" or "Live preview"))).." | Drag corner to resize")))}
   local values=pending or state
   for _,r in ipairs(rows) do
     local c,a,t=r.control,r.area,r.rail
@@ -239,7 +282,16 @@ local function queue(r,x)
   local s=core.normalize(pending or state)
   if s[c[1]]==v and not bypass then return end
   s[c[1]]=v;pending=s;render()
-  if not pending_timer then pending_timer=mp.add_timeout(.10,flush) end
+  -- CPU filters reinitialize the video chain; don't rebuild them repeatedly while dragging.
+  local vo=mp.get_property("current-vo")
+  if not vo or vo=="null" or backend=="gpu" or (preview_mode~="cpu" and gpu.supported()) then
+    if not pending_timer then pending_timer=mp.add_timeout(.05,flush) end
+  elseif not pending_timer then
+    pending_timer=mp.add_timeout(.25,function()
+      pending_timer=nil
+      if not drag then flush() end
+    end)
+  end
 end
 function M.over(x,y) return opened and (drag~=nil or move_drag~=nil or resize_drag~=nil or inside(bounds,x,y)) end
 function M.mouse(pos)
@@ -532,13 +584,18 @@ function M.action(action)
   elseif action=="reset" then
     local s=core.defaults();s.crf=state.crf
     if apply(s,false) then notice("Reset") end
+  elseif action=="preview_gpu" or action=="preview_cpu" then
+    preview_mode=action=="preview_gpu" and "auto" or "cpu"
+    if apply(state,bypass,true) then
+      notice(preview_mode=="auto" and "GPU preview preferred (export unchanged)" or "Reduced CPU preview")
+    end
   elseif action=="export_options" then export_options()
   elseif action=="export" then export_options(export) end
 end
 local function reset_file()
   generation=generation+1
   if pending_timer then pending_timer:kill();pending_timer=nil end
-  pending=nil;drag=nil;move_drag=nil;resize_drag=nil;M.close();remove();state=core.defaults();state.crf=output.crf;bypass=false;shown_error=nil;page=1
+  pending=nil;drag=nil;move_drag=nil;resize_drag=nil;M.close();remove();backend="none";state=core.defaults();state.crf=output.crf;bypass=false;shown_error=nil;page=1
 end
 mp.register_event("start-file",reset_file)
 mp.register_event("end-file",reset_file)

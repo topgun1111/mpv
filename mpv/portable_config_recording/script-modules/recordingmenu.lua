@@ -45,9 +45,12 @@ menus.MENUS={
   }},
   editing,
   {id="performance",label="Performance",items={
-    {cmd="gpu_copy",label="GPU decoding (editing compatible)"},
+    {cmd="gpu_copy",label="GPU decoding (copy-back)"},
     {cmd="gpu_direct",label="Direct GPU decoding (fastest)"},
     {cmd="gpu_cpu",label="Software decoding"},
+    {sep=true},
+    {cmd="edit_preview_gpu",label="GPU editing preview (fast)"},
+    {cmd="edit_preview_cpu",label="CPU editing preview (reduced)"},
     {sep=true},
     {cmd="sync_display",label="Smooth display sync"},
     {cmd="sync_audio",label="Standard audio sync"},
@@ -137,11 +140,6 @@ function M.new(ctx)
     if status(cmd).enabled==false then return end
     local name=cmd:match("^edit_(.+)$")
     if name then
-      -- CPU filters need accessible decoded frames; direct mode is for unedited playback.
-      if name~="cancel" and name~="reset" and mp.get_property("hwdec")=="auto" then
-        mp.set_property("hwdec","auto-copy")
-        mp.osd_message("GPU decoding switched to editing-compatible mode",2)
-      end
       editor.action(name)
     elseif cmd=="gpu_copy" or cmd=="gpu_direct" or cmd=="gpu_cpu" then
       local target=({gpu_copy="auto-copy",gpu_direct="auto",gpu_cpu="no"})[cmd]

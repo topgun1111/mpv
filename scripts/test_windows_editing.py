@@ -122,7 +122,8 @@ def main():
                     "-i", "testsrc2=size=180x320:rate=5", "-t", "1",
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", portrait,
                 ])
-                env.update(WINDOW_LANDSCAPE=str(clip), WINDOW_PORTRAIT=str(portrait))
+                env.update(WINDOW_LANDSCAPE=str(clip), WINDOW_PORTRAIT=str(portrait),
+                           WINDOW_SHOTS=str(temp))
                 log = temp / "window.log"
                 native_args = [
                     mpv, f"--config-dir={pkg / 'mpv/portable_config'}", "--load-scripts=yes",
@@ -138,6 +139,22 @@ def main():
                 data = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
                 if "WINDOW_GEOMETRY_AVAILABLE" in data:
                     assert result.returncode == 0 and "WINDOW_GEOMETRY_OK" in data, data
+                    assert "GPU_PREVIEW_OK" in data, data
+                    # Compare actual rendered pixels, excluding HUD, subtitles and window edges.
+                    def screenshot_pixels(name):
+                        return run([
+                            ffmpeg, "-hide_banner", "-loglevel", "error",
+                            "-i", temp / name, "-vf", "crop=200:160:(iw-200)/2:(ih-160)/2",
+                            "-pix_fmt", "rgb24", "-f", "rawvideo", "-",
+                        ])
+                    before, after, reset = (
+                        screenshot_pixels(name) for name in ("before.png", "after.png", "reset.png")
+                    )
+                    assert len(before) == len(after) == len(reset) == 200 * 160 * 3
+                    delta = sum(abs(a-b) for a, b in zip(before, after)) / len(before)
+                    restored = sum(abs(a-b) for a, b in zip(before, reset)) / len(before)
+                    assert delta > 2.0 and restored < 1.0, (delta, restored)
+                    print(f"GPU_PREVIEW_PIXELS_OK: changed={delta:.3f}, reset={restored:.3f}")
                     print("NATIVE_WINDOWS_GEOMETRY_OK (WARP; not a physical GPU benchmark)")
                 elif "WINDOW_GEOMETRY_UNAVAILABLE" in data:
                     print("NATIVE_WINDOWS_GEOMETRY_SKIPPED: runner has no usable native window")
