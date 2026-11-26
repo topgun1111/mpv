@@ -146,6 +146,8 @@ fun RecScreen() {
     var speed by remember { mutableStateOf(1.0) }
     var fullscreen by remember { mutableStateOf(false) }
     var showAdvanced by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    var editResumeAt by remember { mutableLongStateOf(0L) }
     val player = remember { ExoPlayer.Builder(ctx).build() }
     val hostView = LocalView.current
     SideEffect { hostView.keepScreenOn = recording || exporter != null || fullscreen }
@@ -223,7 +225,7 @@ fun RecScreen() {
         }
     }
 
-    BackHandler(enabled = fullscreen) { if (recording) stopRecording() else fullscreen = false }
+    BackHandler(enabled = fullscreen && !editing) { if (recording) stopRecording() else fullscreen = false }
 
     // Speed only changes the preview player. Keys are stamped with the video's own clock, so the export keeps the original speed.
     fun applySpeed(s: Double) {
@@ -295,6 +297,23 @@ fun RecScreen() {
     val onGesture: (Double, Double, Double, Double, Double) -> Unit = { ax, ay, dx, dy, z -> view = applyGestureAt(view, ax, ay, dx, dy, z, 4.0) }
     val exportLine = if (exporting) stringResource(R.string.exporting, (exportProgress * 100).toInt()) else exportMessage
 
+    fun openEditing() {
+        if (!loaded || recording || exporting) return
+        if (vi?.hdr == true) { exportMessage = "Editing supports SDR video only."; return }
+        editResumeAt = player.currentPosition.coerceAtLeast(0)
+        player.pause(); player.stop(); player.clearMediaItems()
+        fullscreen = false
+        editing = true
+    }
+    if (editing && vi != null && uri != null) {
+        val source = checkNotNull(uri)
+        RecEditingScreen(source, vi, editResumeAt) {
+            editing = false
+            reloadPreview(source, vi.userRot, editResumeAt)
+        }
+        return
+    }
+
     if (fullscreen && loaded) {
         // ---- Full screen: the preview fills the screen, everything else is an overlay ----
         Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -303,6 +322,7 @@ fun RecScreen() {
                 Row(Modifier.fillMaxWidth().align(Alignment.TopCenter), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     OverlayButton(stringResource(R.string.exit_full_screen), { if (recording) stopRecording(); fullscreen = false })
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OverlayButton("Editing", { openEditing() }, enabled = !recording && !exporting)
                         OverlayButton(stringResource(R.string.rotate_left), { rotate(-90) }, enabled = !recording && !exporting)
                         OverlayButton(stringResource(R.string.rotate_right), { rotate(90) }, enabled = !recording && !exporting)
                     }
@@ -383,6 +403,9 @@ fun RecScreen() {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { togglePlay() }, enabled = !exporting, modifier = Modifier.weight(1f)) { Text(stringResource(if (playing) R.string.pause else R.string.play)) }
                     OutlinedButton(onClick = { view = ZERO_VIEW }, enabled = !recording && !exporting, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.reset_view)) }
+                }
+                OutlinedButton(onClick = { openEditing() }, enabled = !recording && !exporting, modifier = Modifier.fillMaxWidth()) {
+                    Text("Editing · Dehaze & colour")
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OverlayButton(stringResource(if (recording) R.string.stop_short else R.string.rec_short), { if (recording) stopRecording() else startRecording() }, modifier = Modifier.weight(1f), enabled = !exporting, accent = true)

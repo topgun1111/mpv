@@ -18,6 +18,7 @@ data class VideoInfo(
     val bitrate: Int? = null,
     /** Manual clockwise turn (0/90/180/270) chosen with the rotate buttons, on top of the file's rotation metadata. */
     val userRot: Int = 0,
+    val hdr: Boolean = false,
 ) {
     val width: Int get() = displaySize(codedW, codedH, rotation + userRot).first
     val height: Int get() = displaySize(codedW, codedH, rotation + userRot).second
@@ -57,6 +58,10 @@ object RecVideo {
                     frameRate = if (f.containsKey(MediaFormat.KEY_FRAME_RATE)) f.getInteger(MediaFormat.KEY_FRAME_RATE).toDouble() else null,
                     bitrate = sourceBitrate(ctx, uri, f, durationS),
                     userRot = RecRot.get(ctx, uri.toString()),
+                    hdr = f.containsKey(MediaFormat.KEY_COLOR_TRANSFER) &&
+                        f.getInteger(MediaFormat.KEY_COLOR_TRANSFER) in setOf(
+                            MediaFormat.COLOR_TRANSFER_ST2084, MediaFormat.COLOR_TRANSFER_HLG,
+                        ),
                 )
             }
         } finally {
