@@ -110,9 +110,11 @@ local menu
 -- Load the shared editor in the packaged application; old geometry-only harness stays independent.
 if not rawget(_G,"KAYIT_EXPOSE") then
   local ok,mod=pcall(require,"recordingmenu")
-  if ok then
-    menu=mod.new(function() return not rec.on and not exp.running end)
-    for _,b in ipairs({BTN,SPD,ROTL,ROTR}) do b.y=70 end
+  if not ok then
+    local path=mp.command_native({"expand-path","~~/script-modules/recordingmenu.lua"})
+    if type(path)=="string" then ok,mod=pcall(dofile,path) end
+  end
+  if ok then menu=mod.new(function() return not rec.on and not exp.running end)
   else mp.msg.error("Editing menu unavailable: "..tostring(mod)) end
 end
 
@@ -168,7 +170,9 @@ local function hud_update()
     hud.ov.z = HUD_Z
   end
   local zoom, txt = 2 ^ V[1], nil
-  local head = menu and "{\\an7\\pos(24,74)\\fs30\\bord2}" or "{\\an7\\pos(24,16)\\fs30\\bord2}"
+  local top=menu and menu.hud_top() or 12
+  for _,b in ipairs({BTN,SPD,ROTL,ROTR}) do b.y=top end
+  local head=string.format("{\\an7\\pos(24,%d)\\fs30\\bord2}",top+4)
   if rec.on and rec.run then
     txt = string.format("%s{\\1c&H0000FF&}●{\\1c&HFFFFFF&} KAYIT  %.1f×  %.1f sn", head, zoom, rec.t or 0)
   elseif rec.on and rec.started then
@@ -403,6 +407,7 @@ mp.register_event("file-loaded", function()
 end)
 mp.observe_property("eof-reached", "native", function(_, v) if v and rec.on then stop_rec() end end)
 mp.observe_property("speed", "native", function() hud_update() end)
+if menu then mp.observe_property("osd-dimensions","native",function() hud_update() end) end
 
 -- ---- dışa aktarma (R3): E = `pythonw -m recorder export`; ilerleme <çıktı>.export.json, Esc = iptal -----
 local utils = require("mp.utils")

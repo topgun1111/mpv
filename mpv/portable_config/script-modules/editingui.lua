@@ -122,7 +122,8 @@ local function layout()
   -- A user-sized panel may be shorter than the automatic layout; keep pagination readable.
   local minLine=math.max(32,math.floor(font*1.55))
   local minHeight=headerH+helpH+footerH+minLine
-  local targetH=requested and clamp(math.floor(requested.h),math.min(minHeight,avail),avail) or avail
+  if avail<minHeight then bounds,header,metrics=nil,nil,nil;return W,H end
+  local targetH=requested and clamp(math.floor(requested.h),minHeight,avail) or avail
   local contentH=targetH-headerH-helpH-footerH
   -- In narrow/short windows use pages, not microscopic text.
   local capacity=math.max(1,math.floor(contentH/minLine))*cols
@@ -198,7 +199,7 @@ render=function()
     text(bounds.x+metrics.pad,bounds.y+header.h+metrics.help/2,math.max(14,fs-4),
       shown_error and "A0A0FF" or "E5E5E5",
       (page_count>1 and ("Page "..page.."/"..page_count.." - ") or "")..
-      (shown_error or ((bypass and "Original view" or "Live preview").." | Drag title / corner to move / resize")))}
+      (shown_error or ((bypass and "Original view" or "Live preview").." | Drag corner to resize")))}
   local values=pending or state
   for _,r in ipairs(rows) do
     local c,a,t=r.control,r.area,r.rail

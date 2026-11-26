@@ -74,15 +74,20 @@ def main():
             "highlights", "warmth", "clarity", "sharpness", "denoise",
             "contrast_negative", "brightness_negative", "gamma_negative",
             "saturation_negative", "shadows_negative", "highlights_negative", "warmth_negative",
+            "clarity_middle", "sharpness_middle",
         }
         assert set(graphs) == expected, set(graphs)
         baseline = pixels(ffmpeg, raw, "")
+        differences = {}
         for name, graph in sorted(graphs.items()):
             changed = pixels(ffmpeg, raw, graph.strip())
             assert len(changed) == len(baseline)
             diff = sum(abs(a - b) for a, b in zip(baseline, changed)) / len(baseline)
             assert diff > 0.15, f"{name} had negligible effect: {diff:.3f}"
+            differences[name] = diff
             print(f"PIXEL CHANGE {name}: mean absolute difference {diff:.3f}")
+        for name in ("clarity", "sharpness"):
+            assert differences[name] > differences[name + "_middle"] > 0.5
         # Execute real Lua mouse/resize regression in the shipped mpv interpreter.
         env["EDITING_HARNESS"] = str(ROOT / "tests/lua_harness_editing_ui.lua")
         log = temp / "ui.log"

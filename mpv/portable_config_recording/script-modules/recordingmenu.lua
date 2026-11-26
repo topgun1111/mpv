@@ -1,7 +1,12 @@
 -- Recording-only top bar, with the same Editing menu and panel as the full app.
 local mp=require "mp"
-local menus=require "trackmenu"
-local editor=require "editingui"
+local function shared(name)
+  local ok,mod=pcall(require,name)
+  if ok then return mod end
+  return dofile(mp.command_native({"expand-path","~~/script-modules/"..name..".lua"}))
+end
+local menus=shared("trackmenu")
+local editor=shared("editingui")
 local M={}
 local editing
 for _,m in ipairs(menus.MENUS) do if m.id=="editing" then editing=m;break end end
@@ -30,6 +35,9 @@ function M.new(available)
     engine.hd=mp.get_property_number("display-hidpi-scale",1) or 1
     engine:resize(w,h);engine:relayout()
     ov.res_x,ov.res_y=w,h;ov.data=engine:render();ov:update()
+  end
+  function self.hud_top()
+    return engine.H>0 and math.ceil(engine.bh*720/engine.H)+8 or 70
   end
   function self.over(pos)
     return pos and pos.x and (engine:over(pos.x,pos.y) or editor.over(pos.x,pos.y))

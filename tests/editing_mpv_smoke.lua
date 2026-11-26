@@ -29,6 +29,12 @@ local function check()
         local g=assert(filter(),"missing filter "..c[1]).params.graph
         assert(g==C.graph({[c[1]]=c[4]}),"wrong graph "..c[1])
         mp.msg.info("EDITING_GRAPH|"..c[1].."|"..g)
+        if c[1]=="clarity" or c[1]=="sharpness" then
+          assert(E.set_control(c[1],30))
+          local mid=assert(filter()).params.graph
+          assert(mid==C.graph({[c[1]]=30}) and mid~=g)
+          mp.msg.info("EDITING_GRAPH|"..c[1].."_middle|"..mid)
+        end
         if c[3]<0 then
           assert(E.set_control(c[1],c[3]),"negative control failed: "..c[1])
           local neg=assert(filter()).params.graph
