@@ -172,10 +172,13 @@ jobs:
           PRIVATE: ${{ github.event.repository.private }}
           IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: python scripts/stage_release.py upload "dist-android/release/*.apk"
-      - name: Model diagnostics on failure
-        if: failure()
+      - name: Model diagnostics in job logs
+        if: always()
         shell: bash
         run: |
-          for f in "$RUNNER_TEMP"/export-*.log; do
-            if [ -f "$f" ]; then echo "=== $f ==="; tail -n 100 "$f"; fi
+          for f in model-logs/*.json "$RUNNER_TEMP"/export-*.log; do
+            if [ -f "$f" ]; then
+              echo "=== $f ==="
+              tail -n 100 "$f"
+            fi
           done

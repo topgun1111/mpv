@@ -201,7 +201,19 @@ def test_installer_upgrades_in_place_and_ships_model_with_license():
     wf = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
     assert r"models\yolox_s.onnx" in wf and r"models\yolov8s-pose.onnx" in wf
     assert "export_pose.py" in wf and "tracker.exe detect" in wf
-    assert "sam-models-edgetam" in wf and "sam-models-small" in wf
+    # Model transfer is now an exact, cross-OS cache, not a workflow artifact.
+    sam_wf = (ROOT / ".github/workflows/sam-export.yml").read_text(encoding="utf-8")
+    assert "actions/cache/save@v4" in sam_wf and "upload-artifact" not in sam_wf
+    assert wf.count("actions/cache/restore@v4") == 2
+    assert wf.count("fail-on-cache-miss: true") == 2
+    assert wf.count("enableCrossOsArchive: true") == 2
+    assert "enableCrossOsArchive: true" in sam_wf
+    cache_prefix = "sam-models-${{ github.run_id }}-${{ github.sha }}-"
+    assert cache_prefix + "${{ matrix.variant }}" in sam_wf
+    for variant in ("edgetam", "small"):
+        assert cache_prefix + variant in wf
+        assert f"path: sam-models/{variant}" in wf
+    assert "download-artifact" not in wf and "SAM checksum mismatch" in wf
     assert "sam_smoke_test.py" in wf and "MODEL EXPORT: SUCCESS" in wf
     # kurulum sonrası otomatik başlatma seçeneği (sessiz kurulumda atlanır)
     assert "postinstall" in iss and "skipifsilent" in iss

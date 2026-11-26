@@ -133,7 +133,12 @@ def test_android_workflow_pins_torch_and_reports_models():
     assert y.index("scripts/model_report.py") < y.index("assemble${{ matrix.gradle_task }}Release")
     assert "MODEL_CKPT_DIR" in y and "model-logs" in y
     assert "ultralytics==8.4.216" in y and 'scripts/export_pose.py "$d" yolo26m-pose' in y
-    assert y.count("upload-artifact@v4") == 2 and "if: always()" in y
+    assert "upload-artifact" not in y and "download-artifact" not in y
+    stage = y[y.index("- name: Stage permitted release files directly"):]
+    assert "scripts/stage_release.py upload" in stage and "inputs.release_tag" in stage
+    diagnostics = y[y.index("- name: Model diagnostics in job logs"):]
+    assert "if: always()" in diagnostics
+    assert "model-logs/*.json" in diagnostics and 'tail -n 100 "$f"' in diagnostics
 
 
 def test_apk_check_is_per_flavor():
