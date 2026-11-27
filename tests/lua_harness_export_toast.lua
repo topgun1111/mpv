@@ -39,8 +39,11 @@ T.show("Saved {example}.mp4",8)
 assert(overlay.data:find("\\{example}",1,true))
 local old=timers[#timers]
 T.show("Exporting another file",0)
+local current=overlay.data
+-- The narrow high-DPI viewport inserts an ASS line break inside this message.
+assert(current:gsub("\\N",""):find("Exporting another file",1,true),"new toast not rendered")
 assert(old.killed);old.fn()
-assert(overlay.data:find("another file",1,true),"old timer cleared newer toast")
+assert(overlay.data==current,"old timer cleared or changed newer toast")
 T.show("Export failed: "..string.rep("ü",100),8)
 assert(overlay.data:find("\\N",1,true),"long path was not wrapped")
 timers[#timers].fn()
