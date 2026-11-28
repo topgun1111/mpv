@@ -6,7 +6,6 @@ import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.media3.common.MimeTypes
-import kotlin.math.ceil
 import com.takipli.oynat.core.displaySize
 import com.takipli.oynat.core.normalizeRotation
 
@@ -17,7 +16,7 @@ data class VideoInfo(
     val rotation: Int,
     val durationS: Double,
     val frameRate: Double?,
-    /** Source video bitrate (bit/s): track metadata or measured video samples; null = unknown. */
+    /** Source video bitrate (bit/s): measured video samples; null = unknown. */
     val bitrate: Int? = null,
     /** Manual clockwise turn (0/90/180/270) chosen with the rotate buttons, on top of the file's rotation metadata. */
     val userRot: Int = 0,
@@ -37,10 +36,7 @@ object RecRot {
 }
 
 object RecVideo {
-    private fun sourceBitrate(extractor: MediaExtractor, track: Int, format: MediaFormat, durationS: Double): Int? {
-        if (format.containsKey(MediaFormat.KEY_BIT_RATE)) {
-            format.getInteger(MediaFormat.KEY_BIT_RATE).takeIf { it > 0 }?.let { return it }
-        }
+    private fun trackBitrate(extractor: MediaExtractor, track: Int, durationS: Double): Int? {
         if (durationS <= 0.0) return null
         extractor.selectTrack(track)
         var bytes = 0L
@@ -51,7 +47,7 @@ object RecVideo {
             if (!extractor.advance()) break
         }
         if (bytes <= 0) return null
-        return ceil(bytes * 8.0 / durationS).coerceAtMost(Int.MAX_VALUE.toDouble()).toInt()
+        return (bytes * 8.0 / durationS).coerceAtMost(Int.MAX_VALUE.toDouble()).toInt().takeIf { it > 0 }
     }
 
     private fun sourceFrameCount(ctx: Context, uri: Uri): Int? = runCatching {
@@ -78,7 +74,7 @@ object RecVideo {
                     rotation = normalizeRotation(if (f.containsKey(MediaFormat.KEY_ROTATION)) f.getInteger(MediaFormat.KEY_ROTATION) else 0),
                     durationS = durationS,
                     frameRate = if (f.containsKey(MediaFormat.KEY_FRAME_RATE)) f.getInteger(MediaFormat.KEY_FRAME_RATE).toDouble() else null,
-                    bitrate = sourceBitrate(ex, i, f, durationS),
+                    bitrate = trackBitrate(ex, i, durationS),
                     hevc = mime == MimeTypes.VIDEO_H265,
                     frameCount = sourceFrameCount(ctx, uri),
                     userRot = RecRot.get(ctx, uri.toString()),

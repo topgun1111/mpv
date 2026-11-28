@@ -281,7 +281,7 @@ fun RecScreen() {
                         try {
                             val name = "Takipli_Kayit_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(Date()) + ".mp4"
                             withContext(Dispatchers.IO) {
-                                RecExporter.verifyQuality(ctx, vi, result)
+                                RecExporter.verifyQuality(ctx, vi, out, result)
                                 RecExporter.saveToMovies(ctx, out, name)
                                 out.delete()
                             }

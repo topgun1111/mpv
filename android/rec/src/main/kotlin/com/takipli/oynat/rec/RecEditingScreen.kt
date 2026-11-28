@@ -173,7 +173,7 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
                                 val name = "Edited_" + UUID.randomUUID().toString().take(8) + ".mp4"
                                 withContext(Dispatchers.IO) {
                                     try {
-                                        RecExporter.verifyQuality(ctx, info, result)
+                                        RecExporter.verifyQuality(ctx, info, out, result)
                                         RecExporter.saveToMovies(ctx, out, name)
                                     } finally { out.delete() }
                                 }

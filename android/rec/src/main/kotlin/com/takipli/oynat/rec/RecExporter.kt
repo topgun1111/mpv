@@ -5,7 +5,6 @@ import android.content.Context
 import android.graphics.Matrix
 import android.net.Uri
 import android.provider.MediaStore
-import androidx.media3.common.ColorInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.effect.MatrixTransformation
@@ -65,20 +64,20 @@ internal object RecExporter {
     }
 
     /** Check the encoder output before it reaches the gallery. Media3 can store rotation as metadata. */
-    fun verifyQuality(ctx: Context, source: VideoInfo, result: ExportResult) {
+    fun verifyQuality(ctx: Context, source: VideoInfo, file: File, result: ExportResult) {
         val sourceBitrate = checkNotNull(source.bitrate) { ctx.getString(R.string.export_bitrate_unknown) }
-        check(minOf(result.width, result.height) == minOf(source.width, source.height) &&
-            maxOf(result.width, result.height) == maxOf(source.width, source.height)) {
+        val output = RecVideo.probe(ctx, Uri.fromFile(file))
+        check(output.width == source.width && output.height == source.height) {
             ctx.getString(R.string.export_size_failed)
         }
-        check(result.averageVideoBitrate >= sourceBitrate) {
-            if (result.averageVideoBitrate <= 0) ctx.getString(R.string.export_bitrate_unverified)
-            else ctx.getString(R.string.export_bitrate_failed, result.averageVideoBitrate / 1e6, sourceBitrate / 1e6)
+        val outputBitrate = checkNotNull(output.bitrate) { ctx.getString(R.string.export_bitrate_unverified) }
+        check(outputBitrate >= sourceBitrate) {
+            ctx.getString(R.string.export_bitrate_failed, outputBitrate / 1e6, sourceBitrate / 1e6)
         }
-        check(source.frameCount == null || result.videoFrameCount >= source.frameCount) {
+        check(source.frameCount == null || (output.frameCount ?: result.videoFrameCount) >= source.frameCount) {
             ctx.getString(R.string.export_frames_failed)
         }
-        check(!source.hdr || ColorInfo.isTransferHdr(result.colorInfo)) {
+        check(!source.hdr || output.hdr) {
             ctx.getString(R.string.export_hdr_failed)
         }
     }
