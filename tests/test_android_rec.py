@@ -1,6 +1,7 @@
 """Android record-only variant (android/rec): ayrı modül, AI/izleme yok, tam ekran + döndürme."""
 import re
 from pathlib import Path
+from xml.etree import ElementTree
 
 ROOT = Path(__file__).resolve().parent.parent
 ANDROID = ROOT / "android"
@@ -18,13 +19,11 @@ def _code(p: Path) -> str:
     return "\n".join(x for x in lines if not x.strip().startswith(("//", "#")))
 
 
-def _names(xml: str) -> set:
-    return set(re.findall(r'<string name="([^"]+)"', xml))
-
-
-def _formats(xml: str, name: str) -> list:
-    m = re.search(r'<string name="%s">(.*?)</string>' % re.escape(name), xml, re.S)
-    return sorted(re.findall(r"%\d\$[sd]", m.group(1)))
+def _strings(xml: str) -> dict[str, list[str]]:
+    return {
+        entry.attrib["name"]: sorted(re.findall(r"%\d+\$(?:\.\d+)?[sdf]", entry.text or ""))
+        for entry in ElementTree.fromstring(xml).findall("string")
+    }
 
 
 def test_rec_is_its_own_module_next_to_app():
@@ -62,22 +61,24 @@ def test_rec_screen_has_fullscreen_overlay_and_rotation():
     assert "detectTransformGestures" in t and "applyGestureAt" in t  # zoom + sürükleme birlikte
     assert "BackHandler" in t  # geri tuşu tam ekrandan çıkar / kaydı durdurur
     e = _text(SRC / "RecExporter.kt")
-    assert "rotationEffect(rot)" in e  # döndürme dışa aktarmaya da girer
-    assert "targetBitrate(sourceBitrate" in e  # çıkış bit hızı kaynakla aynı
-    assert "KEY_BIT_RATE" in _text(SRC / "RecVideo.kt")
+    assert "rotationEffect(info.userRot)" in e  # döndürme dışa aktarmaya da girer
+    assert "outputBitrate >= sourceBitrate" in e
+    assert "extractor.sampleSize" in _text(SRC / "RecVideo.kt")
+    for screen in ("RecScreen.kt", "RecEditingScreen.kt"):
+        code = _text(SRC / screen)
+        assert "RecExportOptions(" in code
+        assert code.index("RecExporter.verifyQuality(") < code.index("RecExporter.saveToMovies(")
 
 
 def test_rec_strings_en_tr_match_and_formats_agree():
     res = REC / "src" / "main" / "res"
-    en = _text(res / "values" / "strings.xml")
-    tr = _text(res / "values-tr" / "strings.xml")
-    assert _names(en) == _names(tr)
-    for n in _names(en):
-        assert _formats(en, n) == _formats(tr, n), n
+    en = _strings(_text(res / "values" / "strings.xml"))
+    tr = _strings(_text(res / "values-tr" / "strings.xml"))
+    assert en == tr
     used = set()  # kodda kullanılan her R.string.X tanımlı olmalı
     for f in SRC.glob("*.kt"):
-        used |= set(re.findall(r"R\.string\.([a-z_0-9]+)", _text(f)))
-    assert used <= _names(en), used - _names(en)
+        used |= set(re.findall(r"(?<!android\.)\bR\.string\.([a-z_0-9]+)", _text(f)))
+    assert used <= en.keys(), used - en.keys()
 
 
 def test_rec_workflow_is_separate_and_android_yml_untouched():
