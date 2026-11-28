@@ -45,4 +45,18 @@
     <string name="export_size_failed">The encoder did not preserve the source resolution. The export was discarded.</string>
     <string name="export_frames_failed">The encoder dropped video frames. The export was discarded.</string>
     <string name="export_hdr_failed">The encoder did not preserve HDR. The export was discarded.</string>
+    <string name="rec_update_title">App updates</string>
+    <string name="rec_update_checking">Checking GitHub Releases…</string>
+    <string name="rec_update_current">You have the latest version.</string>
+    <string name="rec_update_found">Available version: %1$s</string>
+    <string name="rec_update_sizes">Partial download: %1$s · Full APK: %2$s</string>
+    <string name="rec_update_no_patch">A partial update for this installed APK is unavailable. You can install manually from GitHub Releases.</string>
+    <string name="rec_update_downloading">Downloading the patch…</string>
+    <string name="rec_update_verifying">Rebuilding and verifying the APK…</string>
+    <string name="rec_update_download">Download partial update</string>
+    <string name="rec_update_install">Install update</string>
+    <string name="rec_update_permission">Allow app installs in Android settings, then return and tap Install update.</string>
+    <string name="rec_update_release">Open GitHub release</string>
+    <string name="rec_update_retry">Check again</string>
+    <string name="rec_update_error">Update failed: %1$s</string>
 </resources>

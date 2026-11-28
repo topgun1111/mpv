@@ -18,3 +18,13 @@ fun parseUpdateAsset(name: String, engine: String): Pair<String, Int>? {
     val build = m.groupValues[3].toIntOrNull() ?: return null
     return "${m.groupValues[2]}-b$build" to updateVersionCode(m.groupValues[2], build)
 }
+
+private val RECORDING_APK = Regex("""TakipliKayit-Android-([0-9]{1,3})\.([0-9]{1,2})\.([0-9]{1,2})-b([0-9]{1,3})\.apk""")
+
+fun parseRecordingUpdateAsset(name: String): Pair<String, Int>? {
+    val match = RECORDING_APK.matchEntire(name) ?: return null
+    val (major, minor, patch, build) = match.destructured
+    val version = "$major.$minor.$patch"
+    if (versionCode(version).toLong() * 1000 + build.toInt() > Int.MAX_VALUE) return null
+    return "$version-b$build" to updateVersionCode(version, build.toInt())
+}

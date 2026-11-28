@@ -127,6 +127,10 @@ jobs:
         run: |
           mkdir -p release-files
           gh release download "$TAG" --pattern '*.exe' --pattern '*.zip' --pattern '*.apk' --dir release-files
+      - name: Generate partial updates from recent signed Android recording releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/apk_delta.py --from-releases release-files/TakipliKayit-Android-*.apk
       - name: Validate release files and generate SHA256SUMS.txt
         env:
           PRIVATE: ${{ github.event.repository.private }}
@@ -144,7 +148,8 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
           PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
-          gh release upload "$TAG" release-files/SHA256SUMS.txt --clobber
+          shopt -s nullglob
+          gh release upload "$TAG" release-files/*.patch release-files/SHA256SUMS.txt --clobber
           gh release edit "$TAG" --title "$TAG" --notes-file notes.md --draft=false --prerelease="$PRERELEASE"
           echo "### Release [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG)" >> "$GITHUB_STEP_SUMMARY"
           cat notes.md >> "$GITHUB_STEP_SUMMARY"

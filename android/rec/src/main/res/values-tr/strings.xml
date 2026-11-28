@@ -45,4 +45,18 @@
     <string name="export_size_failed">Kodlayıcı kaynak çözünürlüğünü koruyamadı. Dışa aktarılan dosya silindi.</string>
     <string name="export_frames_failed">Kodlayıcı video karelerini atladı. Dışa aktarılan dosya silindi.</string>
     <string name="export_hdr_failed">Kodlayıcı HDR biçimini koruyamadı. Dışa aktarılan dosya silindi.</string>
+    <string name="rec_update_title">Uygulama güncellemeleri</string>
+    <string name="rec_update_checking">GitHub sürümleri denetleniyor…</string>
+    <string name="rec_update_current">En son sürümü kullanıyorsunuz.</string>
+    <string name="rec_update_found">Yeni sürüm: %1$s</string>
+    <string name="rec_update_sizes">Kısmi indirme: %1$s · Tam APK: %2$s</string>
+    <string name="rec_update_no_patch">Kurulu APK için kısmi güncelleme yok. GitHub sürümlerinden elle yükleyebilirsiniz.</string>
+    <string name="rec_update_downloading">Yama indiriliyor…</string>
+    <string name="rec_update_verifying">APK hazırlanıyor ve doğrulanıyor…</string>
+    <string name="rec_update_download">Kısmi güncellemeyi indir</string>
+    <string name="rec_update_install">Güncellemeyi yükle</string>
+    <string name="rec_update_permission">Android ayarlarında uygulama yüklemeye izin verin, sonra dönüp Güncellemeyi yükle düğmesine dokunun.</string>
+    <string name="rec_update_release">GitHub sürümünü aç</string>
+    <string name="rec_update_retry">Yeniden denetle</string>
+    <string name="rec_update_error">Güncelleme başarısız: %1$s</string>
 </resources>

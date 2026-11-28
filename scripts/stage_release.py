@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 
 from public_tracking import verify_release_pair
-from release_assets import classify, pick
+from release_assets import RECORD_PATCH, classify, pick, sha256
 
 
 def collect(patterns: list[str]) -> list[Path]:
@@ -62,12 +62,19 @@ def verify(root: Path, private: bool, tag_release: bool, full: str,
         if private:
             required.update(f"TakipliOynat-Android-{flavor}-{full}.apk"
                             for flavor in ("pose", "sam"))
-        actual = {p.name for p in chosen}
+        optional = {p.name: m for p in chosen if (m := RECORD_PATCH.fullmatch(p.name))}
+        actual = {p.name for p in chosen} - optional.keys()
         if actual != required:
             raise SystemExit(
                 f"Incomplete release: missing={sorted(required - actual)}, "
                 f"unexpected={sorted(actual - required)}"
             )
+        if optional:
+            apk = root / f"TakipliKayit-Android-{full}.apk"
+            digest = sha256(apk)
+            if any(match[1] != digest or (root / name).stat().st_size >= apk.stat().st_size
+                   for name, match in optional.items()):
+                raise SystemExit("Partial update targets the wrong recorder APK or is not smaller")
         if any(p.stat().st_size == 0 for p in chosen):
             raise SystemExit("Empty release asset")
     if not private:

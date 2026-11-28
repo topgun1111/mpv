@@ -93,3 +93,38 @@ def test_complete_release_rejects_missing_variants(tmp_path, stage_module):
     (tmp_path / f"TakipliOynatKayit-Setup-{version}.exe").write_bytes(b"")
     with pytest.raises(SystemExit, match="Empty release asset"):
         stage_module.verify(tmp_path, True, False, version, complete=True)
+
+
+def test_record_patch_is_validated_with_release_assets(tmp_path, stage_module):
+    from hashlib import sha256
+
+    from apk_delta import make_patch, reconstruct
+    from release_assets import pick
+
+    version = "1.2.3-b5"
+    base_path = tmp_path.parent / "base.apk"
+    target_path = tmp_path / f"TakipliKayit-Android-{version}.apk"
+    for path, content in ((base_path, b"old"), (target_path, b"new")):
+        with ZipFile(path, "w") as archive:
+            archive.writestr("classes.dex", content)
+            archive.writestr("assets/shared", bytes(range(256)) * 4096)
+    base, target = base_path.read_bytes(), target_path.read_bytes()
+    patch_name, patch = make_patch(base, target, target_path)
+    assert len(patch) < len(target)
+    assert reconstruct(base, patch) == target
+    with pytest.raises(ValueError, match="base mismatch"):
+        reconstruct(target, patch)
+    with pytest.raises((ValueError, EOFError)):
+        reconstruct(base, patch[:len(patch) // 2])
+    patch_path = tmp_path / patch_name
+    patch_path.write_bytes(patch)
+    assert pick([patch_path], private=False, tag_release=False) == ([patch_path], [])
+    _tracking_pair(tmp_path, version)
+    for name in (f"TakipliOynatKayit-Setup-{version}.exe",
+                 f"TakipliOynatKayit-Portable-{version}.zip"):
+        (tmp_path / name).write_bytes(b"binary")
+    assert stage_module.verify(tmp_path, False, False, version, complete=True) == 0
+    target_path.write_bytes(target + b"tampered")
+    assert sha256(target_path.read_bytes()).hexdigest() not in patch_name
+    with pytest.raises(SystemExit, match="wrong recorder APK"):
+        stage_module.verify(tmp_path, False, False, version, complete=True)

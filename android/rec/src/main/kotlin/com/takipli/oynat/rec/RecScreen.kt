@@ -36,6 +36,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -141,6 +142,7 @@ fun RecScreen() {
     var posMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(1L) }
     var exporter by remember { mutableStateOf<Transformer?>(null) }
+    var showUpdater by remember { mutableStateOf(false) }
     var showExportOptions by remember { mutableStateOf(false) }
     var exportQuality by remember(uri) { mutableStateOf(RecExportQuality()) }
     var exportProgress by remember { mutableStateOf(0f) }
@@ -319,6 +321,8 @@ fun RecScreen() {
         return
     }
 
+    if (showUpdater) RecUpdateDialog(onClose = { showUpdater = false })
+
     if (showExportOptions && vi != null) {
         RecExportOptions(
             vi, exportQuality, { exportQuality = it },
@@ -396,6 +400,9 @@ fun RecScreen() {
                 OutlinedButton(onClick = { picker.launch(arrayOf("video/*")) }, enabled = !exporting && !recording) {
                     Text(stringResource(if (uri == null) R.string.choose_video else R.string.change_video))
                 }
+            }
+            TextButton(onClick = { showUpdater = true }, enabled = !recording && !exporting) {
+                Text(stringResource(R.string.rec_update_title))
             }
             if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
             if (loaded && vi != null) {
