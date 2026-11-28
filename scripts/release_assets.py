@@ -30,10 +30,13 @@ RULES = (
 
 
 # The shared naming scheme: <App>-<X.Y.Z>-b<run number>.<ext> (debug APKs are named ...-<X.Y.Z>-debug.apk and never match)
+RECORD_PATCH = re.compile(r"TakipliKayit-Patch-[0-9a-f]{64}-([0-9a-f]{64})-\d+\.\d+\.\d+-b\d+\.patch")
 VERSIONED = re.compile(r"-\d+\.\d+\.\d+-b\d+\.[a-z]+$")
 
 
 def classify(name: str) -> tuple[str, bool] | None:
+    if RECORD_PATCH.fullmatch(name):
+        return "Android record partial update", False
     if not VERSIONED.search(name):
         return None
     for prefix, ext, group, agpl in RULES:

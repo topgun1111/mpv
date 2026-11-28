@@ -1,7 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Record-only variant ("Takipli Kayit"): play a clip, pinch-zoom + drag live, record the camera path, export it to MP4.
-// Deliberately NOT part of :app: no pose / ONNX Runtime / QNN / OpenCV / tracking / scanning / updater / network.
+// Deliberately NOT part of :app: no pose / ONNX Runtime / QNN / OpenCV / tracking / scanning.
 // Shares only the pure-Kotlin :core module (view math, export math) and the same VERSION file.
 plugins {
     alias(libs.plugins.android.application)
@@ -22,6 +22,9 @@ android {
     compileSdk = 36
 
     defaultConfig {
+        val updateRepo = System.getenv("GITHUB_REPOSITORY") ?: "topgun1111/mpv"
+        require(Regex("[A-Za-z0-9._-]+/[A-Za-z0-9._-]+").matches(updateRepo))
+        buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
         applicationId = "com.takipli.oynat.rec" // installs next to the full app (com.takipli.oynat[.sam])
         minSdk = 29
         targetSdk = 36

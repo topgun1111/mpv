@@ -35,12 +35,17 @@ def test_rec_is_its_own_module_next_to_app():
     assert 'project(":core")' in g and 'project(":app")' not in g
 
 
-def test_rec_has_no_ai_tracking_or_network():
+def test_rec_has_no_ai_tracking_and_only_updater_permissions():
     g = _code(REC / "build.gradle.kts").lower()
     for banned in ("onnxruntime", "opencv", "qnn", "serialization"):
         assert banned not in g, banned
     m = _text(REC / "src" / "main" / "AndroidManifest.xml")
-    for banned in ("INTERNET", "FOREGROUND_SERVICE", "REQUEST_INSTALL_PACKAGES", "ScanService"):
+    assert set(re.findall(r'<uses-permission android:name="([^"]+)"', m)) == {
+        "android.permission.INTERNET",
+        "android.permission.REQUEST_INSTALL_PACKAGES",
+    }
+    assert 'android:exported="false"' in m
+    for banned in ("FOREGROUND_SERVICE", "ScanService"):
         assert banned not in m, banned
     for f in SRC.glob("*.kt"):
         t = _text(f)
