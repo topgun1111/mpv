@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 /** A dedicated editor: original camera keys/zoom/recording state are never touched. */
 @Composable
