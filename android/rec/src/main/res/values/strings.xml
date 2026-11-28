@@ -32,4 +32,17 @@
     <string name="err_video">The video cannot be read (moved, deleted, or access was lost). Pick it again.</string>
     <string name="err_codec">This phone cannot decode or encode this video format. Try another clip.</string>
     <string name="err_other">Something went wrong.</string>
+    <string name="export_options">Export quality</string>
+    <string name="export_quality_source">Match source bitrate</string>
+    <string name="export_quality_high" formatted="false">High (+25% bitrate)</string>
+    <string name="export_quality_maximum" formatted="false">Maximum (+60% bitrate)</string>
+    <string name="export_quality_custom">Custom bitrate</string>
+    <string name="export_source_info">Source: %1$d × %2$d · %3$.2f Mbps</string>
+    <string name="export_target_info">Target video bitrate: %1$.2f Mbps</string>
+    <string name="export_bitrate_unknown">The source video bitrate could not be read. A quality-checked export is unavailable.</string>
+    <string name="export_bitrate_unverified">The output video bitrate could not be verified. The export was discarded.</string>
+    <string name="export_bitrate_failed">The encoder produced %1$.2f Mbps below the source minimum of %2$.2f Mbps. Try a higher target.</string>
+    <string name="export_size_failed">The encoder did not preserve the source resolution. The export was discarded.</string>
+    <string name="export_frames_failed">The encoder dropped video frames. The export was discarded.</string>
+    <string name="export_hdr_failed">The encoder did not preserve HDR. The export was discarded.</string>
 </resources>

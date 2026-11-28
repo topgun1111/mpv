@@ -3,7 +3,9 @@ package com.takipli.oynat.rec
 import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import androidx.media3.common.MimeTypes
 import com.takipli.oynat.core.displaySize
 import com.takipli.oynat.core.normalizeRotation
 
@@ -14,11 +16,13 @@ data class VideoInfo(
     val rotation: Int,
     val durationS: Double,
     val frameRate: Double?,
-    /** Source video bitrate (bit/s): the track's own value, else file size / duration; null = unknown (the export then uses a formula). */
+    /** Source video bitrate (bit/s): measured video samples; null = unknown. */
     val bitrate: Int? = null,
     /** Manual clockwise turn (0/90/180/270) chosen with the rotate buttons, on top of the file's rotation metadata. */
     val userRot: Int = 0,
     val hdr: Boolean = false,
+    val hevc: Boolean = false,
+    val frameCount: Int? = null,
 ) {
     val width: Int get() = displaySize(codedW, codedH, rotation + userRot).first
     val height: Int get() = displaySize(codedW, codedH, rotation + userRot).second
@@ -32,14 +36,27 @@ object RecRot {
 }
 
 object RecVideo {
-    /** The track's KEY_BIT_RATE; if the container does not carry it, the whole file's size / duration (a little high: it includes audio). */
-    private fun sourceBitrate(ctx: Context, uri: Uri, f: MediaFormat, durationS: Double): Int? {
-        if (f.containsKey(MediaFormat.KEY_BIT_RATE)) f.getInteger(MediaFormat.KEY_BIT_RATE).takeIf { it > 0 }?.let { return it }
+    private fun trackBitrate(extractor: MediaExtractor, track: Int, durationS: Double): Int? {
         if (durationS <= 0.0) return null
-        val bytes = runCatching { ctx.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } }.getOrNull() ?: return null
-        if (bytes <= 0L) return null
-        return (bytes * 8.0 / durationS).coerceAtMost(Int.MAX_VALUE.toDouble()).toInt()
+        extractor.selectTrack(track)
+        var bytes = 0L
+        while (true) {
+            val size = extractor.sampleSize
+            if (size < 0) break
+            bytes += size
+            if (!extractor.advance()) break
+        }
+        if (bytes <= 0) return null
+        return (bytes * 8.0 / durationS).coerceAtMost(Int.MAX_VALUE.toDouble()).toInt().takeIf { it > 0 }
     }
+
+    private fun sourceFrameCount(ctx: Context, uri: Uri): Int? = runCatching {
+        MediaMetadataRetriever().use { retriever ->
+            retriever.setDataSource(ctx, uri)
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)
+                ?.toIntOrNull()?.takeIf { it > 0 }
+        }
+    }.getOrNull()
 
     /** Reads the first video track (content:// or file). Blocking: call from Dispatchers.IO. */
     fun probe(ctx: Context, uri: Uri): VideoInfo {
@@ -48,7 +65,8 @@ object RecVideo {
             ex.setDataSource(ctx, uri, null)
             for (i in 0 until ex.trackCount) {
                 val f = ex.getTrackFormat(i)
-                if (f.getString(MediaFormat.KEY_MIME)?.startsWith("video/") != true) continue
+                val mime = f.getString(MediaFormat.KEY_MIME)
+                if (mime?.startsWith("video/") != true) continue
                 val durationS = if (f.containsKey(MediaFormat.KEY_DURATION)) f.getLong(MediaFormat.KEY_DURATION) / 1e6 else 0.0
                 return VideoInfo(
                     codedW = f.getInteger(MediaFormat.KEY_WIDTH),
@@ -56,7 +74,9 @@ object RecVideo {
                     rotation = normalizeRotation(if (f.containsKey(MediaFormat.KEY_ROTATION)) f.getInteger(MediaFormat.KEY_ROTATION) else 0),
                     durationS = durationS,
                     frameRate = if (f.containsKey(MediaFormat.KEY_FRAME_RATE)) f.getInteger(MediaFormat.KEY_FRAME_RATE).toDouble() else null,
-                    bitrate = sourceBitrate(ctx, uri, f, durationS),
+                    bitrate = trackBitrate(ex, i, durationS),
+                    hevc = mime == MimeTypes.VIDEO_H265,
+                    frameCount = sourceFrameCount(ctx, uri),
                     userRot = RecRot.get(ctx, uri.toString()),
                     hdr = f.containsKey(MediaFormat.KEY_COLOR_TRANSFER) &&
                         f.getInteger(MediaFormat.KEY_COLOR_TRANSFER) in setOf(
