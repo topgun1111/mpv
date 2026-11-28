@@ -32,4 +32,17 @@
     <string name="err_video">Video okunamıyor (taşınmış, silinmiş ya da erişim izni kaybolmuş). Yeniden seç.</string>
     <string name="err_codec">Bu telefon bu video biçimini çözemiyor ya da kodlayamıyor. Başka bir klip dene.</string>
     <string name="err_other">Bir şeyler ters gitti.</string>
+    <string name="export_options">Dışa aktarma kalitesi</string>
+    <string name="export_quality_source">Kaynak bit hızını kullan</string>
+    <string name="export_quality_high" formatted="false">Yüksek (+%25 bit hızı)</string>
+    <string name="export_quality_maximum" formatted="false">En yüksek (+%60 bit hızı)</string>
+    <string name="export_quality_custom">Özel bit hızı</string>
+    <string name="export_source_info">Kaynak: %1$d × %2$d · %3$.2f Mbps</string>
+    <string name="export_target_info">Hedef video bit hızı: %1$.2f Mbps</string>
+    <string name="export_bitrate_unknown">Kaynak videonun bit hızı okunamadı. Kalitesi doğrulanmış dışa aktarma kullanılamıyor.</string>
+    <string name="export_bitrate_unverified">Çıktının bit hızı doğrulanamadı. Dışa aktarılan dosya silindi.</string>
+    <string name="export_bitrate_failed">Kodlayıcı %1$.2f Mbps üretti. Kaynak için alt sınır %2$.2f Mbps. Daha yüksek bir hedef deneyin.</string>
+    <string name="export_size_failed">Kodlayıcı kaynak çözünürlüğünü koruyamadı. Dışa aktarılan dosya silindi.</string>
+    <string name="export_frames_failed">Kodlayıcı video karelerini atladı. Dışa aktarılan dosya silindi.</string>
+    <string name="export_hdr_failed">Kodlayıcı HDR biçimini koruyamadı. Dışa aktarılan dosya silindi.</string>
 </resources>

@@ -29,7 +29,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.transformer.Transformer
 import com.takipli.oynat.core.Grade
 import com.takipli.oynat.core.GradeControl
-import com.takipli.oynat.core.GradeQuality
 import com.takipli.oynat.core.HazePreset
 import com.takipli.oynat.core.View as CamView
 import com.takipli.oynat.core.applyGestureAt
@@ -44,7 +43,6 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.pow
-import kotlin.math.roundToInt
 
 /** A dedicated editor: original camera keys/zoom/recording state are never touched. */
 @Composable
@@ -54,7 +52,7 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
     val host = LocalView.current
     var grade by remember { mutableStateOf(Grade()) }
     var original by remember { mutableStateOf(false) }
-    var options by remember { mutableStateOf(EditOutput()) }
+    var options by remember(source) { mutableStateOf(EditOutput(hevc = info.hevc)) }
     var showOptions by remember { mutableStateOf(false) }
     var largePreview by remember { mutableStateOf(false) }
     // Inspection zoom belongs to the UI only; never pass it to EditExporter.
@@ -164,24 +162,27 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
         }
         try {
             val t = EditExporter.start(ctx, source, info, snapshot, selected, out,
-                onDone = {
+                onDone = { result ->
                     if (disposed.get()) {
                         out.delete()
                     } else {
-                    active = null; saving = true
-                    status = "Saving edited video..."
-                    scope.launch {
-                        try {
-                            val name = "Edited_" + UUID.randomUUID().toString().take(8) + ".mp4"
-                            withContext(Dispatchers.IO) {
-                                try { RecExporter.saveToMovies(ctx, out, name) } finally { out.delete() }
-                            }
-                            finish("Saved to Movies/TakipliOynat/" + name)
-                        } catch (e: CancellationException) {
-                            out.delete()
-                            throw e
-                        } catch (e: Exception) { finish("Save failed: " + e.message) }
-                    }
+                        active = null; saving = true
+                        status = "Saving edited video..."
+                        scope.launch {
+                            try {
+                                val name = "Edited_" + UUID.randomUUID().toString().take(8) + ".mp4"
+                                withContext(Dispatchers.IO) {
+                                    try {
+                                        RecExporter.verifyQuality(ctx, info, result)
+                                        RecExporter.saveToMovies(ctx, out, name)
+                                    } finally { out.delete() }
+                                }
+                                finish("Saved to Movies/TakipliOynat/" + name)
+                            } catch (e: CancellationException) {
+                                out.delete()
+                                throw e
+                            } catch (e: Exception) { finish("Export failed: " + e.message) }
+                        }
                     }
                 },
                 onError = { e -> finish("Export failed: " + e.errorCodeName + " " + (e.message ?: "")) },
@@ -258,43 +259,24 @@ internal fun RecEditingScreen(source: Uri, info: VideoInfo, initialPosition: Lon
         }
     }
     if (showOptions) {
-        AlertDialog(
-            onDismissRequest = { showOptions = false },
-            title = { Text("Export options") },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Quality")
-                    GradeQuality.entries.forEach { q ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = options.quality == q, onClick = { options = options.copy(quality = q) })
-                            Text(q.label)
-                        }
-                    }
-                    if (options.quality == GradeQuality.CUSTOM) {
-                        Text("Target: " + options.customMbps + " Mbps")
-                        Slider(value = options.customMbps.toFloat(), onValueChange = { options = options.copy(customMbps = it.roundToInt()) },
-                            valueRange = 2f..100f)
-                    }
-                    Text("Target bitrate: " + String.format(java.util.Locale.ROOT, "%.1f Mbps", options.bitrate(info) / 1e6))
-                    Text("Codec")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = !options.hevc, onClick = { options = options.copy(hevc = false) }, label = { Text("H.264") })
-                        FilterChip(selected = options.hevc, onClick = { options = options.copy(hevc = true) }, label = { Text("HEVC") })
-                    }
-                    Text("Encoder")
-                    EditEncoder.entries.forEach { enc ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = options.encoder == enc, onClick = { options = options.copy(encoder = enc) })
-                            Text(enc.label)
-                        }
-                    }
-                    Text("Original resolution and speed. Saved to Movies/TakipliOynat. GPU colour processing; encoder availability depends on your device.",
-                        style = MaterialTheme.typography.bodySmall)
+        RecExportOptions(
+            info, options.quality, { options = options.copy(quality = it) },
+            onDismiss = { showOptions = false },
+            onExport = { showOptions = false; export() },
+        ) {
+            Text("Codec")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !options.hevc, onClick = { options = options.copy(hevc = false) }, label = { Text("H.264") })
+                FilterChip(selected = options.hevc, onClick = { options = options.copy(hevc = true) }, label = { Text("HEVC") })
+            }
+            Text("Encoder")
+            EditEncoder.entries.forEach { enc ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = options.encoder == enc, onClick = { options = options.copy(encoder = enc) })
+                    Text(enc.label)
                 }
-            },
-            confirmButton = { Button(onClick = { showOptions = false; export() }) { Text("Export") } },
-            dismissButton = { TextButton(onClick = { showOptions = false }) { Text("Done") } },
-        )
+            }
+        }
     }
 }
 

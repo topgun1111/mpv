@@ -32,13 +32,14 @@ enum class HazePreset(val label: String, val grade: Grade) {
         GradeControl.CLARITY to 35, GradeControl.SHARPNESS to 20, GradeControl.HIGHLIGHTS to -10))),
 }
 
-enum class GradeQuality(val label: String, val factor: Double) {
-    MAXIMUM("Maximum", 1.6), HIGH("High", 1.0), BALANCED("Balanced", 0.65),
-    SMALL("Small file", 0.35), CUSTOM("Custom", 1.0);
+enum class GradeQuality(val factor: Double) {
+    SOURCE(1.0), HIGH(1.25), MAXIMUM(1.6), CUSTOM(1.0),
 }
 
-/** Android uses a target bitrate, not desktop FFmpeg CRF. Bound output before codec validation. */
-fun gradeBitrate(base: Int, quality: GradeQuality, customMbps: Int): Int =
-    if (quality == GradeQuality.CUSTOM) customMbps.coerceIn(2, 100) * 1_000_000
-    else (base.coerceIn(2_000_000, 100_000_000) * quality.factor)
-        .coerceIn(2_000_000.0, 100_000_000.0).toInt()
+/** Bitrate targets never go below the source, including inputs above 100 Mbps. */
+fun gradeBitrate(source: Int, quality: GradeQuality, customMbps: Int): Int {
+    require(source > 0) { "Source video bitrate must be known" }
+    val target = if (quality == GradeQuality.CUSTOM) customMbps.toLong() * 1_000_000
+    else (source * quality.factor).toLong()
+    return target.coerceIn(source.toLong(), Int.MAX_VALUE.toLong()).toInt()
+}

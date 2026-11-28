@@ -141,6 +141,8 @@ fun RecScreen() {
     var posMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(1L) }
     var exporter by remember { mutableStateOf<Transformer?>(null) }
+    var showExportOptions by remember { mutableStateOf(false) }
+    var exportQuality by remember(uri) { mutableStateOf(RecExportQuality()) }
     var exportProgress by remember { mutableStateOf(0f) }
     var exportMessage by remember { mutableStateOf("") }
     var speed by remember { mutableStateOf(1.0) }
@@ -273,21 +275,24 @@ fun RecScreen() {
         fun finish(message: String) { completed = true; exporter = null; exportMessage = message; reloadPreview(source, vi.userRot, resumeAt) }
         try {
             val started = RecExporter.start(
-                ctx, source, finalKeys, out, vi.width, vi.height,
-                (vi.frameRate ?: 30.0).coerceIn(1.0, 60.0), false, vi.userRot, vi.bitrate,
-                onDone = {
+                ctx, source, finalKeys, out, vi, exportQuality,
+                onDone = { result ->
                     scope.launch {
                         try {
                             val name = "Takipli_Kayit_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(Date()) + ".mp4"
-                            withContext(Dispatchers.IO) { RecExporter.saveToMovies(ctx, out, name); out.delete() }
+                            withContext(Dispatchers.IO) {
+                                RecExporter.verifyQuality(ctx, vi, result)
+                                RecExporter.saveToMovies(ctx, out, name)
+                                out.delete()
+                            }
                             finish(ctx.getString(R.string.saved, name))
-                        } catch (t: Throwable) { out.delete(); finish(friendly(ctx, t)) }
+                        } catch (t: Throwable) { out.delete(); finish(t.message ?: friendly(ctx, t)) }
                     }
                 },
                 onError = { e -> out.delete(); finish(friendly(ctx, e, e.errorCodeName)) },
             )
             if (!completed) exporter = started
-        } catch (t: Throwable) { finish(friendly(ctx, t)) }
+        } catch (t: Throwable) { out.delete(); finish(friendly(ctx, t)) }
     }
 
     val vi = info
@@ -312,6 +317,14 @@ fun RecScreen() {
             reloadPreview(source, vi.userRot, editResumeAt)
         }
         return
+    }
+
+    if (showExportOptions && vi != null) {
+        RecExportOptions(
+            vi, exportQuality, { exportQuality = it },
+            onDismiss = { showExportOptions = false },
+            onExport = { showExportOptions = false; startExport() },
+        )
     }
 
     if (fullscreen && loaded) {
@@ -359,7 +372,7 @@ fun RecScreen() {
                         }, enabled = !exporting)
                         OverlayButton(if (muted || volume == 0f) "\uD83D\uDD07" else "\uD83D\uDD0A", { muted = !muted })
                         Box(Modifier.weight(1f))
-                        if (!recording && keys.isNotEmpty()) OverlayButton(stringResource(R.string.export_mp4), { startExport() }, enabled = !exporting)
+                        if (!recording && keys.isNotEmpty()) OverlayButton(stringResource(R.string.export_mp4), { showExportOptions = true }, enabled = !exporting)
                         OverlayButton(
                             stringResource(if (recording) R.string.stop_short else R.string.rec_short),
                             { if (recording) stopRecording() else startRecording() },
@@ -409,7 +422,7 @@ fun RecScreen() {
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OverlayButton(stringResource(if (recording) R.string.stop_short else R.string.rec_short), { if (recording) stopRecording() else startRecording() }, modifier = Modifier.weight(1f), enabled = !exporting, accent = true)
-                    if (!recording && keys.isNotEmpty()) OverlayButton(stringResource(R.string.export_mp4), { startExport() }, modifier = Modifier.weight(1f), enabled = !exporting)
+                    if (!recording && keys.isNotEmpty()) OverlayButton(stringResource(R.string.export_mp4), { showExportOptions = true }, modifier = Modifier.weight(1f), enabled = !exporting)
                 }
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp, vertical = 6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

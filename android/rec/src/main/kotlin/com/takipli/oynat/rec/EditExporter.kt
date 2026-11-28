@@ -16,8 +16,6 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import com.google.common.collect.ImmutableList
 import com.takipli.oynat.core.Grade
-import com.takipli.oynat.core.GradeQuality
-import com.takipli.oynat.core.gradeBitrate
 import java.io.File
 
 internal enum class EditEncoder(val label: String) {
@@ -25,17 +23,11 @@ internal enum class EditEncoder(val label: String) {
 }
 
 internal data class EditOutput(
-    val quality: GradeQuality = GradeQuality.HIGH,
-    val customMbps: Int = 20,
+    val quality: RecExportQuality = RecExportQuality(),
     val hevc: Boolean = false,
     val encoder: EditEncoder = EditEncoder.AUTO,
 ) {
     val mime: String get() = if (hevc) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264
-    fun bitrate(info: VideoInfo): Int = gradeBitrate(
-        RecExporter.targetBitrate(info.bitrate, info.width, info.height,
-            (info.frameRate ?: 30.0).coerceIn(1.0, 60.0), hevc),
-        quality, customMbps,
-    )
 }
 
 internal object EditExporter {
@@ -63,8 +55,9 @@ internal object EditExporter {
         }
         val encoder = DefaultEncoderFactory.Builder(ctx)
             .setVideoEncoderSelector(selector)
+            .setEnableFallback(false)
             .setRequestedVideoEncoderSettings(
-                VideoEncoderSettings.Builder().setBitrate(options.bitrate(info)).build(),
+                VideoEncoderSettings.Builder().setBitrate(options.quality.bitrate(info)).build(),
             )
             .build()
         // Always force a frame-processing effect, even for a neutral grade, so requested

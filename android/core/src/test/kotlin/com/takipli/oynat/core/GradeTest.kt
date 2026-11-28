@@ -2,6 +2,7 @@ package com.takipli.oynat.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class GradeTest {
@@ -29,14 +30,16 @@ class GradeTest {
     }
 
     @Test fun bitrateLimitsAndOrder() {
-        val b = 20_000_000
-        assertEquals(32_000_000, gradeBitrate(b, GradeQuality.MAXIMUM, 20))
-        assertEquals(20_000_000, gradeBitrate(b, GradeQuality.HIGH, 20))
-        assertEquals(13_000_000, gradeBitrate(b, GradeQuality.BALANCED, 20))
-        assertEquals(7_000_000, gradeBitrate(b, GradeQuality.SMALL, 20))
-        assertEquals(2_000_000, gradeBitrate(0, GradeQuality.SMALL, 0))
-        assertEquals(100_000_000, gradeBitrate(Int.MAX_VALUE, GradeQuality.MAXIMUM, 0))
-        assertEquals(2_000_000, gradeBitrate(b, GradeQuality.CUSTOM, -1))
-        assertEquals(100_000_000, gradeBitrate(b, GradeQuality.CUSTOM, Int.MAX_VALUE))
+        val source = 20_000_000
+        assertEquals(source, gradeBitrate(source, GradeQuality.SOURCE, 0))
+        assertEquals(25_000_000, gradeBitrate(source, GradeQuality.HIGH, 0))
+        assertEquals(32_000_000, gradeBitrate(source, GradeQuality.MAXIMUM, 0))
+        assertEquals(source, gradeBitrate(source, GradeQuality.CUSTOM, -1))
+        assertEquals(35_000_000, gradeBitrate(source, GradeQuality.CUSTOM, 35))
+        assertEquals(120_000_000, gradeBitrate(120_000_000, GradeQuality.CUSTOM, 100))
+        assertEquals(192_000_000, gradeBitrate(120_000_000, GradeQuality.MAXIMUM, 0))
+        assertEquals(Int.MAX_VALUE, gradeBitrate(Int.MAX_VALUE, GradeQuality.MAXIMUM, 0))
+        assertEquals(Int.MAX_VALUE, gradeBitrate(source, GradeQuality.CUSTOM, Int.MAX_VALUE))
+        assertFailsWith<IllegalArgumentException> { gradeBitrate(0, GradeQuality.SOURCE, 0) }
     }
 }

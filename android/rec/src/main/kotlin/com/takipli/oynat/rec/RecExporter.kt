@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Matrix
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.media3.common.ColorInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.effect.MatrixTransformation
@@ -19,7 +20,6 @@ import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import com.takipli.oynat.core.ViewKey
-import com.takipli.oynat.core.exportBitrate
 import com.takipli.oynat.core.exportNdc
 import com.takipli.oynat.core.viewAtSmooth
 import java.io.File
@@ -29,15 +29,14 @@ import java.io.File
  * manual turn first, then the time-varying zoom + pan matrix; frame size = (turned) source size; hardware encoder; audio passthrough.
  * Call [start] on the main thread; callbacks arrive there too.
  */
-object RecExporter {
+internal object RecExporter {
     /** The manual clockwise turn as a Media3 effect (Media3 rotates counterclockwise, hence the minus); null = none. Preview and export share it. */
     fun rotationEffect(userRot: Int): ScaleAndRotateTransformation? =
         if (userRot % 360 == 0) null else ScaleAndRotateTransformation.Builder().setRotationDegrees(-userRot.toFloat()).build()
 
     fun start(
         ctx: Context, source: Uri, views: List<ViewKey>, outFile: File,
-        w: Int, h: Int, fps: Double, hevc: Boolean, rot: Int,
-        sourceBitrate: Int?, // same bitrate as the source (2..100 Mbps); null = formula from size and fps
+        info: VideoInfo, quality: RecExportQuality,
         onDone: (ExportResult) -> Unit, onError: (ExportException) -> Unit,
     ): Transformer {
         outFile.parentFile?.mkdirs()
@@ -47,13 +46,14 @@ object RecExporter {
             Matrix().apply { setTranslate(n[1].toFloat(), n[2].toFloat()); postScale(n[0].toFloat(), n[0].toFloat()) }
         }
         val item = EditedMediaItem.Builder(MediaItem.fromUri(source))
-            .setEffects(Effects(emptyList(), listOfNotNull(rotationEffect(rot), crop)))
+            .setEffects(Effects(emptyList(), listOfNotNull(rotationEffect(info.userRot), crop)))
             .build()
         val encoder = DefaultEncoderFactory.Builder(ctx)
-            .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(targetBitrate(sourceBitrate, w, h, fps, hevc)).build())
+            .setEnableFallback(false)
+            .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(quality.bitrate(info)).build())
             .build()
         val transformer = Transformer.Builder(ctx)
-            .setVideoMimeType(if (hevc) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264)
+            .setVideoMimeType(if (info.hevc || info.hdr) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264)
             .setEncoderFactory(encoder)
             .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, exportResult: ExportResult) = onDone(exportResult)
@@ -64,9 +64,24 @@ object RecExporter {
         return transformer
     }
 
-    /** Output bitrate: the source's own, kept between 2 and 100 Mbps; the size/fps formula when the source's is unknown. */
-    fun targetBitrate(sourceBitrate: Int?, w: Int, h: Int, fps: Double, hevc: Boolean): Int =
-        sourceBitrate?.coerceIn(2_000_000, 100_000_000) ?: exportBitrate(w, h, fps, hevc)
+    /** Check the encoder output before it reaches the gallery. Media3 can store rotation as metadata. */
+    fun verifyQuality(ctx: Context, source: VideoInfo, result: ExportResult) {
+        val sourceBitrate = checkNotNull(source.bitrate) { ctx.getString(R.string.export_bitrate_unknown) }
+        check(minOf(result.width, result.height) == minOf(source.width, source.height) &&
+            maxOf(result.width, result.height) == maxOf(source.width, source.height)) {
+            ctx.getString(R.string.export_size_failed)
+        }
+        check(result.averageVideoBitrate >= sourceBitrate) {
+            if (result.averageVideoBitrate <= 0) ctx.getString(R.string.export_bitrate_unverified)
+            else ctx.getString(R.string.export_bitrate_failed, result.averageVideoBitrate / 1e6, sourceBitrate / 1e6)
+        }
+        check(source.frameCount == null || result.videoFrameCount >= source.frameCount) {
+            ctx.getString(R.string.export_frames_failed)
+        }
+        check(!source.hdr || ColorInfo.isTransferHdr(result.colorInfo)) {
+            ctx.getString(R.string.export_hdr_failed)
+        }
+    }
 
     /** 0..1, or -1 when the transformer cannot tell yet. Main thread only. */
     fun progress(t: Transformer): Float {
